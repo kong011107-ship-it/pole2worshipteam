@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>관리 · 찬양팀</title>
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="masthead-row">
+        <div>
+          <p class="team" data-team-name></p>
+          <h1>찬양팀 관리</h1>
+        </div>
+        <div class="who"><span id="whoName"></span><button type="button" onclick="logout()">로그아웃</button></div>
+      </div>
+      <nav class="tabs" aria-label="관리 메뉴">
+        <a href="#applications" data-view="applications">가입 신청</a>
+        <a href="#members" data-view="members">멤버</a>
+        <span title="다음 단계에서 추가">섬김 응답</span>
+        <span title="다음 단계에서 추가">배치표</span>
+        <span title="다음 단계에서 추가">팀모임 출석</span>
+      </nav>
+    </div>
+    <div class="staff" aria-hidden="true"></div>
+  </header>
+
+  <main class="page wide">
+    <!-- 가입 신청 -->
+    <section id="view-applications" class="hidden">
+      <div class="filter" id="appFilter">
+        <button data-status="pending" class="active">대기<span class="count" id="cnt-pending"></span></button>
+        <button data-status="approved">승인<span class="count" id="cnt-approved"></span></button>
+        <button data-status="rejected">반려<span class="count" id="cnt-rejected"></span></button>
+      </div>
+      <div id="appList" class="app-list"></div>
+    </section>
+
+    <!-- 멤버 -->
+    <section id="view-members" class="hidden">
+      <p class="lead">멀티 포지션은 여기서 추가하면 배치표 후보에 반영됩니다.</p>
+      <div id="memberList" class="app-list"></div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <h3 id="modalTitle"></h3>
+      <div id="modalBody"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px" id="modalActions"></div>
+    </div>
+  </div>
+
+  <script src="assets/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/common.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let ctx, positions, apps = [], members = [], extras = [];
+    let appStatus = "pending";
+    const newIds = new Set();
+    const STATUS_LABEL = { pending: "대기", approved: "승인", rejected: "반려" };
+
+    // ---------- 공통 ----------
+    async function api(path, payload) {
+      const { data: { session } } = await sb.auth.getSession();
+      const r = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "요청을 처리하지 못했습니다.");
+      return j;
+    }
+
+    function openModal(title, bodyHtml, actions) {
+      $("modalTitle").textContent = title;
+      $("modalBody").innerHTML = bodyHtml;
+      $("modalActions").innerHTML = "";
+      actions.forEach(({ label, cls, onClick }) => {
+        const b = document.createElement("button");
+        b.className = `btn ${cls || "btn-ghost"}`;
+        b.textContent = label;
+        b.onclick = onClick;
+        $("modalActions").appendChild(b);
+      });
+      $("modal").classList.remove("hidden");
+      $("modalActions").lastChild?.focus();
+    }
+    function closeModal() { $("modal").classList.add("hidden"); }
+    $("modal").addEventListener("click", (e) => { if (e.target === $("modal")) closeModal(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+    function credentialMessage(r) {
+      return `[찬양팀] ${r.name}님, 로그인 정보를 보내드립니다.\n\n` +
+        `로그인: ${location.origin}/login.html\n아이디: ${r.email}\n임시 비밀번호: ${r.tempPassword}\n\n` +
+        `첫 로그인 때 비밀번호를 바꿔 주세요.`;
+    }
+    function showCredentials(title, r) {
+      const msg = credentialMessage(r);
+      openModal(title,
+        `<p class="lead" style="margin:0">임시 비밀번호는 지금 한 번만 보입니다. 아래 안내 문구를 복사해 카톡으로 보내 주세요.</p>
+         <p style="margin:12px 0 0">임시 비밀번호 <span class="temp-pw">${esc(r.tempPassword)}</span></p>
+         <div class="copy-box">${esc(msg)}</div>`,
+        [
+          { label: "닫기", onClick: closeModal },
+          { label: "안내 문구 복사", cls: "btn-primary", onClick: async () => {
+              try { await navigator.clipboard.writeText(msg); toast("복사했습니다"); }
+              catch { toast("복사하지 못했습니다. 문구를 길게 눌러 복사해 주세요"); }
+          } },
+        ]);
+    }
+
+    // ---------- 가입 신청 ----------
+    async function loadApps() {
+      const { data, error } = await sb.from("applications").select("*").order("created_at", { ascending: false });
+      if (error) { toast("신청서를 불러오지 못했습니다"); return; }
+      apps = data;
+      renderApps();
+    }
+
+    function renderApps() {
+      ["pending", "approved", "rejected"].forEach((s) =>
+        $(`cnt-${s}`).textContent = apps.filter((a) => a.status === s).length || "");
+      const list = apps.filter((a) => a.status === appStatus);
+      if (!list.length) {
+        $("appList").innerHTML = `<div class="empty">${appStatus === "pending"
+          ? "대기 중인 신청서가 없습니다. 새 신청이 들어오면 여기에 바로 나타납니다." : `${STATUS_LABEL[appStatus]}된 신청서가 없습니다.`}</div>`;
+        return;
+      }
+      $("appList").innerHTML = list.map(appCard).join("");
+    }
+
+    function appCard(a) {
+      const posOptions = positions.map((p) =>
+        `<option value="${p.code}" ${p.code === a.applied_position ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+      const actions = a.status === "pending" ? `
+        <div class="actions">
+          <label for="pos-${a.id}" style="font-size:14px;font-weight:600">주 포지션</label>
+          <select id="pos-${a.id}">${posOptions}</select>
+          <button class="btn btn-primary btn-sm" onclick="approve('${a.id}')">승인하고 계정 만들기</button>
+          <button class="btn btn-danger btn-sm" onclick="reject('${a.id}')">반려</button>
+        </div>` : (a.admin_memo ? `<p class="hint" style="margin-top:12px">메모: ${esc(a.admin_memo)}</p>` : "");
+
+      return `
+      <article class="app-item ${newIds.has(a.id) ? "is-new" : ""}">
+        <button class="app-head" aria-expanded="false" onclick="toggle(this)">
+          <span class="app-name">${esc(a.name)}</span>
+          <span class="badge ${a.status}">${STATUS_LABEL[a.status]}</span>
+          <span class="app-meta">${esc(positionName(a.applied_position))} 지원 · ${fmtDate(a.created_at, true)}</span>
+        </button>
+        <div class="app-body hidden">
+          <dl class="kv">
+            <dt>연락처</dt><dd>${esc(a.phone)}</dd>
+            <dt>이메일</dt><dd>${esc(a.email)}</dd>
+            <dt>지원 포지션</dt><dd>${esc(positionName(a.applied_position))}</dd>
+            <dt>섬김 경력</dt><dd>${esc(a.experience) || "—"}</dd>
+            <dt>지원 동기</dt><dd>${esc(a.motivation) || "—"}</dd>
+            <dt>서약</dt><dd>${fmtDate(a.pledged_at, true)}</dd>
+          </dl>
+          <details class="pledge"><summary>${esc(a.pledge_title)} 원문 보기</summary>
+            <div class="pledge-box">${esc(a.pledge_content)}</div></details>
+          ${actions}
+        </div>
+      </article>`;
+    }
+
+    window.toggle = (btn) => {
+      const body = btn.nextElementSibling;
+      body.classList.toggle("hidden");
+      btn.setAttribute("aria-expanded", String(!body.classList.contains("hidden")));
+    };
+
+    window.approve = async (id) => {
+      const a = apps.find((x) => x.id === id);
+      const pos = $(`pos-${id}`).value;
+      openModal(`${a.name}님 승인`,
+        `<p style="margin:0">주 포지션 <strong>${esc(positionName(pos))}</strong>(으)로 계정을 만듭니다.<br>아이디는 <strong>${esc(a.email)}</strong> 입니다.</p>`,
+        [
+          { label: "취소", onClick: closeModal },
+          { label: "승인", cls: "btn-primary", onClick: async (e) => {
+              e.target.disabled = true;
+              try {
+                const r = await api("/api/approve", { applicationId: id, mainPosition: pos });
+                await Promise.all([loadApps(), loadMembers()]);
+                showCredentials(`${r.name}님 승인 완료`, r);
+              } catch (err) { closeModal(); toast(err.message, 4000); }
+          } },
+        ]);
+    };
+
+    window.reject = (id) => {
+      const a = apps.find((x) => x.id === id);
+      openModal(`${a.name}님 신청 반려`,
+        `<div class="field"><label for="rejectMemo">메모 (관리자만 보임)</label><textarea id="rejectMemo"></textarea></div>`,
+        [
+          { label: "취소", onClick: closeModal },
+          { label: "반려", cls: "btn-danger", onClick: async () => {
+              const { error } = await sb.from("applications")
+                .update({ status: "rejected", admin_memo: $("rejectMemo").value.trim() || null, reviewed_at: new Date().toISOString() })
+                .eq("id", id);
+              closeModal();
+              if (error) return toast("반려하지 못했습니다");
+              toast("반려했습니다");
+              loadApps();
+          } },
+        ]);
+    };
+
+    $("appFilter").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      appStatus = b.dataset.status;
+      $("appFilter").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
+      renderApps();
+    });
+
+    // ---------- 멤버 ----------
+    async function loadMembers() {
+      const [m, x] = await Promise.all([
+        sb.from("members").select("*").order("name"),
+        sb.from("member_extra_positions").select("*"),
+      ]);
+      members = m.data || []; extras = x.data || [];
+      renderMembers();
+    }
+
+    function renderMembers() {
+      if (!members.length) { $("memberList").innerHTML = `<div class="empty">아직 멤버가 없습니다.</div>`; return; }
+      const open = new Set([...document.querySelectorAll('#memberList .app-head[aria-expanded="true"]')]
+        .map((b) => b.closest(".app-item").dataset.id));
+      const order = Object.fromEntries(positions.map((p) => [p.code, p.sort_order]));
+      const sorted = [...members].sort((a, b) =>
+        (b.is_active - a.is_active) || (order[a.main_position] ?? 99) - (order[b.main_position] ?? 99) || a.name.localeCompare(b.name, "ko"));
+      $("memberList").innerHTML = sorted.map((m) => {
+        const mine = extras.filter((e) => e.member_id === m.id).map((e) => e.position_code);
+        const chips = positions.filter((p) => p.code !== m.main_position).map((p) => `
+          <label class="check" style="display:inline-flex;margin:0 12px 6px 0;font-size:14px">
+            <input type="checkbox" ${mine.includes(p.code) ? "checked" : ""} onchange="toggleExtra('${m.id}','${p.code}',this.checked)"> ${esc(p.name)}
+          </label>`).join("");
+        return `
+        <article class="app-item" data-id="${m.id}">
+          <button class="app-head" aria-expanded="${open.has(m.id)}" onclick="toggle(this)">
+            <span class="app-name">${esc(m.name)}${m.role === "admin" ? ' <span style="font-size:13px;color:var(--gold)">리더</span>' : ""}</span>
+            <span class="badge ${m.is_active ? "approved" : "rejected"}">${m.is_active ? "활동" : "휴식"}</span>
+            <span class="app-meta">${esc(positionName(m.main_position))}${mine.length ? " + " + mine.map(positionName).join(", ") : ""}</span>
+          </button>
+          <div class="app-body ${open.has(m.id) ? "" : "hidden"}">
+            <dl class="kv">
+              <dt>연락처</dt><dd>${esc(m.phone) || "—"}</dd>
+              <dt>이메일</dt><dd>${esc(m.email) || "—"}</dd>
+              <dt>가입일</dt><dd>${fmtDate(m.joined_at)}</dd>
+            </dl>
+            <div class="field"><span class="label">추가 포지션</span>${chips}</div>
+            <div class="actions">
+              <button class="btn btn-ghost btn-sm" onclick="toggleActive('${m.id}')">${m.is_active ? "휴식으로 전환" : "활동으로 전환"}</button>
+              <button class="btn btn-ghost btn-sm" onclick="resetPw('${m.id}')">비밀번호 초기화</button>
+            </div>
+          </div>
+        </article>`;
+      }).join("");
+    }
+
+    window.toggleExtra = async (memberId, code, on) => {
+      const q = on
+        ? sb.from("member_extra_positions").insert({ member_id: memberId, position_code: code })
+        : sb.from("member_extra_positions").delete().match({ member_id: memberId, position_code: code });
+      const { error } = await q;
+      if (error) { toast("저장하지 못했습니다"); return loadMembers(); }
+      toast(on ? `${positionName(code)} 추가` : `${positionName(code)} 제외`);
+      const { data } = await sb.from("member_extra_positions").select("*");
+      extras = data || [];
+      renderMembers();
+    };
+
+    window.toggleActive = async (id) => {
+      const m = members.find((x) => x.id === id);
+      if (m.id === ctx.me.id) return toast("본인 계정은 휴식으로 바꿀 수 없습니다");
+      const { error } = await sb.from("members").update({ is_active: !m.is_active }).eq("id", id);
+      if (error) return toast("변경하지 못했습니다");
+      toast(m.is_active ? `${m.name}님 휴식으로 전환` : `${m.name}님 활동으로 전환`);
+      loadMembers();
+    };
+
+    window.resetPw = (id) => {
+      const m = members.find((x) => x.id === id);
+      openModal(`${m.name}님 비밀번호 초기화`,
+        `<p style="margin:0">새 임시 비밀번호를 발급합니다. 지금 쓰는 비밀번호로는 더 이상 로그인할 수 없습니다.</p>`,
+        [
+          { label: "취소", onClick: closeModal },
+          { label: "초기화", cls: "btn-primary", onClick: async (e) => {
+              e.target.disabled = true;
+              try { showCredentials(`${m.name}님 임시 비밀번호`, await api("/api/reset-password", { memberId: id })); }
+              catch (err) { closeModal(); toast(err.message, 4000); }
+          } },
+        ]);
+    };
+
+    // ---------- 화면 전환 ----------
+    function showView() {
+      const view = (location.hash || "#applications").slice(1);
+      document.querySelectorAll("[id^=view-]").forEach((el) => el.classList.toggle("hidden", el.id !== `view-${view}`));
+      document.querySelectorAll(".tabs a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
+    }
+    window.addEventListener("hashchange", showView);
+
+    // ---------- 시작 ----------
+    (async function init() {
+      ctx = await requireMember({ admin: true });
+      if (!ctx) return;
+      $("whoName").textContent = `${ctx.me.name}님`;
+      positions = await loadPositions();
+      showView();
+      await Promise.all([loadApps(), loadMembers()]);
+
+      // 새 신청서 실시간 표시
+      sb.channel("new-applications")
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "applications" }, (payload) => {
+          newIds.add(payload.new.id);
+          toast(`새 가입 신청: ${payload.new.name}님`, 4000);
+          loadApps();
+        })
+        .subscribe();
+    })();
+  </script>
+</body>
+</html>

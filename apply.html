@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>가입 신청 · 찬양팀</title>
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <p class="team" data-team-name></p>
+      <h1>찬양팀 가입 신청</h1>
+    </div>
+    <div class="staff" aria-hidden="true"></div>
+  </header>
+
+  <main class="page">
+    <div id="done" class="panel hidden">
+      <h2 class="section-title">신청서를 제출했습니다</h2>
+      <p class="lead" style="margin:0">리더가 확인한 뒤 연락드릴게요. 승인되면 로그인 정보를 따로 보내드립니다.</p>
+    </div>
+
+    <form id="form" novalidate>
+      <div id="error" class="notice error hidden" role="alert"></div>
+
+      <section class="section">
+        <h2 class="section-title">신청서</h2>
+        <p class="lead">승인 후에도 로그인해서 작성한 내용을 다시 볼 수 있어요.</p>
+        <div class="panel">
+          <div class="field">
+            <label for="name">이름<span class="req">*</span></label>
+            <input id="name" type="text" maxlength="30" autocomplete="name" required>
+          </div>
+          <div class="field">
+            <label for="phone">연락처<span class="req">*</span></label>
+            <input id="phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" autocomplete="tel" required>
+          </div>
+          <div class="field">
+            <label for="email">이메일<span class="req">*</span></label>
+            <p class="hint">승인되면 이 이메일이 로그인 아이디가 됩니다.</p>
+            <input id="email" type="email" autocomplete="email" required>
+          </div>
+          <div class="field">
+            <label for="position">지원 포지션<span class="req">*</span></label>
+            <select id="position" required><option value="">선택해 주세요</option></select>
+          </div>
+          <div class="field">
+            <label for="experience">섬김 경력</label>
+            <p class="hint">이전에 섬겼던 팀, 악기·보컬 경력 등</p>
+            <textarea id="experience" maxlength="1000"></textarea>
+          </div>
+          <div class="field">
+            <label for="motivation">지원 동기</label>
+            <textarea id="motivation" maxlength="1000"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title" id="pledge-title">서약서</h2>
+        <p class="lead">아래 내용을 읽고 서약해 주세요. 서약한 문구는 그대로 보관됩니다.</p>
+        <div class="panel">
+          <div id="pledge" class="pledge-box">불러오는 중…</div>
+          <label class="check"><input type="checkbox" id="pledgeAgree"> 위 서약서의 내용을 읽었으며, 이에 서약합니다.</label>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">개인정보 수집·이용 동의</h2>
+        <div class="panel">
+          <table class="privacy-table">
+            <tr><th>수집 항목</th><td>이름, 연락처, 이메일, 지원 포지션, 섬김 경력, 지원 동기</td></tr>
+            <tr><th>이용 목적</th><td>찬양팀 가입 심사, 팀원 관리, 섬김 일정 안내</td></tr>
+            <tr><th>보유 기간</th><td>찬양팀 활동 종료 시까지. 활동 종료 또는 가입 반려 시 지체 없이 파기합니다.</td></tr>
+          </table>
+          <p class="hint" style="margin:0 0 12px">동의를 거부할 수 있으며, 이 경우 가입 신청이 어렵습니다.</p>
+          <label class="check"><input type="checkbox" id="privacyAgree"> 개인정보 수집·이용에 동의합니다.</label>
+        </div>
+      </section>
+
+      <div class="section">
+        <button type="submit" class="btn btn-primary btn-block" id="submit">신청서 제출</button>
+      </div>
+    </form>
+  </main>
+
+  <script src="assets/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/common.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    (async function init() {
+      try {
+        const positions = await loadPositions();
+        $("position").insertAdjacentHTML("beforeend",
+          positions.map((p) => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join(""));
+
+        const { data: pledge, error } = await sb.from("pledge_versions")
+          .select("title, content").eq("is_active", true).maybeSingle();
+        if (error) throw error;
+        if (!pledge) { $("pledge").textContent = "등록된 서약서가 없습니다. 리더에게 문의해 주세요."; $("submit").disabled = true; return; }
+        $("pledge-title").textContent = pledge.title;
+        $("pledge").textContent = pledge.content;
+      } catch (e) {
+        showError("신청서를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
+      }
+    })();
+
+    // 연락처 자동 하이픈
+    $("phone").addEventListener("input", (e) => {
+      const d = e.target.value.replace(/\D/g, "").slice(0, 11);
+      e.target.value = d.length < 4 ? d : d.length < 8 ? `${d.slice(0, 3)}-${d.slice(3)}`
+        : `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}`;
+    });
+
+    function showError(msg) {
+      $("error").textContent = msg;
+      $("error").classList.remove("hidden");
+      $("error").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    $("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("error").classList.add("hidden");
+
+      const v = {
+        name: $("name").value.trim(),
+        phone: $("phone").value.trim(),
+        email: $("email").value.trim().toLowerCase(),
+        applied_position: $("position").value,
+        experience: $("experience").value.trim() || null,
+        motivation: $("motivation").value.trim() || null,
+      };
+
+      if (!v.name) return showError("이름을 입력해 주세요.");
+      if (!/^[0-9\-]{9,13}$/.test(v.phone)) return showError("연락처를 010-0000-0000 형식으로 입력해 주세요.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) return showError("이메일 주소를 다시 확인해 주세요.");
+      if (!v.applied_position) return showError("지원 포지션을 선택해 주세요.");
+      if (!$("pledgeAgree").checked) return showError("서약서에 서약해 주세요.");
+      if (!$("privacyAgree").checked) return showError("개인정보 수집·이용에 동의해 주세요.");
+
+      $("submit").disabled = true;
+      $("submit").textContent = "제출하는 중…";
+      const { error } = await sb.from("applications").insert({ ...v, privacy_agreed: true });
+      if (error) {
+        $("submit").disabled = false;
+        $("submit").textContent = "신청서 제출";
+        return showError("제출하지 못했습니다. 입력 내용을 확인하고 다시 시도해 주세요.");
+      }
+      $("form").classList.add("hidden");
+      $("done").classList.remove("hidden");
+      window.scrollTo(0, 0);
+    });
+  </script>
+</body>
+</html>

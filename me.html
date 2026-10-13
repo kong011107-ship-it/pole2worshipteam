@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>내 정보 · 찬양팀</title>
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="masthead-row">
+        <div>
+          <p class="team" data-team-name></p>
+          <h1 id="hello">찬양팀</h1>
+        </div>
+        <div class="who"><button type="button" onclick="logout()">로그아웃</button></div>
+      </div>
+    </div>
+    <div class="staff" aria-hidden="true"></div>
+  </header>
+
+  <main class="page">
+    <section class="section">
+      <h2 class="section-title">내 포지션</h2>
+      <div class="panel"><dl class="kv" id="info" style="margin:0"></dl></div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">이번 달 섬김</h2>
+      <div class="empty">섬김 가능 여부 응답과 배치표는 곧 열립니다.</div>
+    </section>
+
+    <section class="section" id="appSection">
+      <h2 class="section-title">내 신청서와 서약</h2>
+      <p class="lead">가입할 때 작성한 내용입니다. 수정이 필요하면 리더에게 말씀해 주세요.</p>
+      <div class="panel">
+        <dl class="kv" id="app"></dl>
+        <details class="pledge" open><summary id="pledgeTitle"></summary>
+          <div class="pledge-box" id="pledge"></div>
+          <p class="hint" id="pledgedAt" style="margin:0"></p>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <script src="assets/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/common.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    (async function init() {
+      const ctx = await requireMember();
+      if (!ctx) return;
+      const { me } = ctx;
+      await loadPositions();
+      $("hello").textContent = `${me.name}님`;
+
+      const [{ data: extras }, { data: app }] = await Promise.all([
+        sb.from("member_extra_positions").select("position_code").eq("member_id", me.id),
+        sb.from("applications").select("*").eq("user_id", me.id).maybeSingle(),
+      ]);
+
+      $("info").innerHTML = `
+        <dt>주 포지션</dt><dd>${esc(positionName(me.main_position))}</dd>
+        ${extras?.length ? `<dt>추가 포지션</dt><dd>${extras.map((e) => esc(positionName(e.position_code))).join(", ")}</dd>` : ""}
+        <dt>가입일</dt><dd>${fmtDate(me.joined_at)}</dd>`;
+
+      if (!app) { $("appSection").classList.add("hidden"); return; }
+      $("app").innerHTML = `
+        <dt>이름</dt><dd>${esc(app.name)}</dd>
+        <dt>연락처</dt><dd>${esc(app.phone)}</dd>
+        <dt>이메일</dt><dd>${esc(app.email)}</dd>
+        <dt>지원 포지션</dt><dd>${esc(positionName(app.applied_position))}</dd>
+        <dt>섬김 경력</dt><dd>${esc(app.experience) || "—"}</dd>
+        <dt>지원 동기</dt><dd>${esc(app.motivation) || "—"}</dd>`;
+      $("pledgeTitle").textContent = app.pledge_title;
+      $("pledge").textContent = app.pledge_content;
+      $("pledgedAt").textContent = `${fmtDate(app.pledged_at, true)}에 서약했습니다.`;
+    })();
+  </script>
+</body>
+</html>
