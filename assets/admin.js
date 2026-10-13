@@ -3,7 +3,7 @@
 // =====================================================================
 (function () {
   const S = {
-    me: null, apps: [], logs: [], members: [], extras: [], evals: [], templates: [], items: [],
+    me: null, apps: [], logs: [], members: [], extras: [], evals: [], templates: [], items: [], postpones: [],
     drag: null, newIds: new Set(), memberFilter: "all",
   };
   const STAGES = [
@@ -25,10 +25,12 @@
   const sent = (appId, code) => S.logs.some((l) => l.application_id === appId && l.template_code === code);
   const ctxOf = (a, extra = {}) => ({ name: a.name, email: a.email, interviewAt: a.interview_at,
     interviewPlace: a.interview_place, traineeStart: a.trainee_start, ...extra });
+  const pp = (appId) => S.postpones.filter((p) => p.application_id === appId);
+  const tstate = (a) => traineeState(a.trainee_start, pp(a.id));
 
   // ---------------------------------------------------------------- 데이터
   async function loadAll() {
-    const [apps, logs, members, extras, evals, templates, items] = await Promise.all([
+    const [apps, logs, members, extras, evals, templates, items, postpones] = await Promise.all([
       sb.from("applications").select("*").order("created_at", { ascending: false }),
       sb.from("message_log").select("*").order("sent_at"),
       sb.from("members").select("*").order("name"),
@@ -36,11 +38,13 @@
       sb.from("interview_evaluations").select("*"),
       sb.from("message_templates").select("*").order("sort_order"),
       sb.from("eval_items").select("*").order("sort_order"),
+      sb.from("trainee_postpones").select("*").order("from_week"),
     ]);
-    const err = [apps, logs, members, extras, evals, templates, items].find((r) => r.error);
+    const err = [apps, logs, members, extras, evals, templates, items, postpones].find((r) => r.error);
     if (err) { toast("데이터를 불러오지 못했습니다. 새로고침해 주세요."); console.error(err.error); }
     S.apps = apps.data || []; S.logs = logs.data || []; S.members = members.data || [];
     S.extras = extras.data || []; S.evals = evals.data || []; S.templates = templates.data || []; S.items = items.data || [];
+    S.postpones = postpones.data || [];
     await loadPositions(true);
   }
 
@@ -90,10 +94,12 @@
       return { text: `평가표 ${n}/${admins().length} 입력`, pending: false, partial: n < admins().length };
     }
     if (a.stage === "trainee") {
-      const w = traineeWeek(a.trainee_start);
-      if (w >= 5 && !sent(a.id, "6")) return { text: "⑥ 인터뷰 일정 안내 보내기", pending: true, code: "6" };
-      if (w >= 3 && !sent(a.id, "5")) return { text: "⑤ 3주차 실전 투입 예고 보내기", pending: true, code: "5" };
+      const st = tstate(a), w = st.week;
+      // ⑤는 3주차 시작 전(2주차 중), ⑥은 5주차 시작 전(4주차 중)에 보낼 차례
+      if (w >= 4 && w <= 5 && !sent(a.id, "6")) return { text: "⑥ 인터뷰 일정 안내 보내기", pending: true, code: "6" };
+      if (w >= 2 && w <= 5 && !sent(a.id, "5")) return { text: "⑤ 3주차 실전 투입 예고 보내기", pending: true, code: "5" };
       if (w > 5) return { text: "5주 완료 · 커피챗 후 전환 결정", pending: true };
+      if (st.paused) return { text: `${st.nextWeek}주차 연기 · ${md(st.resume)} 재개`, partial: true };
       return { text: w === 0 ? "④ 수습 시작 안내 보냄" : `${w}주차 · ${TRAINEE_WEEKS[w - 1].title}` };
     }
     if (a.stage === "member")
@@ -105,8 +111,9 @@
     if (a.stage === "applied") return `${md(a.created_at.slice(0, 10))} 접수${a.small_group ? " · " + a.small_group : ""}`;
     if (a.stage === "interview") return a.interview_at ? `면접 ${fmtDateTime(a.interview_at)}${a.interview_place ? " · " + a.interview_place : ""}` : "면접 일정 미정";
     if (a.stage === "trainee") {
-      const w = traineeWeek(a.trainee_start);
-      return w === 0 ? `${fmtDate(a.trainee_start, { weekday: "short" })} 수습 시작` : w > 5 ? "수습 5주 완료" : `수습 ${w}주차`;
+      const st = tstate(a), w = st.week;
+      if (st.paused) return `수습 ${w}주차까지 · ${md(st.resume)}부터 ${st.nextWeek}주차`;
+      return w === 0 ? `${fmtDate(st.resume, { weekday: "short" })} 수습 시작` : w > 5 ? "수습 5주 완료" : `수습 ${w}주차`;
     }
     if (a.stage === "member") return `${md((a.converted_at || a.stage_changed_at).slice(0, 10))} 정식 전환`;
     return "";
@@ -167,7 +174,7 @@
   function cardHTML(a) {
     const t = cardTodo(a);
     const st = STAGES[STAGE_IDX[a.stage]];
-    const w = a.stage === "trainee" ? traineeWeek(a.trainee_start) : 0;
+    const w = a.stage === "trainee" ? tstate(a).week : 0;
     return `<article class="kcard" draggable="true" data-id="${a.id}" style="${S.newIds.has(a.id) ? "border-color:var(--violet-mid);box-shadow:0 0 0 2px rgba(134,84,203,.2)" : ""}">
       <div class="row1"><a class="name" href="#app/${a.id}">${esc(a.name)}</a><span class="chip chip-violet">${esc(positionName(a.applied_position))}</span></div>
       <span class="meta">${esc(cardMeta(a))}</span>
@@ -393,7 +400,11 @@
     const stages = order.map((s, i) => {
       if (a.stage === "closed" && i === reached) return `<li class="closed">${stageLabel[s]} · ${REASON[a.closed_reason]}</li>`;
       if (i < reached) return `<li>${stageLabel[s]} 완료</li>`;
-      if (i === reached) return `<li class="now">${s === "trainee" ? `수습 ${Math.min(traineeWeek(a.trainee_start), 5) || "시작 전"}${traineeWeek(a.trainee_start) ? "주차" : ""}` : stageLabel[s]}</li>`;
+      if (i === reached) {
+        const tw = tstate(a);
+        const label = s !== "trainee" ? stageLabel[s] : tw.paused ? `수습 ${tw.nextWeek}주차 연기 중` : tw.week ? `수습 ${Math.min(tw.week, 5)}주차` : "수습 시작 전";
+        return `<li class="now">${label}</li>`;
+      }
       return `<li class="todo">${stageLabel[s]}</li>`;
     }).join("");
     const nextSt = STAGES[STAGE_IDX[a.stage] + 1];
@@ -480,20 +491,29 @@
 
   function renderWeeks(a, weeks, body) {
     const leaders = admins();
-    const w = traineeWeek(a.trainee_start);
+    const list = pp(a.id), st = tstate(a), w = st.week;
+    const canPostpone = (n) => a.stage === "trainee" && n >= Math.max(st.paused ? st.nextWeek : w, 1);
     const attSeg = (field, val) => `<div class="seg" data-field="${field}">
       <button type="button" data-v="true" data-tone="ok" aria-pressed="${val === true}">참석</button>
       <button type="button" data-v="false" data-tone="no" aria-pressed="${val === false}">불참</button></div>`;
     body.innerHTML = `<section style="display:flex;flex-direction:column;gap:12px">
       <p class="lead" style="margin:0">그 주 나눔을 맡은 리더가 3줄로 남겨요. 5주차 커피챗에서 이 기록을 함께 보고 전환을 결정해요.</p>
       ${a.interview_condition ? `<p class="notice warn" style="margin:0">조건부 수습 · ${esc(a.interview_condition)}</p>` : ""}
+      ${st.paused ? `<p class="notice warn" style="margin:0">${st.nextWeek}주차가 미뤄져 있어요 · ${fmtDate(st.resume, { weekday: "short" })}부터 다시 시작해요</p>` : ""}
       ${[1, 2, 3, 4, 5].map((n) => {
         const r = weeks.find((x) => x.week === n) || { week: n };
         const info = TRAINEE_WEEKS[n - 1];
-        const sat = addDays(a.trainee_start, 7 * (n - 1));
-        return `<article class="weekrow ${n === w ? "now" : ""}" data-week="${n}">
+        const sat = traineeWeekSat(a.trainee_start, n, list);
+        const moved = list.filter((p) => p.from_week === n).map((p) => `
+          <div class="postpone" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;border-radius:12px;background:var(--warn-bg);color:var(--warn);font-size:14px;font-weight:600">
+            <span>${n}주차부터 ${p.weeks}주 연기${p.reason ? " · " + esc(p.reason) : ""}</span>
+            <span class="small" style="font-weight:500;color:#8A5A3A">${esc(memberName(p.created_by))} · ${fmtDate(p.created_at)}</span>
+            ${a.stage === "trainee" ? `<button type="button" class="btn btn-ghost btn-sm" data-undo="${p.id}" style="margin-left:auto">되돌리기</button>` : ""}
+          </div>`).join("");
+        return `${moved}<article class="weekrow ${n === w && !st.paused ? "now" : ""}" data-week="${n}">
           <div style="display:flex;flex-direction:column;gap:4px"><span class="wk">${n}주</span><span class="wt">${esc(info.title)}</span>
-            <span class="small muted">${md(sat)} – ${md(addDays(sat, 1))}</span></div>
+            <span class="small muted">${md(sat)} – ${md(addDays(sat, 1))}</span>
+            ${canPostpone(n) ? `<button type="button" class="btn btn-ghost btn-sm" data-postpone="${n}" style="align-self:flex-start;margin-top:6px">이 주부터 미루기</button>` : ""}</div>
           <div style="display:flex;flex-direction:column;gap:10px">
             <div style="display:flex;flex-direction:column;gap:4px"><span class="small muted" style="font-weight:700">토 연습</span>${attSeg("sat_attended", r.sat_attended)}</div>
             <div style="display:flex;flex-direction:column;gap:4px"><span class="small muted" style="font-weight:700">주일 9시 참관</span>${attSeg("sun_attended", r.sun_attended)}</div>
@@ -536,6 +556,53 @@
     });
     $("#decConvert")?.addEventListener("click", () => openMove(a, "member"));
     $("#decClose")?.addEventListener("click", () => openMove(a, "closed"));
+    body.querySelectorAll("[data-postpone]").forEach((b) => b.addEventListener("click", () => openPostpone(a, +b.dataset.postpone)));
+    body.querySelectorAll("[data-undo]").forEach((b) => b.addEventListener("click", () => {
+      const p = list.find((x) => String(x.id) === b.dataset.undo);
+      modal({
+        title: `${p.from_week}주차 연기 되돌리기`,
+        body: `<p style="margin:0">${p.from_week}주차부터 ${p.weeks}주 미뤘던 일정을 원래대로 돌려요.</p>`,
+        confirmLabel: "되돌리기",
+        onConfirm: async (close) => {
+          const { error } = await sb.from("trainee_postpones").delete().eq("id", p.id);
+          if (error) throw new Error("되돌리지 못했습니다");
+          S.postpones = S.postpones.filter((x) => x.id !== p.id);
+          close(); toast("일정을 되돌렸어요"); renderDetail(a.id);
+        },
+      });
+    }));
+  }
+
+  function openPostpone(a, from) {
+    const list = pp(a.id);
+    const preview = () => {
+      const k = +$("#ppWeeks").value;
+      const after = list.concat([{ from_week: from, weeks: k }]);
+      $("#ppPreview").innerHTML = [1, 2, 3, 4, 5].map((n) => {
+        const before = traineeWeekSat(a.trainee_start, n, list), now = traineeWeekSat(a.trainee_start, n, after);
+        return `<div style="display:grid;grid-template-columns:48px 1fr;gap:8px;padding:4px 0;${n < from ? "color:var(--faint)" : ""}">
+          <b>${n}주</b><span>${before === now ? md(before) + " (그대로)" : `${md(before)} → <b style="color:var(--violet)">${md(now)}</b>`}</span></div>`;
+      }).join("");
+    };
+    modal({
+      step: "수습 일정", title: `${a.name}님 · ${from}주차부터 미루기`,
+      body: `<p style="margin:0">${from > 1 ? `1~${from - 1}주차 날짜와 기록은 그대로 두고, ` : ""}${from}주차부터 뒤로 밀어요.</p>
+        <div class="grid2">
+          <label class="field">얼마나 미룰까요<select id="ppWeeks">${[1, 2, 3, 4].map((k) => `<option value="${k}">${k}주</option>`).join("")}</select></label>
+          <label class="field">사유 (리더십만 봐요)<input type="text" id="ppReason" maxlength="200" placeholder="예: 가족 일정으로 불참"></label>
+        </div>
+        <div id="ppPreview" style="background:var(--bg);border-radius:12px;padding:12px 16px;font-size:14px"></div>
+        <p class="small muted" style="margin:0">수습생 홈의 주차와 일정도 함께 바뀌어요. 바뀐 일정은 카톡으로 따로 알려 주세요.</p>`,
+      onInput: preview,
+      confirmLabel: "미루기",
+      onConfirm: async (close) => {
+        const row = { application_id: a.id, from_week: from, weeks: +$("#ppWeeks").value, reason: $("#ppReason").value.trim() || null, created_by: S.me.id };
+        const { data, error } = await sb.from("trainee_postpones").insert(row).select().single();
+        if (error) throw new Error(error.message || "미루지 못했습니다");
+        S.postpones.push(data);
+        close(); toast(`${from}주차부터 ${row.weeks}주 미뤘어요`); renderDetail(a.id);
+      },
+    });
   }
 
   function renderAppTab(a, body) {

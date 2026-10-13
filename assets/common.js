@@ -10,6 +10,7 @@
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   window.toast = (msg, ms = 2600) => {
+    document.querySelectorAll(".toast").forEach((t) => t.remove());
     const el = document.createElement("div");
     el.className = "toast"; el.setAttribute("role", "status"); el.textContent = msg;
     document.body.appendChild(el);
@@ -35,13 +36,26 @@
   };
   window.md = (iso) => { const [, m, d] = iso.split("-"); return `${+m}/${+d}`; };
 
-  // 수습 주차 (시작 토요일 기준 1~5, 시작 전 0, 끝난 뒤 6)
-  window.traineeWeek = (start) => {
-    if (!start) return 0;
-    const diff = Math.floor((new Date(todayISO()) - new Date(start)) / 86400000);
-    if (diff < 0) return 0;
-    return Math.min(6, Math.floor(diff / 7) + 1);
+  // ---------- 수습 일정 ----------
+  // n주차 토요일 = 시작일 + 7×(n−1) + (n주차 이전·당일에 시작된 연기 주 수 합)×7
+  // postpones: [{ from_week, weeks }]
+  window.traineeWeekSat = (start, n, postpones = []) => {
+    const shift = postpones.filter((p) => p.from_week <= n).reduce((s, p) => s + p.weeks, 0);
+    return addDays(start, 7 * (n - 1 + shift));
   };
+  // { week: 0 시작 전 · 1~5 · 6 완료, paused: 연기로 쉬는 중, resume: 다시 시작하는 토요일 }
+  window.traineeState = (start, postpones = []) => {
+    if (!start) return { week: 0, paused: false };
+    const today = todayISO();
+    let week = 0;
+    for (let n = 1; n <= 5; n++) if (traineeWeekSat(start, n, postpones) <= today) week = n;
+    if (week === 0) return { week: 0, paused: false, resume: traineeWeekSat(start, 1, postpones) };
+    const weekEnd = addDays(traineeWeekSat(start, week, postpones), 7);
+    if (today < weekEnd) return { week, paused: false };
+    if (week === 5) return { week: 6, paused: false };
+    return { week, paused: true, nextWeek: week + 1, resume: traineeWeekSat(start, week + 1, postpones) };
+  };
+  window.traineeWeek = (start, postpones = []) => traineeState(start, postpones).week;
   window.TRAINEE_WEEKS = [
     { no: 1, range: "1~2주", title: "참관 + 적응", desc: "팀 문화에 적응하며 함께 지켜봐요." },
     { no: 2, range: "1~2주", title: "참관 + 적응", desc: "팀 문화에 적응하며 함께 지켜봐요." },

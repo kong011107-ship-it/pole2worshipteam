@@ -59,7 +59,10 @@
 
     renderTabbar();
     renderInfo();
-    if (me.status === "trainee") renderTraineeHome(); else await renderMemberHome();
+    if (me.status === "trainee") {
+      const { data: pps } = await sb.rpc("my_trainee_postpones");
+      renderTraineeHome(pps || []);
+    } else await renderMemberHome();
     showView();
   })();
 
@@ -86,15 +89,21 @@
   window.addEventListener("hashchange", showView);
 
   // ---------- 수습생 홈 ----------
-  function renderTraineeHome() {
+  function renderTraineeHome(pps) {
     const start = app?.trainee_start;
-    const w = traineeWeek(start);
+    const st = traineeState(start, pps), w = st.week;
     const cur = TRAINEE_WEEKS[Math.min(Math.max(w, 1), 5) - 1];
     let hero;
     if (!start || w === 0) {
       hero = `<p class="eyebrow">수습 · ${esc(positionName(me.main_position))}</p>
         <span class="big">수습을 곧 시작해요</span>
-        <span class="sub">${start ? fmtDate(start, { weekday: "short" }) + " 토요 연습부터 함께해요." : "시작일은 리더가 안내해 드려요."}</span>`;
+        <span class="sub">${start ? fmtDate(st.resume, { weekday: "short" }) + " 토요 연습부터 함께해요." : "시작일은 리더가 안내해 드려요."}</span>`;
+    } else if (st.paused) {
+      hero = `<div style="display:flex;justify-content:space-between;align-items:baseline">
+          <p class="eyebrow">수습 · ${esc(positionName(me.main_position))}</p><b class="small">${w}주차까지 완료</b></div>
+        <span class="big">${st.nextWeek}주차가 미뤄졌어요</span>
+        <span class="sub">${fmtDate(st.resume, { month: "long", day: "numeric", weekday: "short" })} 토요 연습부터 다시 함께해요.</span>
+        <div class="weekbar" aria-label="5주 중 ${w}주 완료">${[1,2,3,4,5].map((i) => `<span class="${i <= w ? "on" : ""}"></span>`).join("")}</div>`;
     } else if (w > 5) {
       hero = `<p class="eyebrow">수습 · ${esc(positionName(me.main_position))}</p>
         <span class="big">5주 과정을 마쳤어요</span>
@@ -109,11 +118,11 @@
 
     let schedule = "";
     if (start && w >= 0 && w <= 5) {
-      const n = Math.max(w, 1);
-      const sat = addDays(start, 7 * (n - 1)), sun = addDays(sat, 1);
+      const n = st.paused ? st.nextWeek : Math.max(w, 1);
+      const sat = traineeWeekSat(start, n, pps), sun = addDays(sat, 1);
       schedule = `<section class="card" style="display:flex;flex-direction:column;gap:12px">
-        <h2 class="card-title">${w === 0 ? "첫 주 일정" : "이번 주 일정"}</h2>
-        ${row(md(sat), "토", "토요 팀 연습", n >= 3 ? cur.desc : "연습을 함께 지켜보며 팀 문화에 적응해요")}
+        <h2 class="card-title">${w === 0 ? "첫 주 일정" : st.paused ? `다시 시작하는 ${n}주차 일정` : "이번 주 일정"}</h2>
+        ${row(md(sat), "토", "토요 팀 연습", n >= 3 ? TRAINEE_WEEKS[n - 1].desc : "연습을 함께 지켜보며 팀 문화에 적응해요")}
         ${row(md(sun), "주일", "오전 9시 세팅 참관", "예배 후 리더십과 나눔")}
       </section>`;
     }
