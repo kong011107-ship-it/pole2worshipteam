@@ -370,3 +370,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .lu-cand.picked { background: var(--violet); color: #fff; border-color: var(--violet); }
 .lu-cand.picked .muted { color: #E4D6F7; }
 .lu-cand.placed { background: #FBF8FE; opacity: .65; }
+.resp-table td.a-yes, .resp-table td.a-no, .resp-table td.a-none { padding: 0; }
+.a-btn { width: 100%; min-height: 36px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; }
+.a-btn:hover { box-shadow: inset 0 0 0 2px var(--violet-mid); }
+.lu-cand.unavail { background: #F7F5FA; border-style: dashed; }

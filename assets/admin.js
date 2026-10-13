@@ -804,7 +804,9 @@
 
     const cell = (m, s) => {
       const v = answerOf(avail, m.id, s.date, s.kind);
-      return v === true ? `<td class="a-yes" title="가능">가능</td>` : v === false ? `<td class="a-no" title="불가">불가</td>` : `<td class="a-none" title="미응답">–</td>`;
+      const [cls, label, next] = v === true ? ["a-yes", "가능", "불가"] : v === false ? ["a-no", "불가", "미응답"] : ["a-none", "–", "가능"];
+      return `<td class="${cls}"><button type="button" class="a-btn" data-mid="${m.id}" data-date="${s.date}" data-kind="${s.kind}" data-v="${v === undefined ? "" : v}"
+        aria-label="${esc(m.name)} ${md(s.date)} ${s.kind === "sunday" ? "주일" : "토 연습"} ${v === undefined ? "미응답" : label}, 누르면 ${next}">${label}</button></td>`;
     };
     const countRow = (kind) => sundays.map((sun) => {
       const d = kind === "sunday" ? sun : addDays(sun, -1);
@@ -821,6 +823,7 @@
           <span style="font-size:14px;font-weight:600">${[...none, ...partial].map((m) => esc(m.name)).join(", ") || "없음"}</span>
           ${info?.is_open && (none.length + partial.length) ? `<button type="button" class="btn btn-soft btn-sm" id="copyNudge" style="align-self:flex-start">독촉 문구 복사</button>` : ""}</div>
       </div>
+      <p class="lead" style="margin:0">칸을 누르면 리더십이 직접 바꿀 수 있어요 (가능 → 불가 → 미응답). 마감한 뒤에도 바꿀 수 있어요.</p>
       <div class="evaltable"><table class="resp-table">
         <thead><tr><th rowspan="2">이름</th><th rowspan="2">포지션</th>${sundays.map((d) => `<th colspan="2" style="text-align:center;border-left:1px solid var(--line)">${md(d)} 주일</th>`).join("")}<th rowspan="2" style="border-left:1px solid var(--line)">전할 말</th></tr>
           <tr>${sundays.map(() => `<th class="sub" style="border-left:1px solid var(--line)">토</th><th class="sub">주</th>`).join("")}</tr></thead>
@@ -836,6 +839,16 @@
       ${info ? `<a class="btn btn-primary" href="#lineup" style="align-self:flex-start" id="goLineup">${monthLabel(month)} 배치하러 가기</a>` : ""}`;
 
     bindMonthNav((n) => { V.month = addMonths(V.month, n); renderRespondAdmin(); });
+    $$(".a-btn").forEach((b) => b.addEventListener("click", async () => {
+      const cur = b.dataset.v;   // "true" | "false" | ""
+      const next = cur === "true" ? false : cur === "false" ? null : true;
+      const key = { member_id: b.dataset.mid, date: b.dataset.date, kind: b.dataset.kind };
+      const { error } = next === null
+        ? await sb.from("availability").delete().match(key)
+        : await sb.from("availability").upsert({ ...key, available: next });
+      if (error) return toast("바꾸지 못했습니다");
+      renderRespondAdmin();
+    }));
     $("#goLineup")?.addEventListener("click", () => { V.lineupMonth = month; });
     const openMsg = () => `[찬양팀] ${monthLabel(month)} 섬김 응답을 받고 있어요.\n${info?.deadline || $("#dl")?.value ? fmtDate(info?.deadline || $("#dl").value, { month: "long", day: "numeric", weekday: "short" }) + "까지 " : ""}토요 연습·주일 예배 가능 여부를 체크해 주세요.\n\n${location.origin}/me.html#respond`;
     $("#openMonth")?.addEventListener("click", async () => {
@@ -888,7 +901,8 @@
     const counts = {};
     services.forEach((s) => (s.assignments || []).forEach((a) => (counts[a.member_id] = (counts[a.member_id] || 0) + 1)));
     const ans = (m, d, kind) => answerOf(avail, m.id, kind === "sat" ? addDays(d, -1) : d, kind === "sat" ? "sat_practice" : "sunday");
-    const canPlace = (mid, d, pos) => { const m = mem(mid); return !!m && posOf(m).includes(pos) && ans(m, d, "sun") !== false; };
+    // 불가로 응답한 사람도 리더십 판단으로 배치 가능 (칸에 경고 표시)
+    const canPlace = (mid, d, pos) => { const m = mem(mid); return !!m && posOf(m).includes(pos); };
     const active = V.drag?.mid || V.picked;
     const withAsg = services.filter((s) => (s.assignments || []).length);
     const published = withAsg.length > 0 && withAsg.every((s) => s.status === "published");
@@ -941,6 +955,14 @@
     const pool = servingMembers().filter((m) => ans(m, selD, "sun") !== false)
       .sort((a, b) => (ans(b, selD, "sun") === true) - (ans(a, selD, "sun") === true) || (order[a.main_position] ?? 99) - (order[b.main_position] ?? 99) || (counts[a.id] || 0) - (counts[b.id] || 0));
     const unavailable = servingMembers().filter((m) => ans(m, selD, "sun") === false);
+    const candHTML = (m) => {
+      const placed = asg(selD).some((x) => x.member_id === m.id);
+      const sun = ans(m, selD, "sun"), sat = ans(m, selD, "sat");
+      return `<div class="lu-cand ${V.picked === m.id ? "picked" : ""} ${placed ? "placed" : ""} ${sun === false ? "unavail" : ""}" draggable="true" data-mid="${m.id}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
+        <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(m.name)}</b><span class="small muted">${posOf(m).map(positionName).join(" · ")}</span></span>
+        ${sun === undefined ? `<span class="chip chip-warn">미응답</span>` : ""}${sun === false ? `<span class="chip chip-gray">주일 불가</span>` : ""}${sat === false ? `<span class="chip chip-warn">토 연습 불가</span>` : ""}${placed ? `<span class="chip chip-violet">배치됨</span>` : ""}
+        <b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
+    };
 
     $("#content").innerHTML = `
       <div class="page-head">${monthNav("배치표", month)}
@@ -957,15 +979,10 @@
         </div></section>
         <aside class="lu-pool ${V.drag?.from ? "drop" : ""}" id="luPool" aria-label="후보">
           <div><h2 style="font-size:17px;font-weight:800">${md(selD)} 주일 후보</h2><span class="muted small">가능 응답 우선 · 이번 달 배치 횟수</span></div>
-          <div style="display:flex;flex-direction:column;gap:6px">${pool.map((m) => {
-            const placed = asg(selD).some((x) => x.member_id === m.id);
-            const sun = ans(m, selD, "sun"), sat = ans(m, selD, "sat");
-            return `<div class="lu-cand ${V.picked === m.id ? "picked" : ""} ${placed ? "placed" : ""}" draggable="true" data-mid="${m.id}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
-              <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(m.name)}</b><span class="small muted">${posOf(m).map(positionName).join(" · ")}</span></span>
-              ${sun === undefined ? `<span class="chip chip-warn">미응답</span>` : ""}${sat === false ? `<span class="chip chip-warn">토 연습 불가</span>` : ""}${placed ? `<span class="chip chip-violet">배치됨</span>` : ""}
-              <b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
-          }).join("") || `<span class="muted small">이 날 가능한 팀원이 없어요</span>`}</div>
-          <p class="small muted" style="margin:0;border-top:1px solid var(--line);padding-top:10px"><b style="color:var(--ink-2)">불가</b> ${unavailable.map((m) => esc(m.name)).join(", ") || "없음"}</p>
+          <div style="display:flex;flex-direction:column;gap:6px">${pool.map(candHTML).join("") || `<span class="muted small">이 날 가능한 팀원이 없어요</span>`}</div>
+          ${unavailable.length ? `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px">
+            <span class="small muted"><b style="color:var(--ink-2)">불가로 응답</b> · 일정이 바뀌었으면 끌어다 놓을 수 있어요</span>
+            ${unavailable.map(candHTML).join("")}</div>` : ""}
         </aside>
       </div>`;
 

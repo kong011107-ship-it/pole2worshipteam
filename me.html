@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
   <link rel="icon" href="assets/logo-violet.png">
-  <link rel="stylesheet" href="assets/app.css">
+  <link rel="stylesheet" href="assets/app.css?v=6">
 </head>
 <body>
 <div class="m-wrap">
@@ -40,9 +40,9 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js"></script>
+<script src="assets/config.js?v=6"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js"></script>
+<script src="assets/common.js?v=6"></script>
 <script>
   let ctx, me, app, extras = [];
 
@@ -52,7 +52,8 @@
     me = ctx.me;
     await loadPositions();
     $("#whoName").textContent = `${me.name}님`;
-    $("#whoBadge").innerHTML = me.status === "trainee" ? `<span class="chip chip-violet">수습</span>` : "";
+    $("#whoBadge").innerHTML = me.status === "trainee" ? `<span class="chip chip-violet">수습</span>`
+      : me.role === "admin" ? `<a href="admin.html" class="chip chip-solid" style="text-decoration:none">관리자 화면</a>` : "";
 
     const [a, x] = await Promise.all([
       sb.from("applications").select("*").eq("user_id", me.id).maybeSingle(),
