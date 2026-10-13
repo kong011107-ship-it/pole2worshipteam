@@ -26,11 +26,13 @@
   const ctxOf = (a, extra = {}) => ({ name: a.name, email: a.email, interviewAt: a.interview_at,
     interviewPlace: a.interview_place, traineeStart: a.trainee_start, ...extra });
   const pp = (appId) => S.postpones.filter((p) => p.application_id === appId);
+  const alumniOf = (a) => (S.alumni || []).filter((x) => x.name === a.name);
+  const REMOVE_REASONS = ["졸업·파송", "MC 콜링", "휴면 연장 의사 미전달", "본인 요청", "기타"];
   const tstate = (a) => traineeState(a.trainee_start, pp(a.id));
 
   // ---------------------------------------------------------------- 데이터
   async function loadAll() {
-    const [apps, logs, members, extras, evals, templates, items, postpones] = await Promise.all([
+    const [apps, logs, members, extras, evals, templates, items, postpones, alumni] = await Promise.all([
       sb.from("applications").select("*").order("created_at", { ascending: false }),
       sb.from("message_log").select("*").order("sent_at"),
       sb.from("members").select("*").order("name"),
@@ -39,12 +41,14 @@
       sb.from("message_templates").select("*").order("sort_order"),
       sb.from("eval_items").select("*").order("sort_order"),
       sb.from("trainee_postpones").select("*").order("from_week"),
+      sb.from("alumni").select("*").order("left_at", { ascending: false }),
     ]);
     const err = [apps, logs, members, extras, evals, templates, items, postpones].find((r) => r.error);
     if (err) { toast("데이터를 불러오지 못했습니다. 새로고침해 주세요."); console.error(err.error); }
     S.apps = apps.data || []; S.logs = logs.data || []; S.members = members.data || [];
     S.extras = extras.data || []; S.evals = evals.data || []; S.templates = templates.data || []; S.items = items.data || [];
     S.postpones = postpones.data || [];
+    S.alumni = alumni.data || [];
     await loadPositions(true);
   }
 
@@ -74,6 +78,7 @@
     if (view === "app" && id) return renderDetail(id);
     if (view === "members") return renderMembers();
     if (view === "respond") return renderRespondAdmin();
+    if (view === "settings") return renderSettings();
     if (view === "lineup") return renderLineupAdmin();
     if (view === "templates") return renderTemplates();
     return renderPipeline();
@@ -156,11 +161,34 @@
           <span class="small" style="color:var(--muted-2)">미선발 · 보류 · 재지원 권유 · 중도 하차 — 여기로 끌어 놓기</span>
         </div>
         <div class="ended">${closed.map((a) => `<a href="#app/${a.id}">${esc(a.name)}<small>${REASON[a.closed_reason] || ""}</small></a>`).join("") || `<span class="small muted">아직 없어요</span>`}</div>
+        <div id="purgeBox" style="margin-left:auto"></div>
       </section>`;
 
     renderRecruitChips();
+    renderPurgeBox();
     bindBoard();
     updateTodoCount();
+  }
+
+  // 종료 후 3개월 지난 지원서 일괄 삭제 (개인정보 파기)
+  async function renderPurgeBox() {
+    const { data } = await sb.rpc("purgeable_applications");
+    const list = data || [];
+    const box = $("#purgeBox"); if (!box) return;
+    box.innerHTML = list.length
+      ? `<button type="button" class="btn btn-danger btn-sm" id="purgeBtn">종료 3개월 지난 지원서 ${list.length}건 삭제</button>`
+      : `<span class="small muted">종료 후 3개월 지난 지원서 없음</span>`;
+    $("#purgeBtn")?.addEventListener("click", () => modal({
+      title: `지원서 ${list.length}건 삭제`,
+      body: `<p style="margin:0">미선발·보류·재지원 권유로 종료된 지 3개월이 지난 지원서예요. 지원서·서약·평가표·안내 기록이 모두 지워지고 되돌릴 수 없어요.</p>
+        <ul style="margin:0;padding-left:18px;font-size:14px">${list.map((x) => `<li>${esc(x.name)} · ${REASON[x.closed_reason]} · ${fmtDate(x.closed_at, { year: "numeric", month: "numeric", day: "numeric" })} 종료</li>`).join("")}</ul>`,
+      confirmLabel: `${list.length}건 삭제`, danger: true,
+      onConfirm: async (close) => {
+        const { data: n, error } = await sb.rpc("purge_closed_applications");
+        if (error) throw new Error("삭제하지 못했습니다");
+        await loadAll(); close(); toast(`지원서 ${n}건을 삭제했어요`); route();
+      },
+    }));
   }
 
   async function renderRecruitChips() {
@@ -184,6 +212,7 @@
     const w = a.stage === "trainee" ? tstate(a).week : 0;
     return `<article class="kcard" draggable="true" data-id="${a.id}" style="${S.newIds.has(a.id) ? "border-color:var(--violet-mid);box-shadow:0 0 0 2px rgba(134,84,203,.2)" : ""}">
       <div class="row1"><a class="name" href="#app/${a.id}">${esc(a.name)}</a><span class="chip chip-violet">${esc(positionName(a.applied_position))}</span></div>
+      ${["applied", "interview"].includes(a.stage) && alumniOf(a).length ? `<span class="chip chip-mid" style="align-self:flex-start">같은 이름 탈퇴 기록 · 재가입?</span>` : ""}
       <span class="meta">${esc(cardMeta(a))}</span>
       ${a.stage === "trainee" ? `<div class="weeks">${[1,2,3,4,5].map((i) => `<span class="${i < w ? "done" : i === w ? "now" : ""}"></span>`).join("")}</div>` : ""}
       ${t.text ? `<button type="button" class="todo ${t.pending ? "pending" : t.partial ? "pending" : "done"}" ${t.code ? `data-msg="${t.code}"` : "disabled"}>${esc(t.text)}</button>` : ""}
@@ -223,14 +252,14 @@
   }
 
   // ---------------------------------------------------------------- 모달
-  function modal({ step, title, body, confirmLabel, onConfirm, onInput, cancelLabel = "취소" }) {
+  function modal({ step, title, body, confirmLabel, onConfirm, onInput, cancelLabel = "취소", danger = false }) {
     const root = $("#modalRoot");
     root.innerHTML = `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
       ${step ? `<span class="step">${esc(step)}</span>` : ""}
       <h3 id="mTitle">${esc(title)}</h3>
       <div id="mBody" style="display:flex;flex-direction:column;gap:14px">${body}</div>
       <div class="actions"><button type="button" class="btn btn-ghost" id="mCancel">${cancelLabel}</button>
-        ${confirmLabel ? `<button type="button" class="btn btn-primary" id="mOk">${esc(confirmLabel)}</button>` : ""}</div>
+        ${confirmLabel ? `<button type="button" class="btn ${danger ? "btn-bad" : "btn-primary"}" id="mOk">${esc(confirmLabel)}</button>` : ""}</div>
     </div></div>`;
     const close = () => (root.innerHTML = "");
     $("#mCancel").onclick = close;
@@ -301,37 +330,51 @@
     const t = tpl("4");
     const myEvals = S.evals.filter((e) => e.application_id === a.id);
     const weak = myEvals.reduce((n, e) => n + Object.values(e.scores || {}).filter((v) => v === "weak").length, 0);
+    const prev = alumniOf(a);
+    const rejoinMsg = (extra = {}) => fillTemplate(`안녕하세요, [이름]님.\n폴투공동체 찬양팀장입니다.\n\n다시 찬양팀으로 돌아와 주셔서 감사하고 반가워요. 면담에서 나눈 대로 수습 없이 바로 함께하게 되었습니다.\n\n로그인해서 섬김 응답과 배치표를 확인할 수 있어요.\n· 주소: [사이트 주소]\n· 아이디: [아이디]\n· 임시 비밀번호: [임시 비밀번호]\n(첫 로그인 때 비밀번호를 바꿔 주세요)\n\n다시 함께 걸어갈 날들을 기대하며 기도하겠습니다.\n\n폴투공동체 찬양팀장 드림`, ctxOf(a, extra));
     modal({
       step: t.timing, title: `${a.name}님 · 면접 → 수습 시작`,
-      body: `${weak ? `<p class="notice warn" style="margin:0">평가표에 '미흡'이 ${weak}개 있어요. 판정 기준상 보류 또는 조건부 수습을 검토해 주세요.</p>` : ""}
+      body: `${prev.length ? `<div class="notice warn" style="margin:0;display:flex;flex-direction:column;gap:8px">
+            <span>같은 이름의 탈퇴 기록이 있어요: ${prev.map((x) => `${esc(positionName(x.main_position))} · ${x.joined_at ? md(x.joined_at.slice(0, 10)) + " ~ " : ""}${md(x.left_at)} 탈퇴${x.reason ? " (" + esc(x.reason) + ")" : ""}`).join(" / ")}</span>
+            <label style="display:flex;gap:8px;align-items:center;font-weight:700;color:var(--ink)"><input type="checkbox" id="rejoin" style="width:18px;height:18px;accent-color:var(--violet)"> 재가입 — 면담만 하고 수습 없이 바로 정식 (규정 제3조 바항)</label></div>` : ""}
+        <div id="traineeFields" style="display:flex;flex-direction:column;gap:14px">
+        ${weak ? `<p class="notice warn" style="margin:0">평가표에 '미흡'이 ${weak}개 있어요. 판정 기준상 보류 또는 조건부 수습을 검토해 주세요.</p>` : ""}
         <div class="field"><span>면접 결과</span>
           <div class="seg" id="res"><button type="button" data-v="pass" aria-pressed="${weak ? "false" : "true"}">합격 (수습 전환)</button><button type="button" data-v="pass_cond" aria-pressed="${weak ? "true" : "false"}">조건부 수습</button></div></div>
         <label class="field" id="condWrap">조건 (수습 때 함께 볼 점)<input type="text" id="cond" maxlength="500" placeholder="예: 합주 시 타 파트 청취 보완"></label>
+        </div>
         <div class="grid2">
           <label class="field">주 포지션<select id="pos"></select></label>
-          <label class="field">수습 시작일 (토요일)<input type="date" id="start" value="${nextSaturday()}"></label>
+          <label class="field" id="startWrap">수습 시작일 (토요일)<input type="date" id="start" value="${nextSaturday()}"></label>
         </div>
-        <p class="small muted" style="margin:0">수습을 시작하면 로그인 계정이 만들어지고, 임시 비밀번호가 아래 문구에 들어가요.</p>
+        <p class="small muted" style="margin:0">로그인 계정이 만들어지고, 임시 비밀번호가 아래 문구에 들어가요.</p>
         ${msgBox("")}`,
       onInput: (e) => {
         if (e?.target?.closest?.("#res button")) {
           $$("#res button").forEach((b) => b.setAttribute("aria-pressed", String(b === e.target.closest("button"))));
         }
-        $("#condWrap").classList.toggle("hidden", $("#res [aria-pressed=true]").dataset.v !== "pass_cond");
-        $("#mMsg").textContent = fillTemplate(t.body, ctxOf(a, { traineeStart: $("#start").value }));
+        const rj = !!$("#rejoin")?.checked;
+        $("#traineeFields").classList.toggle("hidden", rj);
+        $("#startWrap").classList.toggle("hidden", rj);
+        $("#condWrap").classList.toggle("hidden", rj || $("#res [aria-pressed=true]").dataset.v !== "pass_cond");
+        $("#mMsg").textContent = rj ? rejoinMsg() : fillTemplate(t.body, ctxOf(a, { traineeStart: $("#start").value }));
+        $("#mOk").textContent = rj ? "계정 만들고 바로 정식 전환" : "계정 만들고 수습 시작";
       },
       confirmLabel: "계정 만들고 수습 시작",
       onConfirm: async (close) => {
+        const rj = !!$("#rejoin")?.checked;
         const result = $("#res [aria-pressed=true]").dataset.v;
         const start = $("#start").value;
-        if (!start) throw new Error("수습 시작일을 정해 주세요.");
-        const r = await api("/api/start-trainee", { applicationId: a.id, mainPosition: $("#pos").value, startDate: start, result, condition: $("#cond").value });
-        await logMessage(a.id, "4");
+        if (!rj && !start) throw new Error("수습 시작일을 정해 주세요.");
+        const r = await api("/api/start-trainee", rj
+          ? { applicationId: a.id, mainPosition: $("#pos").value, rejoin: true }
+          : { applicationId: a.id, mainPosition: $("#pos").value, startDate: start, result, condition: $("#cond").value });
+        await logMessage(a.id, rj ? "7" : "4");
         await loadAll();
-        const text = fillTemplate(t.body, ctxOf(app(a.id), { tempPassword: r.tempPassword }));
+        const text = rj ? rejoinMsg({ tempPassword: r.tempPassword }) : fillTemplate(t.body, ctxOf(app(a.id), { tempPassword: r.tempPassword }));
         close();
         modal({
-          step: "③ 합격 + ④ 수습 시작 안내", title: `${a.name}님 수습을 시작했어요`,
+          step: rj ? "재가입 안내" : "③ 합격 + ④ 수습 시작 안내", title: rj ? `${a.name}님 다시 함께해요` : `${a.name}님 수습을 시작했어요`,
           body: `<p style="margin:0">임시 비밀번호 <span class="temp-pw">${esc(r.tempPassword)}</span></p>
             <p class="small muted" style="margin:0">임시 비밀번호는 지금 한 번만 보여요. 문구를 복사해 카톡으로 보내 주세요.</p>${msgBox(text)}`,
           cancelLabel: "닫기", confirmLabel: "문구 복사",
@@ -642,7 +685,7 @@
   // ---------------------------------------------------------------- 멤버
   function renderMembers() {
     const f = S.memberFilter;
-    const list = S.members.filter((m) => f === "all" ? m.is_active : f === "trainee" ? m.is_active && m.status === "trainee"
+    const list = f === "alumni" ? [] : S.members.filter((m) => f === "all" ? m.is_active : f === "trainee" ? m.is_active && m.status === "trainee"
       : f === "active" ? m.is_active && m.status === "active" : !m.is_active);
     const cnt = (fn) => S.members.filter(fn).length;
     $("#content").innerHTML = `
@@ -651,10 +694,17 @@
           <button type="button" data-f="all" aria-pressed="${f === "all"}">활동 ${cnt((m) => m.is_active)}</button>
           <button type="button" data-f="active" aria-pressed="${f === "active"}">정식 ${cnt((m) => m.is_active && m.status === "active")}</button>
           <button type="button" data-f="trainee" aria-pressed="${f === "trainee"}">수습 ${cnt((m) => m.is_active && m.status === "trainee")}</button>
-          <button type="button" data-f="off" aria-pressed="${f === "off"}">휴식·종료 ${cnt((m) => !m.is_active)}</button></div></div>
-      <p class="lead">추가 포지션을 지정하면 배치표 후보에 반영돼요. 리더십으로 지정한 사람은 관리자 화면을 쓰고 면접 평가표에 참여해요.</p>
-      <div class="mlist" id="mList">${list.map(memberHTML).join("") || `<div class="empty">해당하는 멤버가 없어요.</div>`}</div>`;
+          <button type="button" data-f="off" aria-pressed="${f === "off"}">휴면·종료 ${cnt((m) => !m.is_active)}</button>
+          <button type="button" data-f="alumni" aria-pressed="${f === "alumni"}">탈퇴 기록 ${(S.alumni || []).length}</button></div></div>
+      <p class="lead">${f === "alumni" ? "탈퇴할 때 재가입 확인용으로 이름·포지션·활동 기간·사유만 남겨요. 연락처 등 나머지 정보는 지워졌어요."
+        : "추가 포지션을 지정하면 배치표 후보에 반영돼요. 리더십으로 지정한 사람은 관리자 화면을 쓰고 면접 평가표에 참여해요."}</p>
+      ${f === "alumni" ? `<div class="loglist">${(S.alumni || []).map((x) => `<div style="grid-template-columns:140px 120px minmax(0,1fr)">
+          <b>${esc(x.name)}</b><span class="muted">${esc(positionName(x.main_position))}</span>
+          <span class="muted">${x.joined_at ? fmtDate(x.joined_at, { year: "numeric", month: "numeric", day: "numeric" }) + " ~ " : ""}${fmtDate(x.left_at, { year: "numeric", month: "numeric", day: "numeric" })}${x.reason ? " · " + esc(x.reason) : ""}</span></div>`).join("")
+          || `<div><span class="muted">아직 탈퇴 기록이 없어요</span></div>`}</div>`
+        : `<div class="mlist" id="mList">${list.map(memberHTML).join("") || `<div class="empty">해당하는 멤버가 없어요.</div>`}</div>`}`;
     $("#mFilter").onclick = (e) => { const b = e.target.closest("button"); if (b) { S.memberFilter = b.dataset.f; renderMembers(); } };
+    if (!$("#mList")) return;
     $("#mList").onclick = onMemberClick;
     $("#mList").onchange = onMemberChange;
   }
@@ -673,9 +723,10 @@
         <div class="field"><span>추가 포지션</span><div style="display:flex;flex-wrap:wrap;gap:6px 14px">${ps.filter((p) => p.code !== m.main_position).map((p) =>
           `<label style="display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:14px"><input type="checkbox" data-extra="${p.code}" ${ex.includes(p.code) ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--violet)">${esc(p.name)}</label>`).join("")}</div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${m.id !== S.me.id ? `<button type="button" class="btn btn-ghost btn-sm" data-act="active">${m.is_active ? "휴식으로 전환" : "활동으로 전환"}</button>
+          ${m.id !== S.me.id ? `<button type="button" class="btn btn-ghost btn-sm" data-act="active">${m.is_active ? "휴면으로 전환" : "활동으로 전환"}</button>
           <button type="button" class="btn btn-ghost btn-sm" data-act="role">${m.role === "admin" ? "리더십 해제" : "리더십으로 지정"}</button>` : ""}
           <button type="button" class="btn btn-ghost btn-sm" data-act="reset">비밀번호 초기화</button>
+          ${m.id !== S.me.id ? `<button type="button" class="btn btn-danger btn-sm" data-act="remove">탈퇴 처리</button>` : ""}
           ${m.application_id ? `<a class="btn btn-ghost btn-sm" href="#app/${m.application_id}">지원·수습 기록</a>` : ""}
         </div>
       </div></article>`;
@@ -693,6 +744,7 @@
       toast(act === "active" ? (m.is_active ? `${m.name}님 활동으로 전환` : `${m.name}님 휴식으로 전환`) : (m.role === "admin" ? `${m.name}님 리더십 지정` : `${m.name}님 리더십 해제`));
       return renderMembers();
     }
+    if (act === "remove") return openRemove(m);
     if (act === "reset") {
       modal({
         title: `${m.name}님 비밀번호 초기화`, body: `<p style="margin:0">새 임시 비밀번호를 발급해요. 지금 쓰는 비밀번호로는 더 이상 로그인할 수 없어요.</p>`,
@@ -708,6 +760,33 @@
       });
     }
   }
+  function openRemove(m) {
+    modal({
+      step: "탈퇴 처리", title: `${m.name}님 탈퇴 처리`,
+      body: `<div class="field"><span>사유</span><div class="seg" id="rmWhy">${REMOVE_REASONS.map((r, i) => `<button type="button" data-v="${r}" aria-pressed="${i === 0}">${r}</button>`).join("")}</div></div>
+        <label class="field">메모 (선택)<input type="text" id="rmNote" maxlength="100" placeholder="예: 2026년 가을 파송"></label>
+        <div class="grid2" style="font-size:14px">
+          <div class="card" style="background:var(--bg);padding:12px 14px"><b>남는 것</b><ul style="margin:6px 0 0;padding-left:18px">
+            <li>탈퇴 기록: 이름·포지션·활동 기간·사유 (재가입 확인용)</li><li>지난 배치표의 이름</li></ul></div>
+          <div class="card" style="background:var(--bad-bg);padding:12px 14px"><b>지워지는 것</b><ul style="margin:6px 0 0;padding-left:18px">
+            <li>로그인 계정, 연락처·이메일</li><li>지원서·서약, 평가표, 수습 기록</li><li>섬김 응답, 출석</li></ul></div>
+        </div>
+        <p class="notice warn" style="margin:0">되돌릴 수 없어요. 잠시 쉬는 경우라면 탈퇴 대신 '휴면으로 전환'을 써 주세요.</p>
+        <label class="field">확인을 위해 이름을 입력해 주세요<input type="text" id="rmName" placeholder="${esc(m.name)}" autocomplete="off"></label>`,
+      onInput: (e) => {
+        if (e?.target?.closest?.("#rmWhy button")) $$("#rmWhy button").forEach((b) => b.setAttribute("aria-pressed", String(b === e.target.closest("button"))));
+        $("#mOk").disabled = $("#rmName").value.trim() !== m.name;
+      },
+      confirmLabel: "탈퇴 처리", danger: true,
+      onConfirm: async (close) => {
+        const why = $("#rmWhy [aria-pressed=true]").dataset.v, note = $("#rmNote").value.trim();
+        await api("/api/remove-member", { memberId: m.id, reason: note ? `${why} · ${note}` : why, confirmName: $("#rmName").value.trim() });
+        await loadAll(); close(); toast(`${m.name}님을 탈퇴 처리했어요`); renderMembers();
+      },
+    });
+    $("#mOk").disabled = true;
+  }
+
   async function onMemberChange(e) {
     const cb = e.target.closest("[data-extra]"); if (!cb) return;
     const id = cb.closest(".mitem").dataset.id, code = cb.dataset.extra;
@@ -968,6 +1047,11 @@
       const cells = sundays.map((d) => {
         const a = at(d, p.code, slot), m = a && mem(a.member_id);
         const valid = active && canPlace(active, d, p.code);
+        if (a && !m) {
+          return `<div class="lu-cell ${valid ? "valid" : ""}" data-d="${d}" data-pos="${p.code}" data-slot="${slot}">
+            <div class="lu-chip" data-aid="${a.id}" style="cursor:default;opacity:.75"><span class="nm">${esc(a.former_name || "탈퇴한 멤버")} (탈퇴)</span>
+              <button type="button" class="lu-x" data-remove aria-label="${esc(a.former_name || "탈퇴한 멤버")} 빼기"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div></div>`;
+        }
         if (m) {
           const dup = asg(d).filter((x) => x.member_id === m.id).length > 1;
           const satNo = ans(m, d, "sat") === false, sunNo = ans(m, d, "sun") === false;
@@ -1121,7 +1205,7 @@
 
     $("#luClear").addEventListener("click", () => modal({
       title: `${monthLabel(V.data.month)} 배치 전체 비우기`, body: `<p style="margin:0">이 달의 모든 배치를 지워요. 공개된 배치표도 함께 비워져요.</p>`,
-      confirmLabel: "전체 비우기",
+      confirmLabel: "전체 비우기", danger: true,
       onConfirm: async (close) => {
         const ids = V.data.services.map((s) => s.id);
         if (ids.length) { const { error } = await sb.from("assignments").delete().in("service_id", ids); if (error) throw new Error("비우지 못했습니다"); }
@@ -1153,6 +1237,59 @@
         },
       });
     });
+  }
+
+  // ---------------------------------------------------------------- 설정 · 테스트 데이터
+  async function renderSettings() {
+    $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">설정</h1></div><div class="empty">불러오는 중…</div>`;
+    let st = { members: 0, applications: 0, password: "" };
+    try { st = await api("/api/demo", { action: "status" }); } catch (e) { toast(e.message); }
+    const has = st.members + st.applications > 0;
+    $("#content").innerHTML = `
+      <div class="page-head"><h1 class="page-title">설정</h1></div>
+      <section class="card bordered" style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px">
+          <h2 style="font-size:17px;font-weight:800">리더십 테스트 데이터</h2>
+          <span class="chip ${has ? "chip-mid" : "chip-gray"}">${has ? `테스트 팀원 ${st.members}명 · 지원서 ${st.applications}건 있음` : "없음"}</span>
+        </div>
+        <p style="margin:0">실제 운영 전에 리더십이 기능을 눌러볼 수 있도록 가상의 팀원·지원자·응답·배치표를 만들어요.
+          이름 끝에 <b>(T)</b>, 이메일은 <b>@pole2.test</b>로 표시되고, <b>모두 지우기</b>는 이 표시가 있는 데이터만 지워요.</p>
+        <div class="grid2" style="font-size:14px">
+          <div class="card" style="background:var(--bg)"><b>만들어지는 것</b><ul style="margin:6px 0 0;padding-left:18px;line-height:1.8">
+            <li>정식 팀원 11명 + 휴면 1명 (포지션·멀티 포지션 포함)</li>
+            <li>지원자: 접수 2 · 면접 1 · 수습 3주차 1 · 재가입 면담 1 · 종료 2 (그중 1건은 3개월 지난 일괄 삭제 대상)</li>
+            <li>다음 달 섬김 응답 (열린 상태, 미응답자 포함)</li>
+            <li>이번 달 남은 주일 배치표 (공개 상태)</li></ul></div>
+          <div class="card" style="background:var(--bg)"><b>폰으로 로그인해 보기</b><ul style="margin:6px 0 0;padding-left:18px;line-height:1.8">
+            <li>팀원: <b>demo02@pole2.test</b> (김하늘(T))</li>
+            <li>수습생: <b>trainee1@pole2.test</b> (노새벽(T))</li>
+            <li>비밀번호: <b>${esc(st.password || "pole2test!")}</b></li></ul></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn btn-primary" id="demoSeed" ${has ? "disabled" : ""}>테스트 데이터 만들기</button>
+          <button type="button" class="btn btn-danger" id="demoClear" ${has ? "" : "disabled"}>테스트 데이터 모두 지우기</button>
+        </div>
+        <p class="small muted" style="margin:0">실제 운영을 시작하기 전에 꼭 지워 주세요. 테스트 중 리더십이 직접 만든 지원서·계정은 @pole2.test 이메일을 쓰면 함께 지워져요.</p>
+      </section>`;
+    $("#demoSeed").addEventListener("click", () => modal({
+      title: "테스트 데이터 만들기", body: `<p style="margin:0">계정을 여러 개 만드느라 10~20초 걸려요. 실제 팀원 데이터는 바뀌지 않아요.</p>`,
+      confirmLabel: "만들기",
+      onConfirm: async (close) => {
+        $("#mOk").textContent = "만드는 중…";
+        const r = await api("/api/demo", { action: "seed" });
+        await loadAll(); close();
+        toast(`테스트 팀원 ${r.members}명 · 지원자 ${r.applicants}명 · 배치 ${r.lineups}주를 만들었어요`, 4000);
+        renderSettings();
+      },
+    }));
+    $("#demoClear").addEventListener("click", () => modal({
+      title: "테스트 데이터 모두 지우기", body: `<p style="margin:0">(T) · @pole2.test 표시가 있는 팀원·지원서·응답·배치를 모두 지워요. 되돌릴 수 없어요.</p>`,
+      confirmLabel: "모두 지우기", danger: true,
+      onConfirm: async (close) => {
+        const r = await api("/api/demo", { action: "clear" });
+        await loadAll(); close(); toast(`테스트 계정 ${r.removedMembers}개 · 지원서 ${r.removedApplications}건을 지웠어요`); renderSettings();
+      },
+    }));
   }
 
   // ---------------------------------------------------------------- 시작

@@ -1,17 +1,20 @@
 // POST /api/start-trainee
-// { applicationId, mainPosition, startDate: "YYYY-MM-DD", result: "pass"|"pass_cond", condition }
+// { applicationId, mainPosition, startDate: "YYYY-MM-DD", result: "pass"|"pass_cond", condition, rejoin }
 // 면접 → 수습: 계정 생성(임시 비밀번호) + 수습생 등록
+// rejoin=true: 재가입 — 면담 후 수습 없이 바로 정식 (규정 제3조 바항)
 import { adminClient, requireAdmin, tempPassword, handler, HttpError } from "./_lib.js";
 
 export default handler(async (req, body) => {
   const db = adminClient();
   await requireAdmin(req, db);
 
-  const { applicationId, mainPosition, startDate, result, condition } = body;
+  const { applicationId, mainPosition, startDate, result, condition, rejoin } = body;
   if (!applicationId) throw new HttpError(400, "지원자가 지정되지 않았습니다.");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate || "")) throw new HttpError(400, "수습 시작일을 정해 주세요.");
-  if (!["pass", "pass_cond"].includes(result)) throw new HttpError(400, "면접 결과를 골라 주세요.");
-  if (result === "pass_cond" && !String(condition || "").trim()) throw new HttpError(400, "조건부 수습의 조건을 적어 주세요.");
+  if (!rejoin) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate || "")) throw new HttpError(400, "수습 시작일을 정해 주세요.");
+    if (!["pass", "pass_cond"].includes(result)) throw new HttpError(400, "면접 결과를 골라 주세요.");
+    if (result === "pass_cond" && !String(condition || "").trim()) throw new HttpError(400, "조건부 수습의 조건을 적어 주세요.");
+  }
 
   const { data: app } = await db.from("applications")
     .select("id, name, email, stage, applied_position").eq("id", applicationId).maybeSingle();
@@ -29,18 +32,22 @@ export default handler(async (req, body) => {
       : `계정을 만들지 못했습니다: ${createErr.message}`);
   }
 
-  const { error: rpcErr } = await db.rpc("start_trainee", {
-    p_application_id: app.id,
-    p_user_id: created.user.id,
-    p_main_position: mainPosition || app.applied_position,
-    p_start: startDate,
-    p_result: result,
-    p_condition: result === "pass_cond" ? String(condition).trim() : null,
-  });
+  const { error: rpcErr } = rejoin
+    ? await db.rpc("start_rejoin", {
+        p_application_id: app.id, p_user_id: created.user.id, p_main_position: mainPosition || app.applied_position,
+      })
+    : await db.rpc("start_trainee", {
+        p_application_id: app.id,
+        p_user_id: created.user.id,
+        p_main_position: mainPosition || app.applied_position,
+        p_start: startDate,
+        p_result: result,
+        p_condition: result === "pass_cond" ? String(condition).trim() : null,
+      });
   if (rpcErr) {
     await db.auth.admin.deleteUser(created.user.id);   // 되돌리기
     throw new HttpError(400, `수습 등록에 실패했습니다: ${rpcErr.message}`);
   }
 
-  return { name: app.name, email: app.email, tempPassword: password };
+  return { name: app.name, email: app.email, tempPassword: password, rejoin: !!rejoin };
 });
