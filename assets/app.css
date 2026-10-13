@@ -311,3 +311,62 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .mitem .nm { font-weight: 800; font-size: 16px; }
 .mitem .mt { font-size: 13px; color: var(--muted); }
 .mitem .body { border-top: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+/* ---------- 섬김 응답 ---------- */
+.ans {
+  min-height: 46px; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer;
+  background: #fff; color: var(--muted); border: 1px solid var(--line-2);
+}
+.ans[data-v=true][aria-pressed=true] { background: var(--violet); color: #fff; border-color: var(--violet); }
+.ans[data-v=false][aria-pressed=true] { background: #5B536B; color: #fff; border-color: #5B536B; }
+
+/* ---------- 응답 현황표 ---------- */
+.resp-table td, .resp-table th { padding: 8px 10px; text-align: center; font-size: 14px; }
+.resp-table td:first-child, .resp-table th:first-child, .resp-table td:nth-child(2) { text-align: left; }
+.resp-table th.sub { font-size: 12px; padding-top: 0; }
+.resp-table td.a-yes { color: var(--ok); background: var(--ok-bg); font-weight: 700; font-size: 13px; }
+.resp-table td.a-no { color: #fff; background: #8C849B; font-weight: 700; font-size: 13px; }
+.resp-table td.a-none { color: var(--warn); font-weight: 700; }
+.resp-table td:last-child { text-align: left; }
+
+/* ---------- 배치표 ---------- */
+.lu-board { flex: 999 1 640px; min-width: 0; overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: var(--r-lg); }
+.lu-inner { min-width: calc(120px + var(--cols) * 140px); }
+.lu-row { display: grid; grid-template-columns: 120px repeat(var(--cols), minmax(140px, 1fr)); border-top: 1px solid #F7F3FC; }
+.lu-row.first { border-top: 1px solid var(--line); }
+.lu-head { border-top: 0; border-bottom: 1px solid var(--line); }
+.lu-foot { border-top: 1px solid var(--line); background: #FBF8FE; }
+.lu-label { padding: 0 14px; display: flex; flex-direction: column; justify-content: center; min-height: 54px; }
+.lu-label b { font-size: 14px; color: var(--ink-2); }
+.lu-label span { font-size: 12px; color: var(--faint); }
+.lu-date {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border: 0; border-left: 1px solid #F1EAFB;
+  background: #fff; color: var(--ink-2); cursor: pointer; text-align: left;
+}
+.lu-date b { font-size: 16px; font-weight: 800; }
+.lu-date span { font-size: 12px; font-weight: 600; }
+.lu-date.on { background: var(--violet); color: #fff; }
+.lu-cell { min-height: 54px; padding: 6px 8px; border-left: 1px solid #F1EAFB; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.lu-cell.empty span { font-size: 13px; font-weight: 600; color: #C3BACF; outline: 1px dashed #E4DAF2; outline-offset: 4px; border-radius: 6px; padding: 6px; text-align: center; }
+.lu-cell.valid { background: var(--tint-3); box-shadow: inset 0 0 0 2px var(--violet-mid); cursor: pointer; }
+.lu-cell.valid.empty span { color: var(--violet); outline: 0; }
+.lu-chip { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 10px; border-radius: 8px; cursor: grab; background: var(--bg); border: 1px solid var(--line); }
+.lu-chip.role-on { background: var(--tint-2); border-color: var(--violet-soft); }
+.lu-chip .nm { font-size: 14px; font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lu-role { flex: none; height: 24px; padding: 0 7px; border-radius: 6px; font-size: 11px; font-weight: 800; cursor: pointer; background: #fff; color: var(--faint); border: 1px dashed var(--violet-soft); }
+.lu-role[aria-pressed=true] { background: var(--violet); color: #fff; border: 1px solid var(--violet); }
+.lu-x { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--muted-2); cursor: pointer; border-radius: 6px; }
+.lu-x:hover { background: #fff; }
+.lu-warn { font-size: 11px; font-weight: 700; color: var(--warn); padding: 0 4px; }
+.lu-check { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; border-left: 1px solid #F1EAFB; font-size: 12px; color: var(--muted); }
+.lu-check .ok { color: var(--ok); font-weight: 700; }
+.lu-check .warn { color: var(--warn); font-weight: 700; }
+.lu-pool {
+  flex: 1 1 300px; max-width: 360px; background: #fff; border: 1px solid var(--line); border-radius: var(--r-lg);
+  padding: 18px 16px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 16px;
+}
+.lu-pool.drop { border: 2px dashed var(--violet-mid); }
+.lu-cand { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px; border-radius: 10px; cursor: grab; background: #fff; border: 1px solid #E4DAF2; }
+.lu-cand.picked { background: var(--violet); color: #fff; border-color: var(--violet); }
+.lu-cand.picked .muted { color: #E4D6F7; }
+.lu-cand.placed { background: #FBF8FE; opacity: .65; }

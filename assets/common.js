@@ -35,6 +35,24 @@
     return addDays(t, ((6 - dow + 7) % 7) || 7);
   };
   window.md = (iso) => { const [, m, d] = iso.split("-"); return `${+m}/${+d}`; };
+  // 그 달의 주일 목록 (monthISO = "YYYY-MM-01")
+  window.sundaysOf = (monthISO) => {
+    const out = []; let d = monthISO;
+    while (new Date(d + "T00:00:00Z").getUTCDay() !== 0) d = addDays(d, 1);
+    while (d.slice(0, 7) === monthISO.slice(0, 7)) { out.push(d); d = addDays(d, 7); }
+    return out;
+  };
+  window.monthOf = (iso) => iso.slice(0, 8) + "01";
+  window.addMonths = (monthISO, n) => {
+    const [y, m] = monthISO.split("-").map(Number);
+    const t = new Date(Date.UTC(y, m - 1 + n, 1));
+    return t.toISOString().slice(0, 10);
+  };
+  window.monthLabel = (monthISO) => `${+monthISO.slice(5, 7)}월`;
+  window.dday = (iso) => {
+    const n = Math.round((new Date(iso) - new Date(todayISO())) / 86400000);
+    return n > 0 ? `D-${n}` : n === 0 ? "오늘 마감" : "마감 지남";
+  };
 
   // ---------- 수습 일정 ----------
   // n주차 토요일 = 시작일 + 7×(n−1) + (n주차 이전·당일에 시작된 연기 주 수 합)×7
