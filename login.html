@@ -2,116 +2,95 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>로그인 · 찬양팀</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#410A85">
+  <title>로그인 · Pole2 찬양팀</title>
+  <link rel="icon" href="assets/logo-violet.png">
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-  <header class="masthead">
-    <div class="masthead-inner">
-      <p class="team" data-team-name></p>
-      <h1 id="title">팀원 로그인</h1>
-    </div>
-    <div class="staff" aria-hidden="true"></div>
+<div class="m-wrap">
+  <header style="background: linear-gradient(150deg, var(--violet-hi) 0%, var(--violet) 75%); color: #fff; padding: 32px 24px 64px; display: flex; flex-direction: column; gap: 22px">
+    <a href="index.html" style="align-self: flex-start"><img src="assets/logo-white.png" alt="Pole2 처음으로" style="height: 30px; display: block"></a>
+    <h1 id="title" style="font-size: 26px; font-weight: 800">팀원 로그인</h1>
   </header>
 
-  <main class="page">
+  <main style="padding: 0 20px 40px; margin-top: -40px; display: flex; flex-direction: column; gap: 12px">
     <div id="msg" class="notice hidden" role="alert"></div>
 
-    <form id="loginForm" class="panel hidden" novalidate>
-      <div class="field">
-        <label for="email">이메일</label>
-        <input id="email" type="email" autocomplete="username" required>
-      </div>
-      <div class="field">
-        <label for="password">비밀번호</label>
-        <input id="password" type="password" autocomplete="current-password" required>
-      </div>
+    <form id="loginForm" class="card hidden" novalidate style="display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(65,10,133,.08)">
+      <label class="field">이메일<input id="email" type="email" autocomplete="username"></label>
+      <label class="field">비밀번호<input id="password" type="password" autocomplete="current-password"></label>
       <button class="btn btn-primary btn-block" id="loginBtn">로그인</button>
-      <p class="hint" style="margin:14px 0 0;text-align:center">
-        비밀번호를 잊었다면 리더에게 초기화를 요청해 주세요.<br>
-        아직 팀원이 아니라면 <a href="apply.html">가입 신청</a>
-      </p>
+      <p class="muted small" style="margin: 0; text-align: center">비밀번호를 잊었다면 리더에게 초기화를 요청해 주세요.<br>아직 팀원이 아니라면 <a href="apply.html">지원하기</a></p>
     </form>
 
-    <form id="changeForm" class="panel hidden" novalidate>
-      <p class="lead">처음 로그인하셨네요. 임시 비밀번호를 본인만 아는 비밀번호로 바꿔 주세요.</p>
-      <div class="field">
-        <label for="newPw">새 비밀번호</label>
-        <p class="hint">8자 이상</p>
-        <input id="newPw" type="password" autocomplete="new-password" minlength="8" required>
-      </div>
-      <div class="field">
-        <label for="newPw2">새 비밀번호 확인</label>
-        <input id="newPw2" type="password" autocomplete="new-password" required>
-      </div>
-      <button class="btn btn-primary btn-block" id="changeBtn">비밀번호 변경</button>
+    <form id="changeForm" class="card hidden" novalidate style="display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 24px rgba(65,10,133,.08)">
+      <p class="muted" style="margin: 0">처음 로그인하셨네요. 임시 비밀번호를 본인만 아는 비밀번호로 바꿔 주세요.</p>
+      <label class="field">새 비밀번호<span class="hint">8자 이상</span><input id="newPw" type="password" autocomplete="new-password"></label>
+      <label class="field">새 비밀번호 확인<input id="newPw2" type="password" autocomplete="new-password"></label>
+      <button class="btn btn-primary btn-block" id="changeBtn">비밀번호 바꾸기</button>
     </form>
   </main>
+</div>
 
-  <script src="assets/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="assets/common.js"></script>
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const params = new URLSearchParams(location.search);
+<script src="assets/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/common.js"></script>
+<script>
+  const el = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
 
-    function say(text, kind = "error") {
-      $("msg").className = `notice ${kind}`;
-      $("msg").textContent = text;
+  function say(text, kind = "error") { el("msg").className = `notice ${kind}`; el("msg").textContent = text; }
+
+  async function route() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { el("loginForm").classList.remove("hidden"); return; }
+    const { data: me } = await sb.from("members").select("role, is_active, must_change_password")
+      .eq("id", session.user.id).maybeSingle();
+    if (!me || !me.is_active) {
+      await sb.auth.signOut();
+      say("활동 중인 팀원 계정이 아닙니다. 리더에게 문의해 주세요.");
+      el("loginForm").classList.remove("hidden");
+      return;
     }
-
-    async function route() {
-      const { data: { session } } = await sb.auth.getSession();
-      if (!session) { $("loginForm").classList.remove("hidden"); return; }
-
-      const { data: me } = await sb.from("members").select("role, is_active, must_change_password")
-        .eq("id", session.user.id).maybeSingle();
-
-      if (!me || !me.is_active) {
-        await sb.auth.signOut();
-        say("승인된 팀원 계정이 아닙니다. 리더에게 문의해 주세요.");
-        $("loginForm").classList.remove("hidden");
-        return;
-      }
-      if (me.must_change_password) {
-        $("title").textContent = "비밀번호 설정";
-        $("loginForm").classList.add("hidden");
-        $("changeForm").classList.remove("hidden");
-        return;
-      }
-      location.replace(me.role === "admin" ? "admin.html" : "me.html");
+    if (me.must_change_password) {
+      el("title").textContent = "비밀번호 설정";
+      el("loginForm").classList.add("hidden");
+      el("changeForm").classList.remove("hidden");
+      return;
     }
+    location.replace(me.role === "admin" ? "admin.html" : "me.html");
+  }
 
-    if (params.get("denied")) say("승인된 팀원 계정이 아닙니다. 리더에게 문의해 주세요.");
+  if (params.get("denied")) say("활동 중인 팀원 계정이 아닙니다. 리더에게 문의해 주세요.");
+  route();
+
+  el("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = el("email").value.trim().toLowerCase(), password = el("password").value;
+    if (!email || !password) return say("이메일과 비밀번호를 입력해 주세요.");
+    el("loginBtn").disabled = true;
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    el("loginBtn").disabled = false;
+    if (error) return say("이메일 또는 비밀번호가 맞지 않습니다.");
+    el("msg").className = "notice hidden";
     route();
+  });
 
-    $("loginForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const email = $("email").value.trim().toLowerCase();
-      const password = $("password").value;
-      if (!email || !password) return say("이메일과 비밀번호를 입력해 주세요.");
-      $("loginBtn").disabled = true;
-      const { error } = await sb.auth.signInWithPassword({ email, password });
-      $("loginBtn").disabled = false;
-      if (error) return say("이메일 또는 비밀번호가 맞지 않습니다.");
-      $("msg").className = "notice hidden";
-      route();
-    });
-
-    $("changeForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const pw = $("newPw").value, pw2 = $("newPw2").value;
-      if (pw.length < 8) return say("비밀번호는 8자 이상으로 정해 주세요.");
-      if (pw !== pw2) return say("두 비밀번호가 서로 다릅니다.");
-      $("changeBtn").disabled = true;
-      const { data: { user } } = await sb.auth.getUser();
-      const { error } = await sb.auth.updateUser({ password: pw });
-      if (error) { $("changeBtn").disabled = false; return say("비밀번호를 바꾸지 못했습니다. 다른 비밀번호로 시도해 주세요."); }
-      await sb.from("members").update({ must_change_password: false }).eq("id", user.id);
-      toast("비밀번호를 변경했습니다");
-      route();
-    });
-  </script>
+  el("changeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pw = el("newPw").value, pw2 = el("newPw2").value;
+    if (pw.length < 8) return say("비밀번호는 8자 이상으로 정해 주세요.");
+    if (pw !== pw2) return say("두 비밀번호가 서로 다릅니다.");
+    el("changeBtn").disabled = true;
+    const { data: { user } } = await sb.auth.getUser();
+    const { error } = await sb.auth.updateUser({ password: pw });
+    if (error) { el("changeBtn").disabled = false; return say("비밀번호를 바꾸지 못했습니다. 다른 비밀번호로 시도해 주세요."); }
+    await sb.from("members").update({ must_change_password: false }).eq("id", user.id);
+    toast("비밀번호를 바꿨어요");
+    route();
+  });
+</script>
 </body>
 </html>

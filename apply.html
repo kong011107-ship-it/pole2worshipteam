@@ -2,157 +2,172 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>가입 신청 · 찬양팀</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#410A85">
+  <title>지원서 · Pole2 찬양팀</title>
+  <link rel="icon" href="assets/logo-violet.png">
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-  <header class="masthead">
-    <div class="masthead-inner">
-      <p class="team" data-team-name></p>
-      <h1>찬양팀 가입 신청</h1>
+<div class="m-wrap">
+  <header style="background: linear-gradient(150deg, var(--violet-hi) 0%, var(--violet) 75%); color: #fff; padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 18px">
+    <a href="index.html" style="align-self: flex-start"><img src="assets/logo-white.png" alt="Pole2 처음으로" style="height: 28px; display: block"></a>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <h1 style="font-size: 26px; font-weight: 800; line-height: 1.3">찬양팀 지원서</h1>
+      <p style="margin: 0; font-size: 15px; color: #E4D6F7">지원부터 정식 팀원까지 4단계로 함께합니다. 문항은 짧게 써도 괜찮아요.</p>
     </div>
-    <div class="staff" aria-hidden="true"></div>
+    <ol aria-label="진행 단계" style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 6px; font-size: 12px; font-weight: 600; color: #C9B2EC">
+      <li style="display: flex; flex-direction: column; gap: 6px; color: #fff; font-weight: 700"><span style="height: 4px; border-radius: 999px; background: #fff"></span>지원</li>
+      <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 999px; background: rgba(255,255,255,.28)"></span>면접</li>
+      <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 999px; background: rgba(255,255,255,.28)"></span>수습 5주</li>
+      <li style="display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 999px; background: rgba(255,255,255,.28)"></span>정식 전환</li>
+    </ol>
   </header>
 
-  <main class="page">
-    <div id="done" class="panel hidden">
-      <h2 class="section-title">신청서를 제출했습니다</h2>
-      <p class="lead" style="margin:0">리더가 확인한 뒤 연락드릴게요. 승인되면 로그인 정보를 따로 보내드립니다.</p>
-    </div>
+  <main class="m-main" style="padding-bottom: 40px">
+    <section id="done" class="card hidden" style="display: flex; flex-direction: column; gap: 8px">
+      <h2 style="font-size: 20px; font-weight: 800">지원서를 보냈어요</h2>
+      <p class="muted" style="margin: 0">접수 확인 안내를 카톡으로 보내드릴게요. 리더십이 지원서를 함께 읽은 뒤 다음 단계를 안내해 드립니다.</p>
+    </section>
 
-    <form id="form" novalidate>
+    <section id="closed" class="card hidden" style="display: flex; flex-direction: column; gap: 8px">
+      <h2 style="font-size: 20px; font-weight: 800">지금은 모집 중인 포지션이 없어요</h2>
+      <p class="muted" style="margin: 0">다음 모집 때 다시 찾아와 주세요.</p>
+    </section>
+
+    <form id="form" novalidate style="display: flex; flex-direction: column; gap: 16px">
       <div id="error" class="notice error hidden" role="alert"></div>
 
-      <section class="section">
-        <h2 class="section-title">신청서</h2>
-        <p class="lead">승인 후에도 로그인해서 작성한 내용을 다시 볼 수 있어요.</p>
-        <div class="panel">
-          <div class="field">
-            <label for="name">이름<span class="req">*</span></label>
-            <input id="name" type="text" maxlength="30" autocomplete="name" required>
-          </div>
-          <div class="field">
-            <label for="phone">연락처<span class="req">*</span></label>
-            <input id="phone" type="tel" inputmode="numeric" placeholder="010-0000-0000" autocomplete="tel" required>
-          </div>
-          <div class="field">
-            <label for="email">이메일<span class="req">*</span></label>
-            <p class="hint">승인되면 이 이메일이 로그인 아이디가 됩니다.</p>
-            <input id="email" type="email" autocomplete="email" required>
-          </div>
-          <div class="field">
-            <label for="position">지원 포지션<span class="req">*</span></label>
-            <select id="position" required><option value="">선택해 주세요</option></select>
-          </div>
-          <div class="field">
-            <label for="experience">섬김 경력</label>
-            <p class="hint">이전에 섬겼던 팀, 악기·보컬 경력 등</p>
-            <textarea id="experience" maxlength="1000"></textarea>
-          </div>
-          <div class="field">
-            <label for="motivation">지원 동기</label>
-            <textarea id="motivation" maxlength="1000"></textarea>
-          </div>
+      <section class="card" style="display: flex; flex-direction: column; gap: 12px">
+        <div>
+          <h2 class="card-title" style="font-weight: 800">지원 자격 확인</h2>
+          <p class="muted small" style="margin: 4px 0 0">연주 실력보다 공동체 소속과 시간 헌신을 먼저 확인해요. 세 가지 모두 해당해야 지원할 수 있어요.</p>
         </div>
+        <label class="checkrow"><input type="checkbox" id="qPractice"><span><b>토요 팀 연습·팀모임에 빠짐없이 참석할 수 있어요</b><small>모든 팀원의 상시 의무예요</small></span></label>
+        <label class="checkrow"><input type="checkbox" id="qSunday"><span><b>주일 예배에 함께 참여할 수 있어요</b></span></label>
+        <label class="checkrow"><input type="checkbox" id="qGroup"><span><b>주일 순모임에 소속되어 참여하고 있어요</b></span></label>
       </section>
 
-      <section class="section">
-        <h2 class="section-title" id="pledge-title">서약서</h2>
-        <p class="lead">아래 내용을 읽고 서약해 주세요. 서약한 문구는 그대로 보관됩니다.</p>
-        <div class="panel">
-          <div id="pledge" class="pledge-box">불러오는 중…</div>
-          <label class="check"><input type="checkbox" id="pledgeAgree"> 위 서약서의 내용을 읽었으며, 이에 서약합니다.</label>
-        </div>
+      <section class="card" style="display: flex; flex-direction: column; gap: 14px">
+        <h2 class="card-title" style="font-weight: 800">기본 정보</h2>
+        <label class="field">이름<input type="text" id="name" maxlength="30" autocomplete="name"></label>
+        <label class="field">연락처<input type="tel" id="phone" inputmode="numeric" placeholder="010-0000-0000" autocomplete="tel"></label>
+        <label class="field">이메일<span class="hint">수습을 시작하면 이 이메일로 로그인해요</span><input type="email" id="email" autocomplete="email" placeholder="name@example.com"></label>
+        <label class="field">소속 순모임<input type="text" id="group" maxlength="30" placeholder="예: 3순"></label>
       </section>
 
-      <section class="section">
-        <h2 class="section-title">개인정보 수집·이용 동의</h2>
-        <div class="panel">
-          <table class="privacy-table">
-            <tr><th>수집 항목</th><td>이름, 연락처, 이메일, 지원 포지션, 섬김 경력, 지원 동기</td></tr>
-            <tr><th>이용 목적</th><td>찬양팀 가입 심사, 팀원 관리, 섬김 일정 안내</td></tr>
-            <tr><th>보유 기간</th><td>찬양팀 활동 종료 시까지. 활동 종료 또는 가입 반려 시 지체 없이 파기합니다.</td></tr>
-          </table>
-          <p class="hint" style="margin:0 0 12px">동의를 거부할 수 있으며, 이 경우 가입 신청이 어렵습니다.</p>
-          <label class="check"><input type="checkbox" id="privacyAgree"> 개인정보 수집·이용에 동의합니다.</label>
+      <section class="card" style="display: flex; flex-direction: column; gap: 12px">
+        <div>
+          <h2 class="card-title" style="font-weight: 800">지원 포지션</h2>
+          <p class="muted small" style="margin: 4px 0 0">지금 모집 중인 포지션이에요</p>
         </div>
+        <div class="choice-grid" id="positions" role="radiogroup" aria-label="지원 포지션"></div>
       </section>
 
-      <div class="section">
-        <button type="submit" class="btn btn-primary btn-block" id="submit">신청서 제출</button>
-      </div>
+      <section class="card" style="display: flex; flex-direction: column; gap: 14px">
+        <label class="field" style="font-size: 15px; font-weight: 800">지원 동기<span class="hint">면접에서 함께 나눌 이야기예요. 짧아도 괜찮아요.</span><textarea id="motivation" maxlength="1000"></textarea></label>
+        <label class="field" style="font-size: 15px; font-weight: 800">찬양팀을 통해 이루고 싶은 것<span class="hint">짧아도 괜찮아요.</span><textarea id="goal" maxlength="1000"></textarea></label>
+      </section>
+
+      <section class="card" style="display: flex; flex-direction: column; gap: 12px">
+        <h2 class="card-title" style="font-weight: 800" id="pledgeTitle">찬양팀 서약서</h2>
+        <div class="pledge-box" id="pledge">불러오는 중…</div>
+        <label class="checkrow"><input type="checkbox" id="pledgeAgree"><span><b>위 내용을 읽었으며, 이에 서약합니다</b></span></label>
+      </section>
+
+      <section class="card" style="display: flex; flex-direction: column; gap: 12px">
+        <h2 class="card-title" style="font-weight: 800">개인정보 수집·이용 동의</h2>
+        <dl class="kv" style="grid-template-columns: 72px minmax(0,1fr); font-size: 14px">
+          <dt>수집 항목</dt><dd>이름, 연락처, 이메일, 순모임, 포지션, 지원 동기, 이루고 싶은 것</dd>
+          <dt>이용 목적</dt><dd>지원 심사, 면접·수습 운영, 팀원 관리</dd>
+          <dt>보유 기간</dt><dd>찬양팀 활동 종료 시까지. 미선발 시 지체 없이 파기합니다.</dd>
+        </dl>
+        <p class="muted small" style="margin: 0">동의하지 않을 수 있으며, 이 경우 지원이 어려워요.</p>
+        <label class="checkrow"><input type="checkbox" id="privacyAgree"><span><b>개인정보 수집·이용에 동의합니다</b></span></label>
+      </section>
+
+      <button type="submit" class="btn btn-primary btn-block" id="submit" disabled>지원 자격을 모두 확인해 주세요</button>
+      <p class="muted small" style="margin: 0; text-align: center">제출하면 접수 확인 안내를 카톡으로 보내드려요.</p>
     </form>
   </main>
+</div>
 
-  <script src="assets/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="assets/common.js"></script>
-  <script>
-    const $ = (id) => document.getElementById(id);
+<script src="assets/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/common.js"></script>
+<script>
+  const el = (id) => document.getElementById(id);
+  const quals = ["qPractice", "qSunday", "qGroup"];
 
-    (async function init() {
-      try {
-        const positions = await loadPositions();
-        $("position").insertAdjacentHTML("beforeend",
-          positions.map((p) => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join(""));
+  (async function init() {
+    try {
+      const positions = (await loadPositions()).filter((p) => p.is_recruiting);
+      if (!positions.length) { el("form").classList.add("hidden"); el("closed").classList.remove("hidden"); return; }
+      el("positions").innerHTML = positions.map((p) =>
+        `<label><input type="radio" name="pos" value="${esc(p.code)}">${esc(p.name)}</label>`).join("");
 
-        const { data: pledge, error } = await sb.from("pledge_versions")
-          .select("title, content").eq("is_active", true).maybeSingle();
-        if (error) throw error;
-        if (!pledge) { $("pledge").textContent = "등록된 서약서가 없습니다. 리더에게 문의해 주세요."; $("submit").disabled = true; return; }
-        $("pledge-title").textContent = pledge.title;
-        $("pledge").textContent = pledge.content;
-      } catch (e) {
-        showError("신청서를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
-      }
-    })();
-
-    // 연락처 자동 하이픈
-    $("phone").addEventListener("input", (e) => {
-      const d = e.target.value.replace(/\D/g, "").slice(0, 11);
-      e.target.value = d.length < 4 ? d : d.length < 8 ? `${d.slice(0, 3)}-${d.slice(3)}`
-        : `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}`;
-    });
-
-    function showError(msg) {
-      $("error").textContent = msg;
-      $("error").classList.remove("hidden");
-      $("error").scrollIntoView({ behavior: "smooth", block: "center" });
+      const { data: pledge, error } = await sb.from("pledge_versions").select("title, content").eq("is_active", true).maybeSingle();
+      if (error) throw error;
+      if (pledge) { el("pledgeTitle").textContent = pledge.title; el("pledge").textContent = pledge.content; }
+      else el("pledge").textContent = "등록된 서약서가 없습니다. 리더에게 문의해 주세요.";
+    } catch {
+      showError("지원서를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
     }
+  })();
 
-    $("form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      $("error").classList.add("hidden");
+  function updateButton() {
+    const qualOk = quals.every((q) => el(q).checked);
+    const b = el("submit");
+    b.disabled = !qualOk;
+    b.textContent = qualOk ? "지원서 제출" : "지원 자격을 모두 확인해 주세요";
+  }
+  quals.forEach((q) => el(q).addEventListener("change", updateButton));
 
-      const v = {
-        name: $("name").value.trim(),
-        phone: $("phone").value.trim(),
-        email: $("email").value.trim().toLowerCase(),
-        applied_position: $("position").value,
-        experience: $("experience").value.trim() || null,
-        motivation: $("motivation").value.trim() || null,
-      };
+  el("phone").addEventListener("input", (e) => {
+    const d = e.target.value.replace(/\D/g, "").slice(0, 11);
+    e.target.value = d.length < 4 ? d : d.length < 8 ? `${d.slice(0, 3)}-${d.slice(3)}`
+      : `${d.slice(0, 3)}-${d.slice(3, d.length - 4)}-${d.slice(-4)}`;
+  });
 
-      if (!v.name) return showError("이름을 입력해 주세요.");
-      if (!/^[0-9\-]{9,13}$/.test(v.phone)) return showError("연락처를 010-0000-0000 형식으로 입력해 주세요.");
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) return showError("이메일 주소를 다시 확인해 주세요.");
-      if (!v.applied_position) return showError("지원 포지션을 선택해 주세요.");
-      if (!$("pledgeAgree").checked) return showError("서약서에 서약해 주세요.");
-      if (!$("privacyAgree").checked) return showError("개인정보 수집·이용에 동의해 주세요.");
+  function showError(msg) {
+    el("error").textContent = msg;
+    el("error").classList.remove("hidden");
+    el("error").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
-      $("submit").disabled = true;
-      $("submit").textContent = "제출하는 중…";
-      const { error } = await sb.from("applications").insert({ ...v, privacy_agreed: true });
-      if (error) {
-        $("submit").disabled = false;
-        $("submit").textContent = "신청서 제출";
-        return showError("제출하지 못했습니다. 입력 내용을 확인하고 다시 시도해 주세요.");
-      }
-      $("form").classList.add("hidden");
-      $("done").classList.remove("hidden");
-      window.scrollTo(0, 0);
+  el("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    el("error").classList.add("hidden");
+    const v = {
+      name: el("name").value.trim(),
+      phone: el("phone").value.trim(),
+      email: el("email").value.trim().toLowerCase(),
+      small_group: el("group").value.trim() || null,
+      applied_position: document.querySelector("input[name=pos]:checked")?.value,
+      motivation: el("motivation").value.trim() || null,
+      goal: el("goal").value.trim() || null,
+    };
+    if (!v.name) return showError("이름을 입력해 주세요.");
+    if (!/^[0-9\-]{9,13}$/.test(v.phone)) return showError("연락처를 010-0000-0000 형식으로 입력해 주세요.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) return showError("이메일 주소를 다시 확인해 주세요.");
+    if (!v.small_group) return showError("소속 순모임을 입력해 주세요.");
+    if (!v.applied_position) return showError("지원 포지션을 골라 주세요.");
+    if (!el("pledgeAgree").checked) return showError("서약서에 서약해 주세요.");
+    if (!el("privacyAgree").checked) return showError("개인정보 수집·이용에 동의해 주세요.");
+
+    el("submit").disabled = true; el("submit").textContent = "보내는 중…";
+    const { error } = await sb.from("applications").insert({
+      ...v, privacy_agreed: true, q_practice: true, q_sunday: true, q_group: true,
     });
-  </script>
+    if (error) {
+      updateButton();
+      return showError(/모집/.test(error.message) ? "방금 모집이 마감된 포지션이에요. 새로고침 후 다시 골라 주세요."
+        : "보내지 못했습니다. 입력 내용을 확인하고 다시 시도해 주세요.");
+    }
+    el("form").classList.add("hidden");
+    el("done").classList.remove("hidden");
+    window.scrollTo(0, 0);
+  });
+</script>
 </body>
 </html>

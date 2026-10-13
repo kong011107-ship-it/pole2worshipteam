@@ -2,83 +2,208 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>내 정보 · 찬양팀</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#410A85">
+  <title>Pole2 찬양팀</title>
+  <link rel="icon" href="assets/logo-violet.png">
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-  <header class="masthead">
-    <div class="masthead-inner">
-      <div class="masthead-row">
-        <div>
-          <p class="team" data-team-name></p>
-          <h1 id="hello">찬양팀</h1>
-        </div>
-        <div class="who"><button type="button" onclick="logout()">로그아웃</button></div>
-      </div>
-    </div>
-    <div class="staff" aria-hidden="true"></div>
+<div class="m-wrap">
+  <header class="topbar">
+    <img src="assets/logo-violet.png" alt="Pole2">
+    <span class="who"><span id="whoName"></span><span id="whoBadge"></span></span>
   </header>
 
-  <main class="page">
-    <section class="section">
-      <h2 class="section-title">내 포지션</h2>
-      <div class="panel"><dl class="kv" id="info" style="margin:0"></dl></div>
-    </section>
+  <main class="m-main" id="view-home"></main>
 
-    <section class="section">
-      <h2 class="section-title">이번 달 섬김</h2>
-      <div class="empty">섬김 가능 여부 응답과 배치표는 곧 열립니다.</div>
+  <main class="m-main hidden" id="view-info">
+    <section class="card">
+      <div class="card-head"><h2 class="card-title">내 포지션</h2></div>
+      <dl class="kv" id="posInfo"></dl>
     </section>
-
-    <section class="section" id="appSection">
-      <h2 class="section-title">내 신청서와 서약</h2>
-      <p class="lead">가입할 때 작성한 내용입니다. 수정이 필요하면 리더에게 말씀해 주세요.</p>
-      <div class="panel">
-        <dl class="kv" id="app"></dl>
-        <details class="pledge" open><summary id="pledgeTitle"></summary>
-          <div class="pledge-box" id="pledge"></div>
-          <p class="hint" id="pledgedAt" style="margin:0"></p>
-        </details>
-      </div>
+    <section class="card" id="appCard">
+      <div class="card-head"><h2 class="card-title">내 지원서와 서약</h2></div>
+      <p class="muted small" style="margin: -4px 0 12px">지원할 때 작성한 내용이에요. 고칠 부분이 있으면 리더에게 말씀해 주세요.</p>
+      <dl class="kv" id="appInfo" style="margin-bottom: 14px"></dl>
+      <details open><summary style="cursor: pointer; font-weight: 700; color: var(--violet); margin-bottom: 8px" id="pledgeTitle"></summary>
+        <div class="pledge-box" id="pledge"></div>
+        <p class="muted small" id="pledgedAt" style="margin: 8px 0 0"></p>
+      </details>
     </section>
+    <button type="button" class="btn btn-ghost" onclick="logout()">로그아웃</button>
   </main>
+</div>
 
-  <script src="assets/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="assets/common.js"></script>
-  <script>
-    const $ = (id) => document.getElementById(id);
+<nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-    (async function init() {
-      const ctx = await requireMember();
-      if (!ctx) return;
-      const { me } = ctx;
-      await loadPositions();
-      $("hello").textContent = `${me.name}님`;
+<script src="assets/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/common.js"></script>
+<script>
+  let ctx, me, app, extras = [];
 
-      const [{ data: extras }, { data: app }] = await Promise.all([
-        sb.from("member_extra_positions").select("position_code").eq("member_id", me.id),
-        sb.from("applications").select("*").eq("user_id", me.id).maybeSingle(),
-      ]);
+  (async function init() {
+    ctx = await requireMember();
+    if (!ctx) return;
+    me = ctx.me;
+    await loadPositions();
+    $("#whoName").textContent = `${me.name}님`;
+    $("#whoBadge").innerHTML = me.status === "trainee" ? `<span class="chip chip-violet">수습</span>` : "";
 
-      $("info").innerHTML = `
-        <dt>주 포지션</dt><dd>${esc(positionName(me.main_position))}</dd>
-        ${extras?.length ? `<dt>추가 포지션</dt><dd>${extras.map((e) => esc(positionName(e.position_code))).join(", ")}</dd>` : ""}
-        <dt>가입일</dt><dd>${fmtDate(me.joined_at)}</dd>`;
+    const [a, x] = await Promise.all([
+      sb.from("applications").select("*").eq("user_id", me.id).maybeSingle(),
+      sb.from("member_extra_positions").select("position_code").eq("member_id", me.id),
+    ]);
+    app = a.data; extras = x.data || [];
 
-      if (!app) { $("appSection").classList.add("hidden"); return; }
-      $("app").innerHTML = `
-        <dt>이름</dt><dd>${esc(app.name)}</dd>
-        <dt>연락처</dt><dd>${esc(app.phone)}</dd>
-        <dt>이메일</dt><dd>${esc(app.email)}</dd>
-        <dt>지원 포지션</dt><dd>${esc(positionName(app.applied_position))}</dd>
-        <dt>섬김 경력</dt><dd>${esc(app.experience) || "—"}</dd>
-        <dt>지원 동기</dt><dd>${esc(app.motivation) || "—"}</dd>`;
-      $("pledgeTitle").textContent = app.pledge_title;
-      $("pledge").textContent = app.pledge_content;
-      $("pledgedAt").textContent = `${fmtDate(app.pledged_at, true)}에 서약했습니다.`;
-    })();
-  </script>
+    renderTabbar();
+    renderInfo();
+    if (me.status === "trainee") renderTraineeHome(); else await renderMemberHome();
+    showView();
+  })();
+
+  // ---------- 탭 ----------
+  function renderTabbar() {
+    const tabs = me.status === "trainee"
+      ? [["home", "홈", ICON.home], ["info", "내 정보", ICON.user]]
+      : [["home", "홈", ICON.home], ["respond", "섬김 응답", ICON.check], ["lineup", "배치표", ICON.table], ["info", "내 정보", ICON.user]];
+    $("#tabbar").innerHTML = tabs.map(([id, label, icon]) =>
+      `<button type="button" data-tab="${id}">${icon}${label}</button>`).join("");
+    $("#tabbar").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      if (b.dataset.tab === "respond" || b.dataset.tab === "lineup") return toast("다음 업데이트에서 열려요");
+      location.hash = b.dataset.tab;
+    });
+  }
+  function showView() {
+    const v = location.hash === "#info" ? "info" : "home";
+    $("#view-home").classList.toggle("hidden", v !== "home");
+    $("#view-info").classList.toggle("hidden", v !== "info");
+    $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === v));
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", showView);
+
+  // ---------- 수습생 홈 ----------
+  function renderTraineeHome() {
+    const start = app?.trainee_start;
+    const w = traineeWeek(start);
+    const cur = TRAINEE_WEEKS[Math.min(Math.max(w, 1), 5) - 1];
+    let hero;
+    if (!start || w === 0) {
+      hero = `<p class="eyebrow">수습 · ${esc(positionName(me.main_position))}</p>
+        <span class="big">수습을 곧 시작해요</span>
+        <span class="sub">${start ? fmtDate(start, { weekday: "short" }) + " 토요 연습부터 함께해요." : "시작일은 리더가 안내해 드려요."}</span>`;
+    } else if (w > 5) {
+      hero = `<p class="eyebrow">수습 · ${esc(positionName(me.main_position))}</p>
+        <span class="big">5주 과정을 마쳤어요</span>
+        <span class="sub">리더십과 커피챗 후 정식 전환을 안내해 드려요.</span>`;
+    } else {
+      hero = `<div style="display:flex;justify-content:space-between;align-items:baseline">
+          <p class="eyebrow">수습 · ${esc(positionName(me.main_position))}</p><b class="small">${w}주차 / 5주</b></div>
+        <span class="big">${esc(cur.title)}</span>
+        <span class="sub">${esc(cur.desc)}</span>
+        <div class="weekbar" aria-label="5주 중 ${w}주차">${[1,2,3,4,5].map((i) => `<span class="${i <= w ? "on" : ""}"></span>`).join("")}</div>`;
+    }
+
+    let schedule = "";
+    if (start && w >= 0 && w <= 5) {
+      const n = Math.max(w, 1);
+      const sat = addDays(start, 7 * (n - 1)), sun = addDays(sat, 1);
+      schedule = `<section class="card" style="display:flex;flex-direction:column;gap:12px">
+        <h2 class="card-title">${w === 0 ? "첫 주 일정" : "이번 주 일정"}</h2>
+        ${row(md(sat), "토", "토요 팀 연습", n >= 3 ? cur.desc : "연습을 함께 지켜보며 팀 문화에 적응해요")}
+        ${row(md(sun), "주일", "오전 9시 세팅 참관", "예배 후 리더십과 나눔")}
+      </section>`;
+    }
+    function row(d, day, t, s) {
+      return `<div style="display:grid;grid-template-columns:54px minmax(0,1fr);gap:12px;align-items:start">
+        <span class="small" style="font-weight:700;color:var(--violet);background:var(--tint);border-radius:8px;padding:6px 0;text-align:center">${d}<br>${day}</span>
+        <span style="display:flex;flex-direction:column;gap:2px"><b>${esc(t)}</b><span class="muted small">${esc(s)}</span></span></div>`;
+    }
+
+    const steps = [[1, "1~2주", "참관 + 적응"], [3, "3주", "부담 적은 투입"], [4, "4주", "실전 연주 · 지정곡 1곡"], [5, "5주", "전환 면접 · 리더십과 커피챗"]];
+    const list = steps.map(([n, r, t]) => {
+      const end = n === 1 ? 2 : n;
+      const state = w > end ? "done" : w >= n ? "now" : "todo";
+      const mark = state === "done"
+        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--violet-mid)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="완료"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`
+        : state === "now" ? `<span role="img" aria-label="진행 중" style="width:12px;height:12px;border-radius:999px;background:var(--violet);margin-left:3px"></span>`
+        : `<span style="width:12px;height:12px;border-radius:999px;border:2px solid var(--violet-soft);margin-left:3px"></span>`;
+      return `<li style="display:grid;grid-template-columns:22px 54px minmax(0,1fr);gap:8px;align-items:center;padding:8px 0;${state === "done" ? "color:var(--faint)" : ""}">
+        ${mark}<span class="small" style="font-weight:${state === "now" ? 700 : 600};color:${state === "now" ? "var(--violet)" : "var(--muted-2)"}">${r}</span>
+        <span style="font-weight:${state === "now" ? 700 : 400}">${esc(t)}</span></li>`;
+    }).join("");
+
+    $("#view-home").innerHTML = `<section class="hero">${hero}</section>${schedule}
+      <section class="card"><h2 class="card-title" style="margin-bottom:6px">수습 5주 과정</h2>
+        <ol style="list-style:none;margin:0;padding:0">${list}</ol></section>`;
+  }
+
+  // ---------- 멤버 홈 ----------
+  async function renderMemberHome() {
+    const today = todayISO();
+    const monthStart = today.slice(0, 8) + "01";
+    const [lu, at] = await Promise.all([
+      sb.from("published_lineups").select("*").gte("service_date", monthStart).order("service_date"),
+      sb.from("attendance").select("status, team_meetings(meeting_date)").eq("member_id", me.id),
+    ]);
+    const rows = lu.data || [];
+    const mine = rows.filter((r) => r.member_id === me.id);
+    const roleChip = (r) => r.is_singer_leader ? "싱어 리더" : r.is_band_master ? "밴드 마스터" : "";
+
+    const next = mine.find((r) => r.service_date >= today);
+    let hero;
+    if (next) {
+      const same = rows.filter((r) => r.service_date === next.service_date);
+      const lead = same.find((r) => r.position_code === "leader");
+      const bm = same.find((r) => r.is_band_master);
+      const sat = addDays(next.service_date, -1);
+      const role = roleChip(next);
+      hero = `<section class="hero"><p class="eyebrow">${next.service_date <= addDays(today, 7) ? "이번 주" : "다음"} 나의 섬김</p>
+        <div style="display:flex;flex-direction:column;gap:4px"><span class="big">${fmtDate(next.service_date, { month: "long", day: "numeric" })} 주일</span>
+          <span style="display:flex;align-items:center;gap:8px;font-size:17px;font-weight:600">${esc(next.position_name)}
+            ${role ? `<span class="chip" style="background:#fff;color:var(--violet)">${role}</span>` : ""}</span></div>
+        <div class="pills"><span>토요 연습 ${md(sat)}</span>${lead || bm ? `<span>${[lead && "인도 " + esc(lead.member_name), bm && "밴마 " + esc(bm.member_name)].filter(Boolean).join(" · ")}</span>` : ""}</div></section>`;
+    } else {
+      hero = `<section class="card bordered"><b style="font-size:17px">다가오는 섬김이 아직 없어요</b>
+        <p class="muted small" style="margin:4px 0 0">배치표가 확정되면 여기에 보여요.</p></section>`;
+    }
+
+    const thisMonth = mine.filter((r) => r.service_date.slice(0, 7) === today.slice(0, 7));
+    const monthCard = `<section class="card"><div class="card-head"><h2 class="card-title">${+today.slice(5, 7)}월 섬김 일정</h2></div>
+      ${thisMonth.length ? thisMonth.map((r) => `<div style="display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #F1EAFB">
+          <b style="color:${r.service_date === next?.service_date ? "var(--violet)" : "var(--muted)"}">${md(r.service_date)}</b>
+          <span style="font-weight:${r.service_date === next?.service_date ? 700 : 400}">${esc(r.position_name)}</span>
+          ${roleChip(r) ? `<span class="chip chip-violet">${roleChip(r)}</span>` : "<span></span>"}</div>`).join("")
+        : `<p class="muted small" style="margin:0">이번 달 확정된 배치가 아직 없어요.</p>`}</section>`;
+
+    const recs = (at.data || []).filter((r) => r.team_meetings).sort((a, b) =>
+      b.team_meetings.meeting_date.localeCompare(a.team_meetings.meeting_date)).slice(0, 5).reverse();
+    const attended = recs.filter((r) => r.status === "present" || r.status === "late").length;
+    const attCard = recs.length ? `<section class="card" style="display:flex;align-items:center;justify-content:space-between">
+      <span style="display:flex;flex-direction:column;gap:2px"><span class="muted small">최근 팀모임 출석</span><b style="font-size:17px">${recs.length}번 중 ${attended}번</b></span>
+      <span style="display:flex;gap:6px" role="img" aria-label="최근 ${recs.length}번 중 ${attended}번 출석">${recs.map((r) =>
+        `<span style="width:10px;height:10px;border-radius:999px;background:${r.status === "present" || r.status === "late" ? "var(--violet)" : "#D8D2E3"}"></span>`).join("")}</span></section>` : "";
+
+    $("#view-home").innerHTML = hero + monthCard + attCard;
+  }
+
+  // ---------- 내 정보 ----------
+  function renderInfo() {
+    $("#posInfo").innerHTML = `<dt>주 포지션</dt><dd>${esc(positionName(me.main_position))}</dd>
+      ${extras.length ? `<dt>추가 포지션</dt><dd>${extras.map((e) => esc(positionName(e.position_code))).join(", ")}</dd>` : ""}
+      <dt>구분</dt><dd>${me.status === "trainee" ? "수습" : "정식 팀원"}</dd>`;
+    if (!app) { $("#appCard").classList.add("hidden"); return; }
+    $("#appInfo").innerHTML = `<dt>이름</dt><dd>${esc(app.name)}</dd><dt>연락처</dt><dd>${esc(app.phone)}</dd>
+      <dt>이메일</dt><dd>${esc(app.email)}</dd><dt>순모임</dt><dd>${esc(app.small_group) || "—"}</dd>
+      <dt>지원 포지션</dt><dd>${esc(positionName(app.applied_position))}</dd>
+      <dt>지원 동기</dt><dd>${esc(app.motivation) || "—"}</dd><dt>이루고 싶은 것</dt><dd>${esc(app.goal) || "—"}</dd>`;
+    $("#pledgeTitle").textContent = app.pledge_title;
+    $("#pledge").textContent = app.pledge_content;
+    $("#pledgedAt").textContent = `${fmtDate(app.pledged_at, { year: "numeric", month: "long", day: "numeric" })}에 서약했어요.`;
+  }
+</script>
 </body>
 </html>
