@@ -121,7 +121,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 
 .pledge-box {
   background: var(--bg); border-radius: var(--r); padding: 14px 16px; font-size: 14px; line-height: 1.8;
-  color: var(--ink-2); white-space: pre-wrap; max-height: 220px; overflow: auto;
+  color: var(--ink-2); white-space: pre-wrap; max-height: 360px; overflow: auto;
 }
 .kv { display: grid; grid-template-columns: 96px minmax(0,1fr); gap: 8px 12px; margin: 0; font-size: 15px; }
 .kv dt { color: var(--muted); }

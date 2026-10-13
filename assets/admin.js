@@ -721,9 +721,31 @@
   }
 
   // ---------------------------------------------------------------- 안내 문구
-  function renderTemplates() {
+  async function renderTemplates() {
+    const { data: pledges } = await sb.from("pledge_versions").select("*").order("created_at", { ascending: false });
+    const pv = pledges || [];
+    const active = pv.find((p) => p.is_active);
+    const signers = (id) => S.apps.filter((a) => a.pledge_version_id === id).length;
     $("#content").innerHTML = `
-      <div class="page-head"><h1 class="page-title">안내 문구</h1></div>
+      <div class="page-head"><h1 class="page-title">안내 문구·서약서</h1></div>
+
+      <section class="card bordered" id="pledgeCard" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px">
+          <h2 style="font-size:17px;font-weight:800">서약서 <span class="chip chip-ok" style="margin-left:6px">지원서에 쓰는 중</span></h2>
+          <span class="small muted">${active ? `${fmtDate(active.created_at, { year: "numeric", month: "long", day: "numeric" })}부터 · 서약 ${signers(active.id)}명` : "활성 서약서 없음"}</span>
+        </div>
+        <p class="small muted" style="margin:0">고쳐서 저장하면 <b>새 버전</b>이 돼요. 이미 서약한 사람은 서약 당시 문구가 그대로 남고, 새 지원자부터 바뀐 문구로 서약해요.</p>
+        <label class="field">제목<input type="text" id="pTitle" maxlength="100" value="${esc(active?.title || "")}"></label>
+        <label class="field">내용<textarea id="pBody" style="min-height:420px;font-size:14px;line-height:1.8">${esc(active?.content || "")}</textarea></label>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <details><summary class="small" style="cursor:pointer;color:var(--violet);font-weight:700">이전 버전 ${Math.max(pv.length - 1, 0)}개</summary>
+            <ul style="margin:8px 0 0;padding-left:18px;font-size:14px">${pv.filter((p) => !p.is_active).map((p) =>
+              `<li>${esc(p.title)} · ${fmtDate(p.created_at, { year: "numeric", month: "numeric", day: "numeric" })} · 서약 ${signers(p.id)}명</li>`).join("") || "<li>없음</li>"}</ul></details>
+          <button type="button" class="btn btn-primary btn-sm" id="pSave">새 버전으로 저장</button>
+        </div>
+      </section>
+
+      <h2 style="font-size:19px;font-weight:800;margin-top:8px">안내 문구</h2>
       <p class="lead">정해진 시점 · 정해진 문구 · 정해진 발신자. 톤은 인사 → 본론 → 유의사항 → 축복의 마무리로 맞춰요.</p>
       <p class="notice ok" style="margin:0">자동으로 채워지는 자리: [이름] [면접 일시] [면접 장소] [수습 시작일] [사이트 주소] [아이디] [임시 비밀번호]. 나머지 [대괄호]는 보낼 때 직접 채워요.</p>
       <div style="display:flex;flex-direction:column;gap:12px" id="tplList">${S.templates.map((t) => `
@@ -744,6 +766,26 @@
       if (error) return toast("저장하지 못했습니다");
       tpl(sec.dataset.code).body = body;
       toast("문구를 저장했어요");
+    };
+    $("#pSave").onclick = () => {
+      const title = $("#pTitle").value.trim(), content = $("#pBody").value.trim();
+      if (!title || !content) return toast("제목과 내용을 채워 주세요");
+      if (active && title === active.title && content === active.content) return toast("바뀐 내용이 없어요");
+      modal({
+        title: "서약서 새 버전 저장",
+        body: `<p style="margin:0">지금부터 지원서에는 새 문구가 보여요. 이미 서약한 ${active ? signers(active.id) + "명을 포함한 " : ""}기존 지원자·팀원의 서약 기록은 바뀌지 않아요.</p>`,
+        confirmLabel: "새 버전으로 저장",
+        onConfirm: async (close) => {
+          // 활성 서약서는 하나만: 기존 것을 먼저 내리고 새 것을 올림
+          if (active) { const { error } = await sb.from("pledge_versions").update({ is_active: false }).eq("id", active.id); if (error) throw new Error("저장하지 못했습니다"); }
+          const { error } = await sb.from("pledge_versions").insert({ title, content, is_active: true });
+          if (error) {
+            if (active) await sb.from("pledge_versions").update({ is_active: true }).eq("id", active.id);   // 되돌리기
+            throw new Error("저장하지 못했습니다");
+          }
+          close(); toast("서약서를 새 버전으로 저장했어요"); renderTemplates();
+        },
+      });
     };
   }
 
