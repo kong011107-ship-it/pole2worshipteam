@@ -17,6 +17,9 @@
 
   <main class="m-main" id="view-home"></main>
 
+  <main class="m-main hidden" id="view-respond"></main>
+  <main class="m-main hidden" id="view-lineup"></main>
+
   <main class="m-main hidden" id="view-info">
     <section class="card">
       <div class="card-head"><h2 class="card-title">내 포지션</h2></div>
@@ -75,15 +78,18 @@
       `<button type="button" data-tab="${id}">${icon}${label}</button>`).join("");
     $("#tabbar").addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;
-      if (b.dataset.tab === "respond" || b.dataset.tab === "lineup") return toast("다음 업데이트에서 열려요");
-      location.hash = b.dataset.tab;
+      if (location.hash.slice(1) === b.dataset.tab) showView(); else location.hash = b.dataset.tab;
     });
   }
   function showView() {
-    const v = location.hash === "#info" ? "info" : "home";
-    $("#view-home").classList.toggle("hidden", v !== "home");
-    $("#view-info").classList.toggle("hidden", v !== "info");
+    if (!me) return;   // 아직 불러오는 중이면 init이 끝난 뒤 다시 호출됨
+    const allowed = me.status === "trainee" ? ["home", "info"] : ["home", "respond", "lineup", "info"];
+    const h = location.hash.slice(1);
+    const v = allowed.includes(h) ? h : "home";
+    ["home", "respond", "lineup", "info"].forEach((k) => $(`#view-${k}`).classList.toggle("hidden", v !== k));
     $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === v));
+    if (v === "respond") renderRespond();
+    if (v === "lineup") renderLineup();
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", showView);
@@ -196,7 +202,148 @@
       <span style="display:flex;gap:6px" role="img" aria-label="최근 ${recs.length}번 중 ${attended}번 출석">${recs.map((r) =>
         `<span style="width:10px;height:10px;border-radius:999px;background:${r.status === "present" || r.status === "late" ? "var(--violet)" : "#D8D2E3"}"></span>`).join("")}</span></section>` : "";
 
-    $("#view-home").innerHTML = hero + monthCard + attCard;
+    $("#view-home").innerHTML = (await respondBanner()) + hero + monthCard + attCard;
+  }
+
+  // ---------- 섬김 응답 ----------
+  async function openMonths() {
+    const { data } = await sb.from("availability_months").select("*").eq("is_open", true)
+      .gte("month", monthOf(todayISO())).order("month");
+    return data || [];
+  }
+  function slotsOf(month) {
+    return sundaysOf(month).flatMap((sun) => [
+      { date: addDays(sun, -1), kind: "sat_practice", sun },
+      { date: sun, kind: "sunday", sun },
+    ]);
+  }
+  async function myAnswers(month) {
+    const slots = slotsOf(month);
+    const { data } = await sb.from("availability").select("date, kind, available").eq("member_id", me.id)
+      .gte("date", slots[0].date).lte("date", slots[slots.length - 1].date);
+    return data || [];
+  }
+  async function respondBanner() {
+    const months = await openMonths();
+    for (const m of months) {
+      const total = slotsOf(m.month).length, done = (await myAnswers(m.month)).length;
+      if (done < total) return `<a class="notice-link" href="#respond">
+        <span style="display:flex;flex-direction:column;gap:2px"><b>${monthLabel(m.month)} 섬김 응답을 받고 있어요</b>
+          <span class="muted small">${m.deadline ? fmtDate(m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}${done ? `${total - done}개 남았어요` : "아직 응답 전"}</span></span>
+        ${m.deadline ? `<span class="chip chip-solid" style="border-radius:999px;padding:6px 12px">${dday(m.deadline)}</span>` : ""}</a>`;
+    }
+    return "";
+  }
+
+  let respondMonth = null;
+  async function renderRespond() {
+    const v = $("#view-respond");
+    const months = await openMonths();
+    if (!months.length) {
+      v.innerHTML = `<h1 style="font-size:22px;font-weight:800">섬김 응답</h1>
+        <div class="empty">지금은 응답 받는 달이 없어요.<br>리더가 응답을 열면 여기에 보여요.</div>`;
+      return;
+    }
+    if (!months.some((m) => m.month === respondMonth)) respondMonth = months[0].month;
+    const m = months.find((x) => x.month === respondMonth);
+    const slots = slotsOf(m.month);
+    const ans = await myAnswers(m.month);
+    const { data: noteRow } = await sb.from("availability_notes").select("note").eq("member_id", me.id).eq("month", m.month).maybeSingle();
+    const val = (s) => ans.find((x) => x.date === s.date && x.kind === s.kind)?.available;
+    const done = slots.filter((s) => val(s) !== undefined).length;
+
+    v.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <h1 style="font-size:22px;font-weight:800">${monthLabel(m.month)} 섬김 응답</h1>
+        ${months.length > 1 ? `<div class="seg" id="monthPick">${months.map((x) => `<button type="button" data-m="${x.month}" aria-pressed="${x.month === m.month}">${monthLabel(x.month)}</button>`).join("")}</div>` : ""}
+        <div class="card" style="display:flex;flex-direction:column;gap:10px;padding:14px 18px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <span class="muted small">${m.deadline ? fmtDate(m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : "마감일 미정"}</span>
+            <b class="small" style="color:var(--violet)" id="progLabel">${done} / ${slots.length} 응답</b></div>
+          <div style="height:6px;border-radius:999px;background:var(--tint-2);overflow:hidden"><div id="progBar" style="height:6px;border-radius:999px;background:var(--violet);width:${Math.round(done / slots.length * 100)}%"></div></div>
+          <button type="button" class="btn btn-soft" id="allYes">전부 가능으로 채우기</button>
+        </div>
+      </div>
+      ${sundaysOf(m.month).map((sun) => `<section class="card" style="display:flex;flex-direction:column;gap:12px;padding:16px 18px">
+        <h2 style="font-size:15px;font-weight:800">${fmtDate(sun, { month: "long", day: "numeric" })} 주일 주간</h2>
+        ${slots.filter((s) => s.sun === sun).map((s) => {
+          const x = val(s);
+          return `<div class="ans-row" data-date="${s.date}" data-kind="${s.kind}" style="display:grid;grid-template-columns:minmax(0,1fr) 76px 76px;gap:8px;align-items:center">
+            <span style="display:flex;flex-direction:column"><b>${s.kind === "sunday" ? "주일 예배" : "토요 연습"}</b>
+              <span class="muted small">${fmtDate(s.date, { month: "long", day: "numeric", weekday: "short" })}</span></span>
+            <button type="button" class="ans" data-v="true" aria-pressed="${x === true}">가능</button>
+            <button type="button" class="ans" data-v="false" aria-pressed="${x === false}">불가</button></div>`;
+        }).join("")}</section>`).join("")}
+      <label class="field" style="font-size:15px;font-weight:700">리더에게 전할 말
+        <span class="hint">예: 11/15는 오후만 가능해요</span>
+        <textarea id="respNote" maxlength="300" style="min-height:80px">${esc(noteRow?.note || "")}</textarea></label>
+      <p class="muted small" style="margin:0;text-align:center">누르는 즉시 저장돼요. 마감 전까지 언제든 바꿀 수 있어요.</p>`;
+
+    $("#monthPick")?.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { respondMonth = b.dataset.m; renderRespond(); } });
+
+    const refreshProgress = () => {
+      const n = $$(".ans-row", v).filter((r) => r.querySelector('[aria-pressed="true"]')).length;
+      $("#progLabel").textContent = `${n} / ${slots.length} 응답`;
+      $("#progBar").style.width = Math.round(n / slots.length * 100) + "%";
+      if (n === slots.length) toast("모든 날짜에 응답했어요");
+    };
+    async function save(rows) {
+      const { error } = await sb.from("availability").upsert(rows.map((r) => ({ member_id: me.id, ...r })));
+      if (error) { toast("저장하지 못했어요. 응답이 마감됐는지 확인해 주세요"); renderRespond(); return false; }
+      return true;
+    }
+    v.querySelectorAll(".ans-row").forEach((row) => row.addEventListener("click", async (e) => {
+      const b = e.target.closest(".ans"); if (!b) return;
+      row.querySelectorAll(".ans").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      if (await save([{ date: row.dataset.date, kind: row.dataset.kind, available: b.dataset.v === "true" }])) refreshProgress();
+    }));
+    $("#allYes").addEventListener("click", async () => {
+      v.querySelectorAll(".ans-row").forEach((row) => row.querySelectorAll(".ans").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "true"))));
+      if (await save(slots.map((s) => ({ date: s.date, kind: s.kind, available: true })))) refreshProgress();
+    });
+    $("#respNote").addEventListener("change", async (e) => {
+      const note = e.target.value.trim();
+      const q = note
+        ? sb.from("availability_notes").upsert({ member_id: me.id, month: m.month, note })
+        : sb.from("availability_notes").delete().eq("member_id", me.id).eq("month", m.month);
+      const { error } = await q;
+      toast(error ? "저장하지 못했어요" : "리더에게 전할 말을 저장했어요");
+    });
+  }
+
+  // ---------- 배치표 ----------
+  let lineupMonth = null;
+  async function renderLineup() {
+    const v = $("#view-lineup");
+    if (!lineupMonth) lineupMonth = monthOf(todayISO());
+    const sundays = sundaysOf(lineupMonth);
+    const { data } = await sb.from("published_lineups").select("*")
+      .gte("service_date", sundays[0]).lte("service_date", sundays[sundays.length - 1])
+      .order("service_date").order("sort_order").order("slot");
+    const rows = data || [];
+    const dates = [...new Set(rows.map((r) => r.service_date))];
+    const role = (r) => r.is_singer_leader ? "싱어 리더" : r.is_band_master ? "밴드 마스터" : "";
+    v.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <button type="button" class="btn btn-ghost btn-sm" id="prevM" aria-label="이전 달">이전 달</button>
+        <h1 style="font-size:22px;font-weight:800">${monthLabel(lineupMonth)} 배치표</h1>
+        <button type="button" class="btn btn-ghost btn-sm" id="nextM" aria-label="다음 달">다음 달</button>
+      </div>
+      ${dates.length ? dates.map((d) => {
+        const list = rows.filter((r) => r.service_date === d);
+        const mine = list.some((r) => r.member_id === me.id);
+        return `<section class="card ${mine ? "bordered" : ""}" style="display:flex;flex-direction:column;gap:6px;${mine ? "border-color:var(--violet-soft)" : ""}">
+          <div class="card-head" style="margin-bottom:4px"><h2 class="card-title">${fmtDate(d, { month: "long", day: "numeric" })} 주일</h2>
+            <span class="muted small">토요 연습 ${md(addDays(d, -1))}</span></div>
+          ${list[0].note ? `<p class="muted small" style="margin:0 0 4px">${esc(list[0].note)}</p>` : ""}
+          ${list.map((r) => `<div style="display:grid;grid-template-columns:84px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border-radius:10px;${r.member_id === me.id ? "background:var(--tint);" : ""}">
+            <span class="muted small" style="font-weight:600">${esc(r.position_name)}</span>
+            <span style="font-weight:${r.member_id === me.id ? 800 : 500};${r.member_id === me.id ? "color:var(--violet)" : ""}">${esc(r.member_name)}${r.member_id === me.id ? " (나)" : ""}</span>
+            ${role(r) ? `<span class="chip chip-violet">${role(r)}</span>` : "<span></span>"}</div>`).join("")}
+        </section>`;
+      }).join("") : `<div class="empty">${monthLabel(lineupMonth)} 확정된 배치표가 아직 없어요.</div>`}`;
+    $("#prevM").onclick = () => { lineupMonth = addMonths(lineupMonth, -1); renderLineup(); };
+    $("#nextM").onclick = () => { lineupMonth = addMonths(lineupMonth, 1); renderLineup(); };
   }
 
   // ---------- 내 정보 ----------
