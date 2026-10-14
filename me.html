@@ -8,7 +8,7 @@
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="assets/app.css?v=10">
+  <link rel="stylesheet" href="assets/app.css?v=11">
 </head>
 <body>
 <div class="m-wrap">
@@ -42,17 +42,18 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=10"></script>
+<script src="assets/config.js?v=11"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=10"></script>
+<script src="assets/common.js?v=11"></script>
 <script>
-  let ctx, me, app, extras = [];
+  let ctx, me, app, extras = [], ST;
 
   (async function init() {
     ctx = await requireMember();
     if (!ctx) return;
     me = ctx.me;
     await loadPositions();
+    ST = await loadSettings();
     $("#whoName").textContent = `${me.name}님`;
     $("#whoBadge").innerHTML = me.status === "trainee" ? `<span class="chip chip-violet">수습</span>`
       : me.role === "admin" ? `<a href="admin.html" class="chip chip-solid" style="text-decoration:none">관리자 화면</a>` : "";
@@ -159,7 +160,7 @@
       const sat = traineeWeekSat(start, n, pps), sun = addDays(sat, 1);
       schedule = `<section class="card" style="display:flex;flex-direction:column;gap:12px">
         <h2 class="card-title">${w === 0 ? "첫 주 일정" : st.paused ? `다시 시작하는 ${n}주차 일정` : "이번 주 일정"}</h2>
-        ${row(md(sat), "토", "토요 팀 연습", n >= 3 ? TRAINEE_WEEKS[n - 1].desc : "연습을 함께 지켜보며 팀 문화에 적응해요")}
+        ${row(md(sat), "토", `토요 팀 연습 · ${hm(ST.sat_practice_start)}`, n >= 3 ? TRAINEE_WEEKS[n - 1].desc : "연습을 함께 지켜보며 팀 문화에 적응해요")}
         ${row(md(sun), "주일", "오전 9시 세팅 참관", "예배 후 리더십과 나눔")}
       </section>`;
     }
@@ -187,31 +188,59 @@
         <ol style="list-style:none;margin:0;padding:0">${list}</ol></section>`;
   }
 
+  // ---------- 섬김 (주일 · 사역) 공용 ----------
+  // 공개 배치를 예배 단위로 묶음
+  const groupLineup = (rows) => {
+    const by = new Map();
+    rows.forEach((r) => { const k = r.service_id || r.service_date; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
+    return [...by.values()].sort((a, b) => a[0].service_date.localeCompare(b[0].service_date) || hm(a[0].start_time).localeCompare(hm(b[0].start_time)));
+  };
+  const svcTitle = (r, multi) => r.ministry_id ? `${r.ministry_name}${multi && r.label ? " · " + r.label : ""}` : "주일";
+  const svcTime = (r) => r.ministry_id ? timeRange(r.start_time, r.end_time) : timeRange(...sunTime(r, ST));
+  async function satRows(sundays) {
+    if (!sundays.length) return [];
+    const { data } = await sb.from("team_meetings").select("meeting_date, practice_start, practice_end").in("meeting_date", sundays.map((d) => addDays(d, -1)));
+    return data || [];
+  }
+
   // ---------- 멤버 홈 ----------
   async function renderMemberHome() {
     const today = todayISO();
     const monthStart = today.slice(0, 8) + "01";
-    const [lu, meet] = await Promise.all([
+    const [lu, meet, banners, prs] = await Promise.all([
       sb.from("published_lineups").select("*").gte("service_date", monthStart).order("service_date"),
       meetingCard(),
+      respondBanners(),
+      sb.from("ministry_practices").select("ministry_id, practice_date, start_time, end_time").gte("practice_date", today).order("practice_date"),
     ]);
     const rows = lu.data || [];
     const mine = rows.filter((r) => r.member_id === me.id);
     const roleChip = (r) => r.is_singer_leader ? "싱어 리더" : r.is_band_master ? "밴드 마스터" : "";
+    const groups = groupLineup(rows);
+    const multiOf = (r) => groups.filter((g) => g[0].ministry_id && g[0].ministry_id === r.ministry_id).length > 1;
+    const sats = await satRows([...new Set(mine.filter((r) => !r.ministry_id).map((r) => r.service_date))]);
 
     const next = mine.find((r) => r.service_date >= today);
     let hero;
     if (next) {
-      const same = rows.filter((r) => r.service_date === next.service_date);
+      const same = rows.filter((r) => (r.service_id || r.service_date) === (next.service_id || next.service_date));
       const lead = same.find((r) => r.position_code === "leader");
       const bm = same.find((r) => r.is_band_master);
-      const sat = addDays(next.service_date, -1);
       const role = roleChip(next);
+      const pills = [];
+      if (next.ministry_id) {
+        const p = (prs.data || []).find((x) => x.ministry_id === next.ministry_id);
+        if (p) pills.push(`연습 ${mdw(p.practice_date)} ${hm(p.start_time)}`);
+      } else {
+        const sat = addDays(next.service_date, -1), sr = sats.find((x) => x.meeting_date === sat);
+        pills.push(`토요 연습 ${md(sat)} ${hm(satTime(sr, ST)[0])}`);
+      }
+      if (lead || bm) pills.push([lead && "인도 " + esc(lead.member_name), bm && "밴마 " + esc(bm.member_name)].filter(Boolean).join(" · "));
       hero = `<section class="hero"><p class="eyebrow">${next.service_date <= addDays(today, 7) ? "이번 주" : "다음"} 나의 섬김</p>
-        <div style="display:flex;flex-direction:column;gap:4px"><span class="big">${fmtDate(next.service_date, { month: "long", day: "numeric" })} 주일</span>
-          <span style="display:flex;align-items:center;gap:8px;font-size:17px;font-weight:600">${esc(next.position_name)}
+        <div style="display:flex;flex-direction:column;gap:4px"><span class="big">${fmtDate(next.service_date, { month: "long", day: "numeric" })} ${esc(svcTitle(next, multiOf(next)))}</span>
+          <span style="display:flex;align-items:center;gap:8px;font-size:17px;font-weight:600">${esc(next.position_name)} · ${svcTime(next)}
             ${role ? `<span class="chip" style="background:#fff;color:var(--violet)">${role}</span>` : ""}</span></div>
-        <div class="pills"><span>토요 연습 ${md(sat)}</span>${lead || bm ? `<span>${[lead && "인도 " + esc(lead.member_name), bm && "밴마 " + esc(bm.member_name)].filter(Boolean).join(" · ")}</span>` : ""}</div></section>`;
+        <div class="pills">${pills.map((p) => `<span>${p}</span>`).join("")}</div></section>`;
     } else {
       hero = `<section class="card bordered"><b style="font-size:17px">다가오는 섬김이 아직 없어요</b>
         <p class="muted small" style="margin:4px 0 0">배치표가 확정되면 여기에 보여요.</p></section>`;
@@ -219,16 +248,16 @@
 
     const thisMonth = mine.filter((r) => r.service_date.slice(0, 7) === today.slice(0, 7));
     const monthCard = `<section class="card"><div class="card-head"><h2 class="card-title">${+today.slice(5, 7)}월 섬김 일정</h2></div>
-      ${thisMonth.length ? thisMonth.map((r) => `<div style="display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #F1EAFB">
-          <b style="color:${r.service_date === next?.service_date ? "var(--violet)" : "var(--muted)"}">${md(r.service_date)}</b>
-          <span style="font-weight:${r.service_date === next?.service_date ? 700 : 400}">${esc(r.position_name)}</span>
-          ${roleChip(r) ? `<span class="chip chip-violet">${roleChip(r)}</span>` : "<span></span>"}</div>`).join("")
+      ${thisMonth.length ? thisMonth.map((r) => { const on = r === next; return `<div style="display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #F1EAFB">
+          <b style="color:${on ? "var(--violet)" : "var(--muted)"}">${md(r.service_date)}</b>
+          <span style="font-weight:${on ? 700 : 400}">${r.ministry_id ? `<span class="chip chip-violet" style="margin-right:4px">${esc(svcTitle(r, multiOf(r)))}</span>` : ""}${esc(r.position_name)}</span>
+          ${roleChip(r) ? `<span class="chip chip-violet">${roleChip(r)}</span>` : "<span></span>"}</div>`; }).join("")
         : `<p class="muted small" style="margin:0">이번 달 확정된 배치가 아직 없어요.</p>`}</section>`;
 
-    $("#view-home").innerHTML = (await respondBanner()) + hero + meet + monthCard;
+    $("#view-home").innerHTML = banners + hero + meet + monthCard;
   }
 
-  // ---------- 섬김 응답 ----------
+  // ---------- 섬김 응답: 데이터 ----------
   async function openMonths() {
     const { data } = await sb.from("availability_months").select("*").eq("is_open", true)
       .gte("month", monthOf(todayISO())).order("month");
@@ -246,83 +275,153 @@
       .gte("date", slots[0].date).lte("date", slots[slots.length - 1].date);
     return data || [];
   }
-  async function respondBanner() {
-    const months = await openMonths();
+  // 사역: 나에게 해당하는 것만 (대상 · 아직 지나지 않은 것)
+  async function loadMinistries() {
+    const today = todayISO();
+    const [mi, tg, av, pa, po] = await Promise.all([
+      sb.from("ministries").select("*, services(id, service_date, label, start_time, end_time, sort_order), ministry_practices(*)"),
+      sb.from("ministry_targets").select("ministry_id").eq("member_id", me.id),
+      sb.from("ministry_availability").select("service_id, available").eq("member_id", me.id),
+      sb.from("practice_answers").select("practice_id, available").eq("member_id", me.id),
+      sb.from("ministry_poll").select("ministry_id, slots").eq("member_id", me.id),
+    ]);
+    if (mi.error) return { list: [], av: [], pa: [], po: [] };
+    const mine = new Set((tg.data || []).map((t) => t.ministry_id));
+    const list = (mi.data || []).filter((m) => (m.target_mode === "all" || mine.has(m.id)) && m.services.some((s) => s.service_date >= today))
+      .map((m) => ({ ...m, svs: m.services.slice().sort((a, b) => a.service_date.localeCompare(b.service_date) || a.sort_order - b.sort_order),
+        prs: m.ministry_practices.slice().sort((a, b) => a.practice_date.localeCompare(b.practice_date)) }));
+    return { list, av: av.data || [], pa: pa.data || [], po: po.data || [] };
+  }
+  const myAvail = (D, sid) => D.av.find((a) => a.service_id === sid)?.available;
+  const myPract = (D, pid) => D.pa.find((a) => a.practice_id === pid)?.available;
+  const pollable = (D, m) => m.practice_mode === "poll" && m.poll_open && m.svs.some((s) => myAvail(D, s.id) === true);
+  // 사역 한 개에서 내가 답할 칸 수 / 답한 칸 수 (예배 + 정해진 연습)
+  const minCount = (D, m) => {
+    const fixed = m.practice_mode === "fixed" ? m.prs.filter((p) => p.practice_date >= todayISO()) : [];
+    const total = m.svs.length + fixed.length;
+    const done = m.svs.filter((s) => myAvail(D, s.id) !== undefined).length + fixed.filter((p) => myPract(D, p.id) !== undefined).length;
+    return { total, done };
+  };
+
+  async function respondBanners() {
+    const [months, D] = await Promise.all([openMonths(), loadMinistries()]);
+    const out = [];
     for (const m of months) {
-      const total = slotsOf(m.month).length, done = (await myAnswers(m.month)).length;
-      if (done < total) return `<a class="notice-link" href="#respond">
-        <span style="display:flex;flex-direction:column;gap:2px"><b>${monthLabel(m.month)} 섬김 응답을 받고 있어요</b>
-          <span class="muted small">${m.deadline ? fmtDate(m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}${done ? `${total - done}개 남았어요` : "아직 응답 전"}</span></span>
-        ${m.deadline ? `<span class="chip chip-solid" style="border-radius:999px;padding:6px 12px">${dday(m.deadline)}</span>` : ""}</a>`;
+      const mins = D.list.filter((x) => x.response_mode === "monthly" && x.svs.some((s) => monthOf(s.service_date) === m.month));
+      const total = slotsOf(m.month).length + mins.reduce((n, x) => n + minCount(D, x).total, 0);
+      const done = (await myAnswers(m.month)).length + mins.reduce((n, x) => n + minCount(D, x).done, 0);
+      if (done < total) out.push(banner(`${monthLabel(m.month)} 섬김 응답을 받고 있어요`, `${m.deadline ? fmtDate(m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}${done ? `${total - done}개 남았어요` : "아직 응답 전"}`, m.deadline, `month:${m.month}`));
     }
-    return "";
+    D.list.filter((x) => x.response_mode === "separate" && x.response_open).forEach((x) => {
+      const c = minCount(D, x);
+      if (c.done < c.total) out.push(banner(`${x.name} 섬김 응답`, `${x.response_deadline ? fmtDate(x.response_deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}${x.svs.length > 1 ? `예배 ${x.svs.length}개` : mdw(x.svs[0].service_date)}`, x.response_deadline, `min:${x.id}`));
+    });
+    D.list.filter((x) => pollable(D, x) && !D.po.some((p) => p.ministry_id === x.id)).forEach((x) =>
+      out.push(banner(`${x.name} 연습 시간을 골라 주세요`, `${x.poll_deadline ? fmtDate(x.poll_deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}가능한 칸만 칠하기`, x.poll_deadline, `poll:${x.id}`)));
+    return out.join("");
+    function banner(t, sub, dl, key) {
+      return `<a class="notice-link" href="#respond" onclick="respondKey='${key}'">
+        <span style="display:flex;flex-direction:column;gap:2px"><b>${esc(t)}</b><span class="muted small">${sub}</span></span>
+        ${dl ? `<span class="chip chip-solid" style="border-radius:999px;padding:6px 12px">${dday(dl)}</span>` : ""}</a>`;
+    }
   }
 
-  let respondMonth = null;
+  // ---------- 섬김 응답 화면 ----------
+  var respondKey = null;
+  let paint = null;   // 연습 시간 칠하기 상태
   async function renderRespond() {
     const v = $("#view-respond");
-    const months = await openMonths();
-    if (!months.length) {
+    const [months, D] = await Promise.all([openMonths(), loadMinistries()]);
+    const items = [
+      ...months.map((m) => ({ key: `month:${m.month}`, title: `${monthLabel(m.month)} 섬김`, sub: m.deadline ? `${md(m.deadline)}까지` : "응답 받는 중" })),
+      ...D.list.filter((x) => x.response_mode === "separate" && x.response_open).map((x) => ({ key: `min:${x.id}`, title: x.name, sub: x.response_deadline ? `${md(x.response_deadline)}까지` : "섬김 응답" })),
+      ...D.list.filter((x) => pollable(D, x)).map((x) => ({ key: `poll:${x.id}`, title: `${x.name} 연습`, sub: "가능 시간" })),
+    ];
+    if (!items.length) {
       v.innerHTML = `<h1 style="font-size:22px;font-weight:800">섬김 응답</h1>
-        <div class="empty">지금은 응답 받는 달이 없어요.<br>리더가 응답을 열면 여기에 보여요.</div>`;
+        <div class="empty">지금은 응답 받는 일정이 없어요.<br>리더가 응답을 열면 여기에 보여요.</div>`;
       return;
     }
-    if (!months.some((m) => m.month === respondMonth)) respondMonth = months[0].month;
-    const m = months.find((x) => x.month === respondMonth);
+    if (!items.some((i) => i.key === respondKey)) respondKey = items[0].key;
+    const pick = items.length > 1 ? `<div class="resp-pick" id="respPick">${items.map((i) => `<button type="button" data-key="${i.key}" aria-pressed="${i.key === respondKey}"><b>${esc(i.title)}</b><span>${esc(i.sub)}</span></button>`).join("")}</div>` : "";
+    const [kind, id] = respondKey.split(":");
+    if (kind === "month") await drawMonth(v, months.find((m) => m.month === id), D, pick);
+    if (kind === "min") drawMinistry(v, D.list.find((x) => x.id === id), D, pick);
+    if (kind === "poll") drawPoll(v, D.list.find((x) => x.id === id), D, pick);
+    $("#respPick")?.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { respondKey = b.dataset.key; renderRespond(); } });
+  }
+
+  // 가능/불가 한 줄
+  const ansRow = (attrs, title, sub, x) => `<div class="ans-row ansrow" ${attrs}>
+      <span style="display:flex;flex-direction:column"><b>${title}</b><span class="muted small">${sub}</span></span>
+      <button type="button" class="ans" data-v="true" aria-pressed="${x === true}">가능</button>
+      <button type="button" class="ans" data-v="false" aria-pressed="${x === false}">불가</button></div>`;
+  // 사역 예배·연습 줄
+  const minRows = (D, m) => `${m.svs.map((s) => ansRow(`data-sid="${s.id}"`, esc(m.svs.length > 1 ? s.label || m.name : m.name),
+      `${fmtDate(s.service_date, { month: "long", day: "numeric", weekday: "short" })} ${timeRange(s.start_time, s.end_time)}`, myAvail(D, s.id))).join("")}
+    ${m.practice_mode === "fixed" ? m.prs.filter((p) => p.practice_date >= todayISO()).map((p) => ansRow(`data-pid="${p.id}"`, "사전 연습",
+      `${fmtDate(p.practice_date, { month: "long", day: "numeric", weekday: "short" })} ${timeRange(p.start_time, p.end_time)}`, myPract(D, p.id))).join("") : ""}`;
+  const progress = (done, total) => `<div style="display:flex;justify-content:space-between;align-items:baseline" class="prog-head"><span></span>
+      <b class="small" style="color:var(--violet)" id="progLabel">${done} / ${total} 응답</b></div>
+    <div style="height:6px;border-radius:999px;background:var(--tint-2);overflow:hidden"><div id="progBar" style="height:6px;border-radius:999px;background:var(--violet);width:${total ? Math.round(done / total * 100) : 0}%"></div></div>`;
+
+  async function bindAnswers(v, total, monthSave) {
+    const refresh = () => {
+      const n = $$(".ans-row", v).filter((r) => r.querySelector('[aria-pressed="true"]')).length;
+      $("#progLabel").textContent = `${n} / ${total} 응답`;
+      $("#progBar").style.width = Math.round(n / total * 100) + "%";
+      if (n === total) toast("모두 응답했어요");
+    };
+    v.querySelectorAll(".ans-row").forEach((row) => row.addEventListener("click", async (e) => {
+      const b = e.target.closest(".ans"); if (!b) return;
+      const val = b.dataset.v === "true";
+      let error;
+      if (row.dataset.sid) ({ error } = await sb.from("ministry_availability").upsert({ service_id: row.dataset.sid, member_id: me.id, available: val }));
+      else if (row.dataset.pid) ({ error } = await sb.from("practice_answers").upsert({ practice_id: row.dataset.pid, member_id: me.id, available: val }));
+      else ({ error } = await monthSave([{ date: row.dataset.date, kind: row.dataset.kind, available: val }]));
+      if (error) { toast("저장하지 못했어요. 응답이 마감됐는지 확인해 주세요"); return renderRespond(); }
+      row.querySelectorAll(".ans").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      refresh();
+    }));
+  }
+
+  async function drawMonth(v, m, D, pick) {
     const slots = slotsOf(m.month);
     const ans = await myAnswers(m.month);
+    const sats = await satRows(sundaysOf(m.month));
     const { data: noteRow } = await sb.from("availability_notes").select("note").eq("member_id", me.id).eq("month", m.month).maybeSingle();
     const val = (s) => ans.find((x) => x.date === s.date && x.kind === s.kind)?.available;
-    const done = slots.filter((s) => val(s) !== undefined).length;
+    const mins = D.list.filter((x) => x.response_mode === "monthly" && x.svs.some((s) => monthOf(s.service_date) === m.month));
+    const total = slots.length + mins.reduce((n, x) => n + minCount(D, x).total, 0);
+    const done = slots.filter((s) => val(s) !== undefined).length + mins.reduce((n, x) => n + minCount(D, x).done, 0);
+    const save = (rows) => sb.from("availability").upsert(rows.map((r) => ({ member_id: me.id, ...r })));
 
     v.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:10px">
+        ${pick}
         <h1 style="font-size:22px;font-weight:800">${monthLabel(m.month)} 섬김 응답</h1>
-        ${months.length > 1 ? `<div class="seg" id="monthPick">${months.map((x) => `<button type="button" data-m="${x.month}" aria-pressed="${x.month === m.month}">${monthLabel(x.month)}</button>`).join("")}</div>` : ""}
         <div class="card" style="display:flex;flex-direction:column;gap:10px;padding:14px 18px">
-          <div style="display:flex;justify-content:space-between;align-items:baseline">
-            <span class="muted small">${m.deadline ? fmtDate(m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : "마감일 미정"}</span>
-            <b class="small" style="color:var(--violet)" id="progLabel">${done} / ${slots.length} 응답</b></div>
-          <div style="height:6px;border-radius:999px;background:var(--tint-2);overflow:hidden"><div id="progBar" style="height:6px;border-radius:999px;background:var(--violet);width:${Math.round(done / slots.length * 100)}%"></div></div>
-          <button type="button" class="btn btn-soft" id="allYes">전부 가능으로 채우기</button>
+          <span class="muted small">${m.deadline ? fmtDate(m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : "마감일 미정"}</span>
+          ${progress(done, total)}
+          <button type="button" class="btn btn-soft" id="allYes">토요 연습·주일 전부 가능으로 채우기</button>
         </div>
       </div>
       ${sundaysOf(m.month).map((sun) => `<section class="card" style="display:flex;flex-direction:column;gap:12px;padding:16px 18px">
         <h2 style="font-size:15px;font-weight:800">${fmtDate(sun, { month: "long", day: "numeric" })} 주일 주간</h2>
-        ${slots.filter((s) => s.sun === sun).map((s) => {
-          const x = val(s);
-          return `<div class="ans-row" data-date="${s.date}" data-kind="${s.kind}" style="display:grid;grid-template-columns:minmax(0,1fr) 76px 76px;gap:8px;align-items:center">
-            <span style="display:flex;flex-direction:column"><b>${s.kind === "sunday" ? "주일 예배" : "토요 연습"}</b>
-              <span class="muted small">${fmtDate(s.date, { month: "long", day: "numeric", weekday: "short" })}</span></span>
-            <button type="button" class="ans" data-v="true" aria-pressed="${x === true}">가능</button>
-            <button type="button" class="ans" data-v="false" aria-pressed="${x === false}">불가</button></div>`;
-        }).join("")}</section>`).join("")}
+        ${slots.filter((s) => s.sun === sun).map((s) => ansRow(`data-date="${s.date}" data-kind="${s.kind}"`, s.kind === "sunday" ? "주일 예배" : "토요 연습",
+          `${fmtDate(s.date, { month: "long", day: "numeric", weekday: "short" })} ${s.kind === "sunday" ? hm(ST.sunday_start) : hm(satTime(sats.find((x) => x.meeting_date === s.date), ST)[0])}`, val(s))).join("")}</section>`).join("")}
+      ${mins.map((x) => `<section class="card" style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border:1px solid var(--violet-soft)">
+        <h2 style="font-size:15px;font-weight:800">${esc(x.name)} <span class="chip chip-violet">사역</span></h2>
+        ${minRows(D, x)}</section>`).join("")}
       <label class="field" style="font-size:15px;font-weight:700">리더에게 전할 말
         <span class="hint">예: 11/15는 오후만 가능해요</span>
         <textarea id="respNote" maxlength="300" style="min-height:80px">${esc(noteRow?.note || "")}</textarea></label>
       <p class="muted small" style="margin:0;text-align:center">누르는 즉시 저장돼요. 마감 전까지 언제든 바꿀 수 있어요.</p>`;
-
-    $("#monthPick")?.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { respondMonth = b.dataset.m; renderRespond(); } });
-
-    const refreshProgress = () => {
-      const n = $$(".ans-row", v).filter((r) => r.querySelector('[aria-pressed="true"]')).length;
-      $("#progLabel").textContent = `${n} / ${slots.length} 응답`;
-      $("#progBar").style.width = Math.round(n / slots.length * 100) + "%";
-      if (n === slots.length) toast("모든 날짜에 응답했어요");
-    };
-    async function save(rows) {
-      const { error } = await sb.from("availability").upsert(rows.map((r) => ({ member_id: me.id, ...r })));
-      if (error) { toast("저장하지 못했어요. 응답이 마감됐는지 확인해 주세요"); renderRespond(); return false; }
-      return true;
-    }
-    v.querySelectorAll(".ans-row").forEach((row) => row.addEventListener("click", async (e) => {
-      const b = e.target.closest(".ans"); if (!b) return;
-      row.querySelectorAll(".ans").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-      if (await save([{ date: row.dataset.date, kind: row.dataset.kind, available: b.dataset.v === "true" }])) refreshProgress();
-    }));
+    bindAnswers(v, total, save);
     $("#allYes").addEventListener("click", async () => {
-      v.querySelectorAll(".ans-row").forEach((row) => row.querySelectorAll(".ans").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === "true"))));
-      if (await save(slots.map((s) => ({ date: s.date, kind: s.kind, available: true })))) refreshProgress();
+      const { error } = await save(slots.map((s) => ({ date: s.date, kind: s.kind, available: true })));
+      if (error) return toast("저장하지 못했어요. 응답이 마감됐는지 확인해 주세요");
+      renderRespond();
     });
     $("#respNote").addEventListener("change", async (e) => {
       const note = e.target.value.trim();
@@ -334,17 +433,107 @@
     });
   }
 
+  function drawMinistry(v, m, D, pick) {
+    const c = minCount(D, m);
+    const last = m.svs[m.svs.length - 1].service_date;
+    const span = m.svs.length > 1 ? `${fmtDate(m.svs[0].service_date, { month: "long", day: "numeric", weekday: "short" })} – ${+last.slice(8)}일 (${["주일", "월", "화", "수", "목", "금", "토"][dowOf(last)]})` : "";
+    const fixed = m.prs.filter((p) => p.practice_date >= todayISO());
+    v.innerHTML = `${pick}
+      <h1 style="font-size:22px;font-weight:800">${esc(m.name)} 섬김 응답</h1>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px;padding:14px 18px">
+        <span class="muted small">${span ? span + " · " : ""}${m.response_deadline ? fmtDate(m.response_deadline, { month: "long", day: "numeric" }) + "까지" : "마감일 미정"}</span>
+        ${progress(c.done, c.total)}
+        ${m.practice_mode === "poll" && fixed.length ? `<span class="small"><b>연습</b> ${fixed.map((p) => `${mdw(p.practice_date)} ${timeRange(p.start_time, p.end_time)}`).join(", ")} <span class="chip chip-ok">확정</span></span>` : ""}
+        ${m.practice_mode === "poll" && !fixed.length ? `<span class="small muted">연습 시간은 '가능'으로 답한 분께 따로 여쭤봐요.</span>` : ""}
+      </div>
+      <section class="card" style="display:flex;flex-direction:column;gap:12px">${minRows(D, m)}</section>
+      <p class="muted small" style="margin:0;text-align:center">누르는 즉시 저장돼요. 마감 전까지 바꿀 수 있어요.</p>`;
+    bindAnswers(v, c.total, null);
+  }
+
+  // 연습 가능 시간 칠하기 (30분 칸)
+  function drawPoll(v, m, D, pick) {
+    const days = []; for (let d = m.poll_from; d && d <= m.poll_to; d = addDays(d, 1)) days.push(d);
+    const t0 = toMin(m.poll_day_start), t1 = toMin(m.poll_day_end);
+    const times = []; for (let t = t0; t < t1; t += 30) times.push(fromMin(t));
+    if (!paint || paint.id !== m.id) paint = { id: m.id, mode: "on", set: new Set(D.po.find((p) => p.ministry_id === m.id)?.slots || []), dirty: false };
+    const mySvc = m.svs.filter((s) => myAvail(D, s.id) === true);
+    const narrow = days.length > 7;
+    const summary = () => {
+      const byDay = days.map((d) => { const ts = times.filter((t) => paint.set.has(`${d} ${t}`)); if (!ts.length) return null;
+        // 이어진 칸끼리 묶기
+        const parts = []; let s = null, prev = null;
+        ts.forEach((t) => { if (s && toMin(t) === toMin(prev) + 30) prev = t; else { if (s) parts.push([s, prev]); s = t; prev = t; } });
+        parts.push([s, prev]);
+        return `${md(d)} ${parts.map(([a, b]) => `${a}–${fromMin(toMin(b) + 30)}`).join(", ")}`; }).filter(Boolean);
+      return byDay.length ? byDay.join(" · ") : "아직 칠한 시간이 없어요";
+    };
+    v.innerHTML = `${pick}
+      <h1 style="font-size:22px;font-weight:800">${esc(m.name)} 연습 시간</h1>
+      <div class="card" style="display:flex;flex-direction:column;gap:6px;padding:14px 18px">
+        <span class="small"><b>본 섬김</b> ${mySvc.map((s) => `${mdw(s.service_date)} ${hm(s.start_time)}`).join(", ")} <span class="chip chip-ok">가능으로 응답</span></span>
+        <span class="muted small">연습은 ${m.practice_minutes % 60 ? `${Math.floor(m.practice_minutes / 60)}시간 ${m.practice_minutes % 60}분` : `${m.practice_minutes / 60}시간`}이에요. 되는 시간을 손가락으로 쓸어서 칠해 주세요.${m.poll_deadline ? ` ${fmtDate(m.poll_deadline, { month: "long", day: "numeric", weekday: "short" })}까지.` : ""}</span>
+      </div>
+      <div class="seg" id="pMode"><button type="button" data-v="on" aria-pressed="${paint.mode === "on"}">칠하기</button><button type="button" data-v="off" aria-pressed="${paint.mode === "off"}">지우기</button>
+        <button type="button" id="pCopy">같은 시간 매일 복사</button><button type="button" id="pClear">모두 지우기</button></div>
+      <section class="card" style="padding:14px 10px;overflow-x:auto">
+        <div class="pick" id="pGrid" style="grid-template-columns:40px repeat(${days.length}, minmax(${narrow ? 30 : 0}px,1fr));${narrow ? `min-width:${40 + days.length * 33}px` : ""}">
+          <span></span>${days.map((d) => `<span class="h">${+d.slice(8)}\n${["주일", "월", "화", "수", "목", "금", "토"][dowOf(d)]}</span>`).join("")}
+          ${times.map((t) => `<span class="t">${t.endsWith(":00") ? t : ""}</span>${days.map((d) => `<span class="c ${paint.set.has(`${d} ${t}`) ? "on" : ""}" data-k="${d} ${t}"></span>`).join("")}`).join("")}
+        </div>
+        <div class="row small muted" style="justify-content:center;margin-top:10px"><span><i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--violet-mid);vertical-align:-1px"></i> 가능</span>
+          <span><i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#fff;border:1px solid #E7DFF3;vertical-align:-1px"></i> 안 됨</span></div>
+      </section>
+      <div class="note-box small" id="pSum">칠한 시간: ${esc(summary())}</div>
+      <button type="button" class="btn btn-primary btn-block" id="pSave">저장</button>`;
+
+    const grid = $("#pGrid");
+    let dragging = false;
+    const apply = (cell) => {
+      if (!cell?.dataset?.k) return;
+      const on = paint.mode === "on";
+      if (paint.set.has(cell.dataset.k) === on) return;
+      on ? paint.set.add(cell.dataset.k) : paint.set.delete(cell.dataset.k);
+      cell.classList.toggle("on", on); paint.dirty = true;
+      $("#pSum").textContent = "칠한 시간: " + summary();
+    };
+    grid.addEventListener("pointerdown", (e) => {
+      const c = e.target.closest(".c"); if (!c) return;
+      e.preventDefault(); dragging = true; grid.setPointerCapture?.(e.pointerId); apply(c);
+    });
+    grid.addEventListener("pointermove", (e) => { if (dragging) apply(document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".c")); });
+    const stop = () => { dragging = false; };
+    grid.addEventListener("pointerup", stop); grid.addEventListener("pointercancel", stop);
+    $("#pMode").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-v]"); if (!b) return;
+      paint.mode = b.dataset.v; $$("#pMode button[data-v]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    });
+    $("#pCopy").onclick = () => {
+      const best = days.map((d) => ({ d, ts: times.filter((t) => paint.set.has(`${d} ${t}`)) })).sort((a, b) => b.ts.length - a.ts.length)[0];
+      if (!best?.ts.length) return toast("먼저 하루를 칠해 주세요");
+      days.forEach((d) => best.ts.forEach((t) => paint.set.add(`${d} ${t}`)));
+      paint.dirty = true; drawPoll(v, m, D, pick); toast(`${md(best.d)}에 칠한 시간을 모든 날에 복사했어요`);
+    };
+    $("#pClear").onclick = () => { paint.set.clear(); paint.dirty = true; drawPoll(v, m, D, pick); };
+    $("#pSave").onclick = async () => {
+      const { error } = await sb.from("ministry_poll").upsert({ ministry_id: m.id, member_id: me.id, slots: [...paint.set].sort() });
+      if (error) return toast("저장하지 못했어요. 취합이 마감됐는지 확인해 주세요");
+      paint.dirty = false; toast("연습 가능 시간을 저장했어요");
+    };
+  }
+
   // ---------- 배치표 ----------
   let lineupMonth = null;
   async function renderLineup() {
     const v = $("#view-lineup");
     if (!lineupMonth) lineupMonth = monthOf(todayISO());
-    const sundays = sundaysOf(lineupMonth);
     const { data } = await sb.from("published_lineups").select("*")
-      .gte("service_date", sundays[0]).lte("service_date", sundays[sundays.length - 1])
+      .gte("service_date", lineupMonth).lt("service_date", addMonths(lineupMonth, 1))
       .order("service_date").order("sort_order").order("slot");
     const rows = data || [];
-    const dates = [...new Set(rows.map((r) => r.service_date))];
+    const groups = groupLineup(rows);
+    const sats = await satRows([...new Set(rows.filter((r) => !r.ministry_id).map((r) => r.service_date))]);
+    const multi = (r) => groups.filter((g) => g[0].ministry_id && g[0].ministry_id === r.ministry_id).length > 1;
     const role = (r) => r.is_singer_leader ? "싱어 리더" : r.is_band_master ? "밴드 마스터" : "";
     v.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -352,13 +541,14 @@
         <h1 style="font-size:22px;font-weight:800">${monthLabel(lineupMonth)} 배치표</h1>
         <button type="button" class="btn btn-ghost btn-sm" id="nextM" aria-label="다음 달">다음 달</button>
       </div>
-      ${dates.length ? dates.map((d) => {
-        const list = rows.filter((r) => r.service_date === d);
+      ${groups.length ? groups.map((list) => {
+        const h = list[0], d = h.service_date;
         const mine = list.some((r) => r.member_id === me.id);
+        const sub = h.ministry_id ? `${mdw(d)} · ${svcTime(h)}` : `${svcTime(h).split("–")[0]} · 토요 연습 ${md(addDays(d, -1))} ${hm(satTime(sats.find((x) => x.meeting_date === addDays(d, -1)), ST)[0])}`;
         return `<section class="card ${mine ? "bordered" : ""}" style="display:flex;flex-direction:column;gap:6px;${mine ? "border-color:var(--violet-soft)" : ""}">
-          <div class="card-head" style="margin-bottom:4px"><h2 class="card-title">${fmtDate(d, { month: "long", day: "numeric" })} 주일</h2>
-            <span class="muted small">토요 연습 ${md(addDays(d, -1))}</span></div>
-          ${list[0].note ? `<p class="muted small" style="margin:0 0 4px">${esc(list[0].note)}</p>` : ""}
+          <div class="card-head" style="margin-bottom:4px;flex-wrap:wrap"><h2 class="card-title">${h.ministry_id ? `${esc(svcTitle(h, multi(h)))} <span class="chip chip-violet">사역</span>` : `${fmtDate(d, { month: "long", day: "numeric" })} 주일`}</h2>
+            <span class="muted small">${sub}</span></div>
+          ${h.note ? `<p class="muted small" style="margin:0 0 4px">${esc(h.note)}</p>` : ""}
           ${list.map((r) => `<div style="display:grid;grid-template-columns:84px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border-radius:10px;${r.member_id === me.id ? "background:var(--tint);" : ""}">
             <span class="muted small" style="font-weight:600">${esc(r.position_name)}</span>
             <span style="font-weight:${r.member_id === me.id ? 800 : 500};${r.member_id === me.id ? "color:var(--violet)" : ""}">${esc(r.member_name)}${r.member_id === me.id ? " (나)" : ""}</span>

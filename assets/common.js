@@ -31,6 +31,7 @@
     return d.toISOString().slice(0, 10);
   };
   const dow = (iso) => new Date(iso + "T00:00:00Z").getUTCDay();
+  window.dowOf = dow;
   window.nextSaturday = () => {
     const t = todayISO();
     return addDays(t, ((6 - dow(t) + 7) % 7) || 7);
@@ -40,6 +41,8 @@
   // 오늘이 토요일이면 오늘, 아니면 지난 토요일
   window.lastSaturday = (iso = todayISO()) => addDays(iso, -((dow(iso) + 1) % 7));
   window.md = (iso) => { const [, m, d] = iso.split("-"); return `${+m}/${+d}`; };
+  // 11/21 (토)
+  window.mdw = (iso) => `${md(iso)} (${["주일", "월", "화", "수", "목", "금", "토"][dow(iso)]})`;
   // 그 달의 주일 목록 (monthISO = "YYYY-MM-01")
   window.sundaysOf = (monthISO) => {
     const out = []; let d = monthISO;
@@ -65,6 +68,25 @@
     const n = Math.round((new Date(iso) - new Date(todayISO())) / 86400000);
     return n > 0 ? `D-${n}` : n === 0 ? "오늘 마감" : "마감 지남";
   };
+
+  // ---------- 시간 ----------
+  // "19:00:00" → "19:00"
+  window.hm = (t) => (t ? String(t).slice(0, 5) : "");
+  window.timeRange = (a, b) => (a ? `${hm(a)}${b ? "–" + hm(b) : ""}` : "");
+  window.toMin = (t) => { const [h, m] = hm(t).split(":").map(Number); return h * 60 + m; };
+  window.fromMin = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+  // 기본 시간 (설정 표가 아직 없으면 이 값)
+  window.DEFAULT_TIMES = { sat_practice_start: "11:00", sat_practice_end: "13:30", sunday_start: "09:00", sunday_end: "12:30" };
+  let settingsCache = null;
+  window.loadSettings = async (force = false) => {
+    if (settingsCache && !force) return settingsCache;
+    const { data } = await sb.from("team_settings").select("*").eq("id", 1).maybeSingle();
+    settingsCache = { ...DEFAULT_TIMES, rec_order: ["skill", "balance", "consecutive"], rec_basis: "month", ...(data || {}) };
+    return settingsCache;
+  };
+  // 토요 연습 / 주일 시간: 그날 바꾼 시간이 있으면 그것, 없으면 기본 시간
+  window.satTime = (row, st) => [row?.practice_start || st.sat_practice_start, row?.practice_end || st.sat_practice_end];
+  window.sunTime = (svc, st) => [svc?.start_time || st.sunday_start, svc?.end_time || st.sunday_end];
 
   // ---------- 출석 ----------
   window.ATT = { present: "출석", late: "지각", absent: "결석" };
@@ -109,6 +131,7 @@
     return data;
   };
   window.positionName = (code) => positionsCache?.find((p) => p.code === code)?.name ?? code ?? "";
+  window.POS_SHORT = { leader: "인도", singer: "싱어", key_main: "메인", key_second: "세컨", e_guitar: "일렉", bass: "베이스", drum: "드럼" };
 
   // ---------- 로그인 ----------
   window.requireMember = async ({ admin = false } = {}) => {

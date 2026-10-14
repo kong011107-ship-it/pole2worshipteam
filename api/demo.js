@@ -19,18 +19,18 @@ const sundaysOf = (mon) => { const out = []; let d = mon; while (dow(d) !== 0) d
 const monthsAgo = (n) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString(); };
 
 const MEMBERS = [
-  // 이름, 주 포지션, 추가 포지션, 다음 달 응답 패턴(토·주 × 주차: y 가능 / n 불가 / - 미응답)
-  ["정사랑(T)", "leader", ["singer"], "yyyyyyyyyy"],
-  ["김하늘(T)", "singer", [], "yyyyyynyyy"],
-  ["이소망(T)", "singer", [], "yyyyyyyyyy"],
-  ["박은혜(T)", "singer", [], "nnyyyyyyyy"],
-  ["최다윗(T)", "singer", ["key_second"], "yyyynyyyyy"],
-  ["한믿음(T)", "key_main", [], "yyyyyyyynn"],
-  ["윤기쁨(T)", "key_second", ["key_main"], "yyyyyyyyyy"],
-  ["오평강(T)", "e_guitar", [], "----------"],
-  ["강온유(T)", "bass", [], "yyyyyyyyyy"],
-  ["서충성(T)", "drum", [], "yy--------"],
-  ["임소금(T)", "drum", [], "yyyyyyyyyy"],
+  // 이름, 주 포지션, 추가 포지션, 다음 달 응답 패턴(토·주 × 주차: y 가능 / n 불가 / - 미응답), 숙련도(주 포지션 3 상 · 2 중 · 1 하)
+  ["정사랑(T)", "leader", ["singer"], "yyyyyyyyyy", 3],
+  ["김하늘(T)", "singer", [], "yyyyyynyyy", 3],
+  ["이소망(T)", "singer", [], "yyyyyyyyyy", 2],
+  ["박은혜(T)", "singer", [], "nnyyyyyyyy", 1],
+  ["최다윗(T)", "singer", ["key_second"], "yyyynyyyyy", 2],
+  ["한믿음(T)", "key_main", [], "yyyyyyyynn", 3],
+  ["윤기쁨(T)", "key_second", ["key_main"], "yyyyyyyyyy", 2],
+  ["오평강(T)", "e_guitar", [], "----------", 2],
+  ["강온유(T)", "bass", [], "yyyyyyyyyy", 3],
+  ["서충성(T)", "drum", [], "yy--------", 1],
+  ["임소금(T)", "drum", [], "yyyyyyyyyy", 3],
 ];
 
 // 지난 토요일 팀모임 출석 패턴 (최근 주가 맨 오른쪽). p 출석 / l 지각 / a 결석 / - 미기록
@@ -60,22 +60,32 @@ async function clear(db) {
   const { members, apps } = await demoIds(db);
   const memberIds = members.map((m) => m.id);
   const userIds = [...new Set([...memberIds, ...apps.map((a) => a.user_id).filter(Boolean)])];
-  // 테스트 멤버의 배치(테스트 중 탈퇴 처리된 (T) 칸 포함)는 남기지 않고 지움, 비게 된 주일도 정리
+  // 테스트 사역·객원 (예배·응답·배치는 사역과 함께 지워짐)
+  await db.from("ministries").delete().like("name", "%(T)");
+  const { data: gs } = await db.from("guests").select("id").like("name", "%(T)");
+  const gids = (gs || []).map((g) => g.id);
+  // 테스트 멤버·객원의 배치(테스트 중 탈퇴 처리된 (T) 칸 포함)는 남기지 않고 지움, 비게 된 주일도 정리
   const sids = new Set();
   if (memberIds.length) {
     const { data: as } = await db.from("assignments").select("service_id").in("member_id", memberIds);
     (as || []).forEach((x) => sids.add(x.service_id));
     await db.from("assignments").delete().in("member_id", memberIds);
   }
+  if (gids.length) {
+    const { data: as } = await db.from("assignments").select("service_id").in("guest_id", gids);
+    (as || []).forEach((x) => sids.add(x.service_id));
+    await db.from("assignments").delete().in("guest_id", gids);
+    await db.from("guests").delete().in("id", gids);
+  }
   const { data: gone } = await db.from("assignments").select("service_id").is("member_id", null).like("former_name", "%(T)");
   (gone || []).forEach((x) => sids.add(x.service_id));
   await db.from("assignments").delete().is("member_id", null).like("former_name", "%(T)");
   for (const sid of sids) {
     const { count } = await db.from("assignments").select("id", { count: "exact", head: true }).eq("service_id", sid);
-    if (!count) await db.from("services").delete().eq("id", sid);
+    if (!count) await db.from("services").delete().eq("id", sid).is("start_time", null);
   }
   if (apps.length) await db.from("applications").delete().in("id", apps.map((a) => a.id));
-  for (const id of userIds) await db.auth.admin.deleteUser(id);   // 출석 기록은 멤버와 함께 지워짐
+  for (const id of userIds) await db.auth.admin.deleteUser(id);   // 출석·숙련도 기록은 멤버와 함께 지워짐
   await db.from("alumni").delete().like("name", "%(T)");
   // 테스트로 만든 토요일: 실제 기록이 없으면 지우고, 있으면 표시만 지움
   const { data: tms } = await db.from("team_meetings").select("id, attendance(member_id)").eq("note", MEETING_NOTE);
@@ -100,7 +110,7 @@ async function seed(db, me) {
   // ---------- 1. 정식 팀원 11명 + 휴면 1명 ----------
   const ids = {};
   let n = 0;
-  for (const [name, pos, extra] of MEMBERS) {
+  for (const [name, pos, extra, , level] of MEMBERS) {
     const email = `demo${String(++n).padStart(2, "0")}${DOMAIN}`;
     const id = await createUser(db, email, name);
     ids[name] = id;
@@ -111,9 +121,11 @@ async function seed(db, me) {
     });
     if (error) throw new HttpError(500, "테스트 팀원을 만들지 못했습니다: " + error.message);
     for (const e of extra) await db.from("member_extra_positions").insert({ member_id: id, position_code: e });
+    await db.from("member_skills").insert([{ member_id: id, position_code: pos, level }, ...extra.map((e) => ({ member_id: id, position_code: e, level: Math.max(1, level - 1) }))]);
   }
   const restId = await createUser(db, `demo12${DOMAIN}`, "조인내(T)");
   await db.from("members").insert({ id: restId, name: "조인내(T)", email: `demo12${DOMAIN}`, main_position: "singer", status: "active", is_active: false, must_change_password: false });
+  await db.from("guests").insert({ name: "홍객원(T)", positions: ["drum", "bass"], note: "다른 공동체 드러머" });
 
   // ---------- 2. 지원자 (모집 중인 포지션으로) ----------
   const { data: ps } = await db.from("positions").select("code, is_recruiting").order("sort_order");
@@ -182,6 +194,32 @@ async function seed(db, me) {
   await db.from("availability").upsert(rows);
   await db.from("availability_notes").upsert({ member_id: ids["김하늘(T)"], month: nm, note: "셋째 주는 오후만 가능해요" });
 
+  // ---------- 3-1. 다음 달 사역: 원스텝(T) — 월말 응답에 포함, 연습 시간 취합 중 ----------
+  const ms = addDays(sundaysOf(nm)[1], -1);   // 다음 달 둘째 토요일 저녁
+  const { data: mi } = await db.from("ministries").insert({
+    name: "원스텝(T)", response_mode: "monthly", target_mode: "all", required_positions: ["drum", "leader"],
+    practice_mode: "poll", poll_from: addDays(ms, -6), poll_to: addDays(ms, -1), poll_day_start: "10:00", poll_day_end: "23:00",
+    practice_minutes: 120, poll_deadline: addDays(ms, -8), poll_open: true, created_by: me.id,
+  }).select("id").single();
+  if (mi) {
+    const { data: msv } = await db.from("services").insert({ ministry_id: mi.id, service_date: ms, label: "본 섬김", start_time: "19:00", end_time: "21:00" }).select("id").single();
+    const yes = ["정사랑(T)", "김하늘(T)", "이소망(T)", "한믿음(T)", "강온유(T)", "임소금(T)", "윤기쁨(T)"];
+    await db.from("ministry_availability").insert([...yes.map((nmx) => ({ service_id: msv.id, member_id: ids[nmx], available: true })),
+      { service_id: msv.id, member_id: ids["박은혜(T)"], available: false }]);
+    // 칠한 시간: 저녁 위주로 서로 조금씩 다르게
+    const evening = (d, from, to) => { const out = []; for (let h = from; h < to; h += 0.5) out.push(`${d} ${String(Math.floor(h)).padStart(2, "0")}:${h % 1 ? "30" : "00"}`); return out; };
+    const d = (k) => addDays(ms, -k);
+    const polls = {
+      "정사랑(T)": [...evening(d(3), 19.5, 23), ...evening(d(4), 19, 22)],
+      "김하늘(T)": [...evening(d(3), 20, 23), ...evening(d(2), 20, 22)],
+      "이소망(T)": [...evening(d(3), 19, 22.5), ...evening(d(6), 13, 17)],
+      "한믿음(T)": [...evening(d(3), 20, 23), ...evening(d(4), 20, 23)],
+      "강온유(T)": [...evening(d(4), 19, 23), ...evening(d(3), 21, 23)],
+      "임소금(T)": [...evening(d(3), 20, 22.5)],
+    };
+    await db.from("ministry_poll").insert(Object.entries(polls).map(([nmx, sl]) => ({ ministry_id: mi.id, member_id: ids[nmx], slots: sl })));
+  }
+
   // ---------- 4. 배치표: 지난 4주 + 이번 달 남은 주일 (공개) ----------
   const LINEUPS = [
     { leader: "정사랑(T)", singers: ["김하늘(T)", "이소망(T)", "박은혜(T)"], sl: "김하늘(T)", key_main: "한믿음(T)", key_second: "윤기쁨(T)", e_guitar: "오평강(T)", bass: "강온유(T)", drum: "서충성(T)", bm: "한믿음(T)" },
@@ -195,7 +233,7 @@ async function seed(db, me) {
   const allSundays = [...pastSundays, ...upcoming];
   for (let i = 0; i < allSundays.length; i++) {
     const d = allSundays[i], L = LINEUPS[i % LINEUPS.length];
-    let { data: s } = await db.from("services").select("id, assignments(id)").eq("service_date", d).maybeSingle();
+    let { data: s } = await db.from("services").select("id, assignments(id)").eq("service_date", d).is("ministry_id", null).maybeSingle();
     if (s && s.assignments?.length) continue;   // 실제 배치가 있으면 건드리지 않음
     if (!s) ({ data: s } = await db.from("services").insert({ service_date: d }).select("id").single());
     const put = (pos, slot, name, flags = {}) => db.from("assignments").insert({ service_id: s.id, position_code: pos, slot, member_id: ids[name], ...flags });

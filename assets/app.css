@@ -98,6 +98,10 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
   font-size: 16px; font-weight: 400; color: var(--ink); background: #fff;
   min-height: 48px; border: 1px solid var(--line-2); border-radius: 10px; padding: 0 14px; width: 100%;
 }
+.field input[type=time], .field input[type=number] {
+  font-size: 16px; font-weight: 400; color: var(--ink); background: #fff;
+  min-height: 48px; border: 1px solid var(--line-2); border-radius: 10px; padding: 0 12px;
+}
 .field textarea, textarea.input { min-height: 110px; padding: 12px 14px; resize: vertical; line-height: 1.6; }
 .field input:focus, .field select:focus, .field textarea:focus, .input:focus {
   outline: none; border-color: var(--violet-mid); box-shadow: 0 0 0 3px rgba(134,84,203,.18);
@@ -528,6 +532,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .grid22 .box { min-height: 300px; }
 .box h2 { font-size: 17px; font-weight: 800; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .box h2 a { font-size: 13px; font-weight: 700; text-decoration: none; }
+.box h2 small { font-size: 12px; font-weight: 600; color: var(--muted); }
 .head-num { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
 .head-num b { font-size: 34px; font-weight: 800; line-height: 1.1; }
 .todo2 { display: flex; flex-direction: column; gap: 6px; }
@@ -545,3 +550,122 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .mini-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; text-align: center; font-size: 12px; color: var(--muted); }
 .mini-bars b { display: block; font-size: 18px; color: var(--ink); }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 16px; align-items: start; }
+
+/* ---------- 011: 공용 ---------- */
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.field .lrow { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; min-height: 21px; }
+.field .lrow .hint { font-weight: 400; }
+.modal.wide { max-width: 720px; }
+.ktile.focus { border-color: var(--violet-soft); }
+.note-box.small { font-size: 12px; padding: 8px 10px; }
+
+/* ---------- 011: 숙련도 ---------- */
+.sklist { display: flex; flex-direction: column; }
+.skrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--tint); }
+.skrow:first-child { border-top: 0; }
+
+/* ---------- 011: 배치표 (추천 · 객원 · 숙련도) ---------- */
+.lu-chip .lv { flex: none; font-size: 10px; font-weight: 800; border-radius: 4px; padding: 0 4px; line-height: 16px; }
+.lu-chip .lv.l3 { background: var(--violet); color: #fff; }
+.lu-chip .lv.l2 { background: var(--violet-soft); color: var(--violet); }
+.lu-chip .lv.l1 { background: #EEECF2; color: var(--muted); }
+.lu-chip .lv.g { background: #fff; color: var(--muted); border: 1px solid var(--line-2); }
+.lu-chip.rec { background: #fff; border: 1.5px dashed var(--violet-mid); }
+.lu-chip.rec.role-on { background: var(--tint); }
+.lu-chip.guest { background: #FFFBF2; border-color: #E9D9B8; }
+.lu-why { font-size: 11px; font-weight: 600; color: var(--muted-2); padding: 0 4px; }
+.lu-why.warn { color: var(--warn); font-weight: 800; }
+.lu-cand.guest { background: #FFFBF2; border-color: #E9D9B8; }
+.lu-cand.guest.picked { background: var(--violet); border-color: var(--violet); }
+.lu-check .btn { align-self: flex-start; margin-top: 4px; min-height: 30px; font-size: 12px; }
+.recbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; background: #fff; border: 1px solid var(--violet-soft); border-radius: var(--r-lg); padding: 12px 16px; }
+.lu-legend { display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 6px; margin-right: 4px; color: var(--ink-2); }
+.lu-legend.fix { background: var(--tint-2); border: 1px solid var(--violet-soft); }
+.lu-legend.rec { background: #fff; border: 1.5px dashed var(--violet-mid); }
+.howrec { background: #fff; border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 18px; }
+.howrec summary { font-weight: 800; font-size: 15px; cursor: pointer; }
+.howrec ol { margin: 10px 0 0; padding-left: 20px; font-size: 14px; color: var(--ink-2); line-height: 1.8; }
+
+/* ---------- 011: 섬김 일정 ---------- */
+.sched { border-collapse: collapse; width: 100%; min-width: 860px; }
+.sched td, .sched th { padding: 10px 12px; text-align: left; font-size: 14px; border-top: 1px solid var(--tint); vertical-align: middle; }
+.sched th { font-size: 12px; color: var(--muted); font-weight: 700; border-top: 0; background: #FBF8FE; }
+.sched .wk td { background: #FBF8FE; font-size: 12px; font-weight: 800; color: var(--violet-mid); padding: 7px 12px; }
+.sched .tm { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-weight: 700; background: none; border: 0; padding: 4px 6px; margin-left: -6px; border-radius: 6px; cursor: pointer; color: var(--ink); }
+.sched .tm:hover { background: var(--tint); }
+.sched .tm.edited { color: var(--violet); }
+.sched .tm u { text-decoration: none; font-size: 11px; color: var(--violet); border: 1px dashed var(--violet-soft); border-radius: 6px; padding: 1px 6px; }
+.kind { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+.kind .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--violet-soft); }
+.kind .dot.m { background: var(--violet-hi); }
+
+/* ---------- 011: 사역 추가 ---------- */
+.sec { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--tint-2); }
+.sec > h4 { margin: 0; font-size: 13px; font-weight: 800; color: var(--violet-mid); }
+.svc { display: grid; grid-template-columns: 110px minmax(0, 1fr) 96px 10px 96px 28px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.svc.pr { grid-template-columns: minmax(0, 1fr) 96px 10px 96px 28px; }
+.svc.head { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: -2px; }
+.svc .input { min-height: 42px; font-size: 15px; padding: 0 10px; }
+.radios { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.radio1 { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r); border: 1px solid #E4DAF2; background: #fff; cursor: pointer; }
+.radio1.on { border-color: var(--violet-soft); background: var(--tint); }
+.radio1 input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--violet); flex: none; }
+.radio1 b { display: block; font-size: 14px; }
+.radio1 small { font-size: 12px; color: var(--muted); }
+.subbox { background: var(--bg); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.subbox .input { min-height: 42px; font-size: 15px; }
+.pick-people { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow: auto; background: var(--bg); border-radius: 10px; padding: 10px; }
+.pick-people label { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.pick-people label:has(input:checked) { border-color: var(--violet-soft); background: var(--tint); }
+.pick-people input { accent-color: var(--violet); }
+.pick-people small { color: var(--muted); font-weight: 500; font-size: 11px; }
+@media (max-width: 640px) {
+  .svc { grid-template-columns: 1fr 1fr; } .svc > span.muted { display: none; } .svc.head { display: none; }
+  .radios { grid-template-columns: 1fr; }
+}
+
+/* ---------- 011: 사역 상세 · 연습 ---------- */
+.cols2 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .cols2 { grid-template-columns: 1fr; } }
+.pheat { display: grid; gap: 2px; font-size: 11px; align-items: center; }
+.pheat .h { color: var(--muted); font-weight: 600; text-align: left; white-space: nowrap; }
+.pheat .d { font-size: 12px; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.pheat .c { height: 26px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+.pheat .c.best { outline: 2px solid var(--violet); outline-offset: -1px; }
+.recw { display: flex; flex-direction: column; gap: 8px; }
+.recw > div { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px; border-radius: 10px; background: var(--bg); }
+.recw > div.top { background: var(--tint); box-shadow: inset 0 0 0 1px var(--violet-soft); }
+.rk { width: 24px; height: 24px; border-radius: 999px; background: var(--violet); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.rk.g { background: var(--violet-soft); }
+.ppl { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ppl span { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: #fff; color: var(--muted); }
+.ppl span.no { color: var(--bad); background: var(--bad-bg); }
+.ppl span.no.strong { color: #fff; background: var(--bad); }
+.prow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; border-top: 1px solid var(--tint); }
+.prow:first-of-type { border-top: 0; }
+
+/* ---------- 011: 설정 ---------- */
+.ordrow { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+.ordrow .n { width: 26px; height: 26px; border-radius: 999px; background: var(--violet); color: #fff; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.ordrow.lock { background: #fff; border-style: dashed; color: var(--muted); }
+.ordrow.lock .n { background: none; }
+
+/* ---------- 011: 멤버 화면 (사역 응답 · 연습 시간 칠하기) ---------- */
+.ansrow { display: grid; grid-template-columns: minmax(0, 1fr) 76px 76px; gap: 8px; align-items: center; }
+.pick { display: grid; gap: 3px; font-size: 11px; user-select: none; -webkit-user-select: none; touch-action: none; }
+.pick .h { color: var(--muted); font-weight: 700; text-align: center; line-height: 1.25; padding-bottom: 4px; white-space: pre-line; }
+.pick .t { color: var(--muted); font-weight: 600; font-size: 11px; text-align: right; padding-right: 4px; }
+.pick .c { height: 22px; border-radius: 3px; background: #fff; border: 1px solid #E7DFF3; }
+.pick .c.on { background: var(--violet-mid); border-color: var(--violet-mid); }
+.resp-pick { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.resp-pick button { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 52px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: #fff; color: var(--ink-2); font: inherit; cursor: pointer; text-align: left; }
+.resp-pick button b { font-size: 14px; }
+.resp-pick button span { font-size: 11px; color: var(--muted); font-weight: 600; }
+.resp-pick button[aria-pressed=true] { background: var(--violet); border-color: var(--violet); color: #fff; }
+.resp-pick button[aria-pressed=true] span { color: #E4D6F7; }
+.lu-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
+.lu-meta .lu-why { padding: 0 2px; }
+.lvt { display: inline-block; font-size: 10px; font-weight: 800; border-radius: 4px; padding: 0 4px; line-height: 15px; }
+.lvt.l3 { background: var(--violet); color: #fff; } .lvt.l2 { background: var(--violet-soft); color: var(--violet); } .lvt.l1 { background: #EEECF2; color: var(--muted); }
+.lu-chip { gap: 4px; padding-left: 8px; }
+.lu-chip .lu-role { padding: 0 5px; }
