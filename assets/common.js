@@ -30,15 +30,27 @@
     const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   };
+  const dow = (iso) => new Date(iso + "T00:00:00Z").getUTCDay();
   window.nextSaturday = () => {
-    const t = todayISO(); const dow = new Date(t + "T00:00:00Z").getUTCDay();
-    return addDays(t, ((6 - dow + 7) % 7) || 7);
+    const t = todayISO();
+    return addDays(t, ((6 - dow(t) + 7) % 7) || 7);
   };
+  // 오늘이 토요일이면 오늘, 아니면 다가오는 토요일
+  window.upcomingSaturday = (iso = todayISO()) => addDays(iso, (6 - dow(iso) + 7) % 7);
+  // 오늘이 토요일이면 오늘, 아니면 지난 토요일
+  window.lastSaturday = (iso = todayISO()) => addDays(iso, -((dow(iso) + 1) % 7));
   window.md = (iso) => { const [, m, d] = iso.split("-"); return `${+m}/${+d}`; };
   // 그 달의 주일 목록 (monthISO = "YYYY-MM-01")
   window.sundaysOf = (monthISO) => {
     const out = []; let d = monthISO;
-    while (new Date(d + "T00:00:00Z").getUTCDay() !== 0) d = addDays(d, 1);
+    while (dow(d) !== 0) d = addDays(d, 1);
+    while (d.slice(0, 7) === monthISO.slice(0, 7)) { out.push(d); d = addDays(d, 7); }
+    return out;
+  };
+  // 그 달의 토요일 목록
+  window.saturdaysOf = (monthISO) => {
+    const out = []; let d = monthISO;
+    while (dow(d) !== 6) d = addDays(d, 1);
     while (d.slice(0, 7) === monthISO.slice(0, 7)) { out.push(d); d = addDays(d, 7); }
     return out;
   };
@@ -53,6 +65,10 @@
     const n = Math.round((new Date(iso) - new Date(todayISO())) / 86400000);
     return n > 0 ? `D-${n}` : n === 0 ? "오늘 마감" : "마감 지남";
   };
+
+  // ---------- 출석 ----------
+  window.ATT = { present: "출석", late: "지각", absent: "결석", excused: "사유결석" };
+  window.MEETING = { yes: "있음", no: "없음", tbd: "미정" };
 
   // ---------- 수습 일정 ----------
   // n주차 토요일 = 시작일 + 7×(n−1) + (n주차 이전·당일에 시작된 연기 주 수 합)×7

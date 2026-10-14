@@ -72,16 +72,19 @@
 
   // ---------------------------------------------------------------- 라우팅
   function route() {
-    const h = location.hash.slice(1) || "pipeline";
+    const h = location.hash.slice(1) || "dashboard";
     const [view, id] = h.split("/");
     $$(".side nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === (view === "app" ? "pipeline" : view)));
+    updateTodoCount();
     if (view === "app" && id) return renderDetail(id);
+    if (view === "pipeline") return renderPipeline();
+    if (view === "attendance") return renderAttendance();
     if (view === "members") return renderMembers();
     if (view === "respond") return renderRespondAdmin();
     if (view === "settings") return renderSettings();
     if (view === "lineup") return renderLineupAdmin();
     if (view === "templates") return renderTemplates();
-    return renderPipeline();
+    return renderDashboard();
   }
   window.addEventListener("hashchange", () => { route(); window.scrollTo(0, 0); });
   // 이미 보고 있는 메뉴를 다시 누르면 새로 불러오기
@@ -1239,6 +1242,360 @@
     });
   }
 
+  // ================================================================ 토요 출석 (연습 · 팀모임)
+  //  연습: 그 주 주일 배치 인원 / 팀모임: 활동 중인 전체 팀원(수습 포함)
+  const A = { month: null, sel: null, data: null };
+  const ATT_KEYS = ["present", "late", "absent", "excused"];
+  const byPos = (a, b) => (posOrder()[a.main_position] ?? 99) - (posOrder()[b.main_position] ?? 99) || a.name.localeCompare(b.name, "ko");
+  // 기존 팀원은 계정 등록일과 관계없이 대상 (지난 토요일도 뒤늦게 기록할 수 있게). 수습생만 시작 전 토요일 제외
+  const meetingPeople = (d) => S.members.filter((m) => m.is_active && !(m.status === "trainee" && m.joined_at && m.joined_at > d)).sort(byPos);
+  const MS_CHIP = { yes: "chip-ok", no: "chip-gray", tbd: "chip-mid" };
+
+  // 없는 토요일 줄을 만들어 둠 (기본 '미정')
+  async function ensureSaturdays(dates) {
+    if (!dates.length) return;
+    await sb.from("team_meetings").upsert(dates.map((d) => ({ meeting_date: d })), { onConflict: "meeting_date", ignoreDuplicates: true });
+  }
+
+  // 그 토요일 연습 대상 = 다음 날 주일 배치 인원 (임시저장 포함, 한 사람은 한 번)
+  function practicePeople(d, services, recs = []) {
+    const s = services.find((x) => x.service_date === addDays(d, 1));
+    const seen = new Set(), list = [];
+    (s?.assignments || []).slice()
+      .sort((a, b) => (posOrder()[a.position_code] ?? 99) - (posOrder()[b.position_code] ?? 99) || a.slot - b.slot)
+      .forEach((a) => {
+        const m = S.members.find((x) => x.id === a.member_id);
+        if (m && !seen.has(m.id)) { seen.add(m.id); list.push({ m, pos: a.position_code }); }
+      });
+    // 기록은 있는데 배치에서 빠진 사람도 보여 줌
+    recs.filter((r) => r.kind === "practice" && !seen.has(r.member_id)).forEach((r) => {
+      const m = S.members.find((x) => x.id === r.member_id);
+      if (m) { seen.add(m.id); list.push({ m, pos: m.main_position, off: true }); }
+    });
+    return { list, status: s?.status || null };
+  }
+
+  async function renderAttendance() {
+    if (!A.month) A.month = monthOf(lastSaturday());
+    const sats = saturdaysOf(A.month);
+    if (!A.sel || !sats.includes(A.sel)) A.sel = sats.includes(lastSaturday()) ? lastSaturday() : sats[0];
+    await ensureSaturdays(sats);
+    const [tm, sv] = await Promise.all([
+      sb.from("team_meetings").select("*, attendance(*)").in("meeting_date", sats),
+      sb.from("services").select("service_date, status, assignments(member_id, position_code, slot)").in("service_date", sats.map((d) => addDays(d, 1))),
+    ]);
+    if (tm.error || sv.error) { toast("출석을 불러오지 못했습니다. migration_008을 실행했는지 확인해 주세요.", 4000); console.error(tm.error || sv.error); }
+    A.data = { sats, meetings: tm.data || [], services: sv.data || [] };
+    drawAttendance();
+  }
+
+  function drawAttendance() {
+    const { sats, meetings, services } = A.data;
+    const today = todayISO();
+    const mt = (d) => meetings.find((x) => x.meeting_date === d) || { meeting_status: "tbd", attendance: [] };
+    const recOf = (row, mid, kind) => row.attendance.find((r) => r.member_id === mid && r.kind === kind)?.status;
+    const d = A.sel, row = mt(d), ms = row.meeting_status;
+    const prac = practicePeople(d, services, row.attendance);
+    const meet = meetingPeople(d);
+    const future = d > today;
+
+    const tabs = sats.map((s) => {
+      const r = mt(s);
+      const p = practicePeople(s, services, r.attendance).list.length;
+      const pr = r.attendance.filter((x) => x.kind === "practice").length;
+      const mr = r.attendance.filter((x) => x.kind === "meeting").length;
+      const info = s > today ? `팀모임 ${MEETING[r.meeting_status]}` : `연습 ${pr}/${p} · 모임 ${r.meeting_status === "no" ? "없음" : mr + "/" + meetingPeople(s).length}`;
+      return `<button type="button" class="sat-tab ${s === d ? "on" : ""} ${s === lastSaturday() ? "today" : ""}" data-sat="${s}"><b>${md(s)} 토</b><span>${info}</span></button>`;
+    }).join("");
+
+    const seg = (mid, kind, cur) => `<div class="seg" role="group" aria-label="출석" data-mid="${mid}" data-kind="${kind}">${ATT_KEYS.map((k) =>
+      `<button type="button" data-v="${k}" data-tone="${k}" aria-pressed="${cur === k}" ${future ? "disabled" : ""}>${ATT[k]}</button>`).join("")}</div>`;
+    const sum = (kind, total) => {
+      const rs = row.attendance.filter((r) => r.kind === kind);
+      const c = (k) => rs.filter((r) => r.status === k).length;
+      return `<div class="att-sum"><span class="chip chip-ok">출석 ${c("present")}</span><span class="chip chip-mid">지각 ${c("late")}</span>
+        <span class="chip ${c("absent") ? "chip-bad" : "chip-gray"}">결석 ${c("absent")}</span><span class="chip chip-gray">사유 ${c("excused")}</span>
+        <span class="chip chip-gray">미기록 ${Math.max(total - rs.length, 0)}</span></div>`;
+    };
+    const personRow = (m, kind, extra = "") => `<div class="att-row"><span class="who"><b>${esc(m.name)}${m.status === "trainee" ? ` <span class="chip chip-mid">수습</span>` : ""}</b>
+      <span>${extra || esc(positionName(m.main_position))}</span></span>${seg(m.id, kind, recOf(row, m.id, kind))}</div>`;
+
+    const pracCol = `<section class="att-col" aria-label="토요 연습">
+      <div class="dcard-head"><h2>토요 연습</h2><span class="small muted">${md(addDays(d, 1))} 주일 섬김 ${prac.list.filter((x) => !x.off).length}명${prac.status === "draft" ? " · 배치 임시저장" : ""}</span></div>
+      ${prac.list.length ? `${sum("practice", prac.list.length)}
+        ${prac.list.map(({ m, pos, off }) => personRow(m, "practice", off ? "배치에서 빠짐" : esc(positionName(pos)))).join("")}
+        ${future ? "" : `<button type="button" class="btn btn-soft btn-sm" data-allin="practice" style="align-self:flex-start">남은 사람 모두 출석</button>`}`
+      : `<div class="empty" style="padding:20px">${md(addDays(d, 1))} 주일 배치가 아직 없어요.<br><a href="#lineup" data-lmonth="${monthOf(addDays(d, 1))}">배치표로 가기</a></div>`}
+    </section>`;
+
+    const meetCol = `<section class="att-col ${ms === "no" ? "off" : ""}" aria-label="팀모임">
+      <div class="dcard-head"><h2>팀모임</h2><span class="small muted">활동 중인 팀원 ${meet.length}명 · 수습 포함</span></div>
+      ${ms === "no" ? `<div class="empty" style="padding:20px">이번 주는 팀모임이 없어요.</div>`
+        : `${ms === "tbd" && !future ? `<p class="notice warn" style="margin:0">팀모임 여부가 '미정'이에요. 출석을 체크하면 '있음'으로 바뀌어요.</p>` : ""}
+        ${sum("meeting", meet.length)}
+        ${meet.map((m) => personRow(m, "meeting")).join("")}
+        ${future ? "" : `<button type="button" class="btn btn-soft btn-sm" data-allin="meeting" style="align-self:flex-start">남은 사람 모두 출석</button>`}`}
+    </section>`;
+
+    // 이 달 한눈에 보기
+    const short = { present: "출", late: "지", absent: "결", excused: "사" };
+    const cell = (r, kind, m, s) => {
+      if (kind === "meeting" && r.meeting_status === "no") return `<td class="m-off">·</td>`;
+      if (kind === "practice" && !practicePeople(s, services, r.attendance).list.some((x) => x.m.id === m.id)) return `<td class="m-off">·</td>`;
+      const v = recOf(r, m.id, kind);
+      return `<td class="${v ? "m-" + v : "m-off"}">${v ? short[v] : s > today ? "" : "–"}</td>`;
+    };
+    const everyone = meetingPeople(sats[sats.length - 1]);
+    const table = `<div class="evaltable"><table class="att-table">
+      <thead><tr><th rowspan="2">이름</th>${sats.map((s) => `<th colspan="2" style="text-align:center;border-left:1px solid var(--line)">${md(s)} <span class="chip ${MS_CHIP[mt(s).meeting_status]}" style="margin-left:4px">모임 ${MEETING[mt(s).meeting_status]}</span></th>`).join("")}</tr>
+        <tr>${sats.map(() => `<th style="border-left:1px solid var(--line);font-size:12px">연습</th><th style="font-size:12px">모임</th>`).join("")}</tr></thead>
+      <tbody>${everyone.map((m) => `<tr><td style="font-weight:700">${esc(m.name)}</td>${sats.map((s) => {
+        const r = mt(s);
+        return cell(r, "practice", m, s).replace("<td", `<td style="border-left:1px solid var(--line)"`) + cell(r, "meeting", m, s);
+      }).join("")}</tr>`).join("") || `<tr><td colspan="99" class="muted">활동 중인 팀원이 없어요.</td></tr>`}</tbody></table></div>
+      <p class="small muted" style="margin:0">출 출석 · 지 지각 · 결 결석 · 사 사유결석 · – 미기록 · · 대상 아님(연습은 그 주 섬김 인원만)</p>`;
+
+    $("#content").innerHTML = `
+      <div class="page-head">${monthNav("토요 출석", A.month)}</div>
+      <p class="lead">토요일마다 연습(그 주 섬김 인원)과 팀모임(전체)을 따로 체크해요. 이미 누른 칸을 다시 누르면 기록이 지워져요.</p>
+      <div class="sat-tabs" role="tablist" aria-label="토요일">${tabs}</div>
+      <section class="card bordered" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
+        <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:17px">${fmtDate(d, { month: "long", day: "numeric", weekday: "short" })} 팀모임</b>
+          <span class="small muted">${future ? "정해지면 팀원 홈에 바로 보여요" : "연습 후 팀모임이 있었는지 골라 주세요"}</span></div>
+        <div class="seg" id="msSeg">${["yes", "no", "tbd"].map((k) => `<button type="button" data-v="${k}" aria-pressed="${ms === k}">${MEETING[k]}</button>`).join("")}</div>
+      </section>
+      ${future ? `<p class="notice ok" style="margin:0">아직 오지 않은 토요일이에요. 출석은 그날부터 체크할 수 있어요.</p>` : ""}
+      <div class="att-cols">${pracCol}${meetCol}</div>
+      <h2 style="font-size:19px;font-weight:800;margin-top:8px">${monthLabel(A.month)} 한눈에 보기</h2>
+      ${table}`;
+
+    bindMonthNav((n) => { A.month = addMonths(A.month, n); A.sel = null; renderAttendance(); });
+    bindAttendance(row);
+  }
+
+  function bindAttendance(row) {
+    const content = $("#content");
+    content.querySelectorAll("[data-sat]").forEach((b) => b.addEventListener("click", () => { A.sel = b.dataset.sat; drawAttendance(); }));
+    content.querySelector("[data-lmonth]")?.addEventListener("click", (e) => { V.lineupMonth = e.target.dataset.lmonth; });
+
+    const setStatus = async (v) => {
+      const { error } = await sb.from("team_meetings").update({ meeting_status: v }).eq("id", row.id);
+      if (error) return toast("바꾸지 못했습니다");
+      toast(`${md(A.sel)} 팀모임 ${MEETING[v]}`);
+      renderAttendance();
+    };
+    $("#msSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b || b.getAttribute("aria-pressed") === "true") return;
+      const n = row.attendance.filter((r) => r.kind === "meeting").length;
+      if (b.dataset.v === "no" && n) {
+        return modal({ title: `${md(A.sel)} 팀모임 없음으로 바꾸기`,
+          body: `<p style="margin:0">이 날 적어 둔 팀모임 출석 ${n}건이 지워져요. 연습 출석은 그대로 남아요.</p>`,
+          confirmLabel: "없음으로 바꾸기", danger: true, onConfirm: async (close) => { close(); await setStatus("no"); } });
+      }
+      setStatus(b.dataset.v);
+    });
+
+    content.querySelectorAll(".att-col .seg[data-mid]").forEach((g) => g.addEventListener("click", async (e) => {
+      const b = e.target.closest("button"); if (!b || b.disabled) return;
+      const key = { meeting_id: row.id, member_id: g.dataset.mid, kind: g.dataset.kind };
+      const clear = b.getAttribute("aria-pressed") === "true";
+      const { error } = clear
+        ? await sb.from("attendance").delete().match(key)
+        : await sb.from("attendance").upsert({ ...key, status: b.dataset.v });
+      if (error) return toast(error.message?.includes("팀모임이 없는") ? error.message : "저장하지 못했습니다", 3500);
+      row.attendance = row.attendance.filter((r) => !(r.member_id === key.member_id && r.kind === key.kind));
+      if (!clear) {
+        row.attendance.push({ ...key, status: b.dataset.v });
+        if (key.kind === "meeting" && row.meeting_status === "tbd") row.meeting_status = "yes";
+      }
+      drawAttendance();
+    }));
+
+    content.querySelectorAll("[data-allin]").forEach((b) => b.addEventListener("click", async () => {
+      const kind = b.dataset.allin;
+      const people = kind === "practice" ? practicePeople(A.sel, A.data.services, row.attendance).list.map((x) => x.m) : meetingPeople(A.sel);
+      const rest = people.filter((m) => !row.attendance.some((r) => r.member_id === m.id && r.kind === kind));
+      if (!rest.length) return toast("모두 기록했어요");
+      const rows = rest.map((m) => ({ meeting_id: row.id, member_id: m.id, kind, status: "present" }));
+      const { error } = await sb.from("attendance").upsert(rows);
+      if (error) return toast("저장하지 못했습니다");
+      row.attendance.push(...rows);
+      if (kind === "meeting" && row.meeting_status === "tbd") row.meeting_status = "yes";
+      toast(`${rest.length}명을 출석으로 기록했어요`);
+      drawAttendance();
+    }));
+  }
+
+  // ================================================================ 대시보드
+  const STREAK_LIMIT = 5;      // 팀모임 연속 결석 경고 기준
+  const LATE_WEEKS = 4;        // 연습 지각을 보는 기간(주)
+
+  // 팀모임 연속 결석: '있음'이었던 지난 팀모임을 최근부터 거슬러 셈. 사유결석·미기록은 건너뜀
+  function absenceStreak(m, meetings, today) {
+    let n = 0, last = null;
+    for (const mt of meetings.slice().sort((a, b) => b.meeting_date.localeCompare(a.meeting_date))) {
+      if (mt.meeting_status !== "yes" || mt.meeting_date > today) continue;
+      if (m.joined_at && mt.meeting_date < m.joined_at) break;
+      const r = mt.attendance.find((x) => x.member_id === m.id && x.kind === "meeting");
+      if (!r || r.status === "excused") continue;
+      if (r.status === "absent") n++; else { last = mt.meeting_date; break; }
+    }
+    return { n, last };
+  }
+
+  async function renderDashboard() {
+    if (!$("#content").children.length) $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">대시보드</h1></div><div class="empty">불러오는 중…</div>`;
+    const today = todayISO();
+    const thisSat = upcomingSaturday(today), lastSat = lastSaturday(today);
+    const suns = [...new Set([addDays(lastSat, 1), addDays(thisSat, 1), addDays(thisSat, 8)])].filter((s) => s >= today);
+    const since = addDays(lastSat, -7 * 15);
+    await ensureSaturdays([...new Set([lastSat, thisSat])]);
+    const [tm, sv, mo] = await Promise.all([
+      sb.from("team_meetings").select("*, attendance(*)").gte("meeting_date", since).lte("meeting_date", thisSat).order("meeting_date"),
+      sb.from("services").select("*, assignments(*)").in("service_date", [...new Set([...suns, addDays(lastSat, 1)])]),
+      sb.from("availability_months").select("*").gte("month", monthOf(today)).order("month"),
+    ]);
+    if (tm.error) console.error(tm.error);
+    const meetings = tm.data || [], services = sv.data || [], months = mo.data || [];
+    const mtOf = (d) => meetings.find((x) => x.meeting_date === d) || { meeting_status: "tbd", attendance: [] };
+    const openMonths = months.filter((m) => m.is_open);
+    const resp = await Promise.all(openMonths.map(async (m) => {
+      const slots = slotsOfMonth(m.month);
+      const { data } = await sb.from("availability").select("member_id, date, kind").gte("date", slots[0].date).lte("date", slots[slots.length - 1].date);
+      const people = servingMembers();
+      const cnt = (mm) => (data || []).filter((a) => a.member_id === mm.id).length;
+      return { m, total: people.length, done: people.filter((p) => cnt(p) >= slots.length), partial: people.filter((p) => cnt(p) > 0 && cnt(p) < slots.length), none: people.filter((p) => cnt(p) === 0) };
+    }));
+
+    // ---------- 이번 주 할 일 ----------
+    const todos = [];
+    const item = (tone, text, sub, href, attrs = "") => `<li><a href="${href}" ${attrs}><i class="dot ${tone}"></i><span>${text}</span><small>${sub || ""}</small></a></li>`;
+    const ts = mtOf(thisSat);
+    todos.push(ts.meeting_status === "tbd"
+      ? item("", `${md(thisSat)} 팀모임 여부 정하기`, "미정", "#attendance", `data-sat="${thisSat}"`)
+      : item("ok", `${md(thisSat)} 팀모임 ${MEETING[ts.meeting_status]}`, "정해짐", "#attendance", `data-sat="${thisSat}"`));
+    const POS = window.__allPositions || [];
+    suns.forEach((sun) => {
+      const s = services.find((x) => x.service_date === sun), list = (s?.assignments || []).filter((a) => a.member_id);
+      const href = `#lineup`, at = `data-lmonth="${monthOf(sun)}"`;
+      if (!list.length) return todos.push(item("", `${md(sun)} 주일 배치표 비어 있음`, "배치하기", href, at));
+      const kinds = list.map((x) => POS.find((p) => p.code === x.position_code)?.kind);
+      const miss = [kinds.includes("vocal") && !list.some((x) => x.is_singer_leader) && "싱어 리더", kinds.includes("band") && !list.some((x) => x.is_band_master) && "밴드 마스터"].filter(Boolean);
+      if (s.status !== "published") todos.push(item("", `${md(sun)} 주일 배치표 아직 공개 전`, `${list.length}명 배치 · 임시저장`, href, at));
+      else if (miss.length) todos.push(item("mid", `${md(sun)} 주일 ${miss.join(", ")} 미지정`, `${list.length}명 배치 · 공개됨`, href, at));
+      else todos.push(item("ok", `${md(sun)} 주일 배치표 공개됨`, `${list.length}명`, href, at));
+    });
+    {   // 지난(또는 오늘) 토요일 출석 기록이 비었는지
+      const r = mtOf(lastSat);
+      const p = practicePeople(lastSat, services, r.attendance).list.length;
+      const pr = r.attendance.filter((x) => x.kind === "practice").length;
+      const mr = r.attendance.filter((x) => x.kind === "meeting").length, mtot = meetingPeople(lastSat).length;
+      const gaps = [p > pr && `연습 ${pr}/${p}`, r.meeting_status === "yes" && mtot > mr && `모임 ${mr}/${mtot}`, r.meeting_status === "tbd" && "팀모임 여부 미정"].filter(Boolean);
+      if (gaps.length) todos.push(item("", `${md(lastSat)} 출석 기록 마저 하기`, gaps.join(" · "), "#attendance", `data-sat="${lastSat}"`));
+    }
+    const pend = S.apps.filter((a) => cardTodo(a).pending).length;
+    if (pend) todos.push(item("", `모집·수습 할 일 ${pend}건`, "안내 문구·단계", "#pipeline"));
+    const nextM = addMonths(monthOf(today), 1);
+    if (+today.slice(8) >= 15 && !months.some((m) => m.month === nextM))
+      todos.push(item("", `${monthLabel(nextM)} 섬김 응답 열기`, "아직 안 열었어요", "#respond", `data-rmonth="${nextM}"`));
+    openMonths.filter((m) => m.deadline && m.deadline < today).forEach((m) =>
+      todos.push(item("mid", `${monthLabel(m.month)} 섬김 응답 마감일 지남`, "마감하기", "#respond", `data-rmonth="${m.month}"`)));
+    todos.sort((a, b) => (a.includes('dot ok') ? 1 : 0) - (b.includes('dot ok') ? 1 : 0));
+
+    // ---------- 섬김 응답 ----------
+    const respHTML = resp.length ? resp.map(({ m, total, done, partial, none }) => `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><b>${monthLabel(m.month)} 응답</b>
+          <span class="small muted">${m.deadline ? `${fmtDate(m.deadline, { month: "long", day: "numeric", weekday: "short" })} 마감 · ${dday(m.deadline)}` : "마감일 미정"}</span></div>
+        <div class="dstat"><div><b>${done.length}<span class="small muted" style="font-weight:600">/${total}</span></b><span>응답 완료</span></div>
+          <div><b>${partial.length}</b><span>응답 중</span></div><div><b style="color:${none.length ? "var(--warn)" : "inherit"}">${none.length}</b><span>미응답</span></div></div>
+        ${none.length + partial.length ? `<span class="small"><b>아직 남은 사람</b> ${[...none, ...partial].map((p) => esc(p.name)).join(", ")}</span>
+          <button type="button" class="btn btn-soft btn-sm" data-nudge="${m.month}" style="align-self:flex-start">독촉 문구 복사</button>` : `<span class="small" style="color:var(--ok);font-weight:700">모두 응답했어요</span>`}
+      </div>`).join(`<hr style="border:0;border-top:1px solid var(--line);margin:4px 0">`)
+      : `<p class="muted small" style="margin:0">지금 응답 받는 달이 없어요.</p>`;
+
+    // ---------- 출석 ----------
+    const past = meetings.filter((x) => x.meeting_date <= today);
+    const held = past.filter((x) => x.meeting_status === "yes").slice(-8);
+    const rec = held.flatMap((x) => x.attendance.filter((a) => a.kind === "meeting"));
+    const rate = rec.length ? Math.round(100 * rec.filter((a) => ["present", "late"].includes(a.status)).length / rec.length) : null;
+    const people = S.members.filter((m) => m.is_active);
+    const streaks = people.map((m) => ({ m, ...absenceStreak(m, meetings, today) })).filter((x) => x.n >= STREAK_LIMIT).sort((a, b) => b.n - a.n);
+    const near = people.map((m) => ({ m, ...absenceStreak(m, meetings, today) })).filter((x) => x.n >= 3 && x.n < STREAK_LIMIT);
+    const lateFrom = addDays(lastSat, -7 * (LATE_WEEKS - 1));
+    const lateSats = past.filter((x) => x.meeting_date >= lateFrom);
+    const lates = people.map((m) => {
+      const marks = lateSats.map((x) => x.attendance.find((a) => a.member_id === m.id && a.kind === "practice")?.status || null);
+      return { m, marks, n: marks.filter((s) => s === "late").length };
+    }).filter((x) => x.n > 0).sort((a, b) => b.n - a.n || byPos(a.m, b.m));
+    const dots = (marks) => `<span class="dots" aria-hidden="true">${marks.map((s) => `<i class="${s === "present" ? "" : s || "none"}"></i>`).join("")}</span>`;
+
+    // ---------- 팀 구성 ----------
+    const act = S.members.filter((m) => m.is_active && m.status === "active");
+    const trainees = S.members.filter((m) => m.is_active && m.status === "trainee");
+    const dormant = S.members.filter((m) => !m.is_active).length;
+    const posCount = POS.map((p) => ({ p, n: act.filter((m) => m.main_position === p.code).length,
+      multi: S.extras.filter((e) => e.position_code === p.code && act.some((m) => m.id === e.member_id)).length }));
+    const maxN = Math.max(1, ...posCount.map((x) => x.n + x.multi));
+
+    $("#content").innerHTML = `
+      <div class="page-head"><h1 class="page-title">대시보드</h1><span class="small muted">${fmtDate(today, { month: "long", day: "numeric", weekday: "long" })}</span></div>
+      <div class="dash-grid">
+        <section class="dcard" aria-label="이번 주 할 일">
+          <div class="dcard-head"><h2>이번 주 할 일</h2></div>
+          <ul class="dtodo">${todos.join("")}</ul>
+        </section>
+        <section class="dcard" aria-label="섬김 응답 현황">
+          <div class="dcard-head"><h2>섬김 응답</h2><a href="#respond">응답 현황</a></div>
+          ${respHTML}
+        </section>
+        <section class="dcard" aria-label="출석 현황">
+          <div class="dcard-head"><h2>출석</h2><a href="#attendance">토요 출석</a></div>
+          <div class="dstat"><div><b>${rate === null ? "–" : rate + "%"}</b><span>팀모임 출석률<br>최근 ${held.length}회</span></div>
+            <div><b style="color:${streaks.length ? "var(--bad)" : "inherit"}">${streaks.length}</b><span>팀모임 연속 결석<br>${STREAK_LIMIT}회 이상</span></div>
+            <div><b style="color:${lates.length ? "var(--mid)" : "inherit"}">${lates.reduce((s, x) => s + x.n, 0)}</b><span>연습 지각<br>최근 ${LATE_WEEKS}주</span></div></div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <b class="small">팀모임 연속 결석 ${STREAK_LIMIT}회 이상</b>
+            ${streaks.length ? `<div class="dlist">${streaks.map((x) => `<div><span><b>${esc(x.m.name)}</b> <span class="muted small">${esc(positionName(x.m.main_position))}</span></span>
+              <span class="small"><b style="color:var(--bad)">${x.n}회 연속</b> · ${x.last ? `마지막 출석 ${md(x.last)}` : "최근 16주 출석 없음"}</span></div>`).join("")}</div>`
+              : `<span class="small muted">없어요${near.length ? ` · 3~4회: ${near.map((x) => esc(x.m.name)).join(", ")}` : ""}</span>`}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <b class="small">연습 지각 · 최근 ${LATE_WEEKS}주</b>
+            ${lates.length ? `<div class="dlist">${lates.map((x) => `<div><span><b>${esc(x.m.name)}</b> <span class="muted small">${esc(positionName(x.m.main_position))}</span></span>
+              <span style="display:flex;align-items:center;gap:8px"><b class="small" style="color:var(--mid)">${x.n}회</b>${dots(x.marks)}</span></div>`).join("")}</div>`
+              : `<span class="small muted">없어요</span>`}
+          </div>
+        </section>
+        <section class="dcard" aria-label="팀 구성">
+          <div class="dcard-head"><h2>팀 구성</h2><a href="#members">멤버</a></div>
+          <div class="dstat"><div><b>${act.length}</b><span>정식</span></div><div><b>${trainees.length}</b><span>수습</span></div><div><b>${dormant}</b><span>휴면·종료</span></div></div>
+          <div style="display:flex;flex-direction:column;gap:8px">${posCount.map(({ p, n, multi }) => `<div class="pbar"><span>${esc(p.name)}</span>
+            <span class="track" title="주 포지션 ${n}명${multi ? ` · 멀티 ${multi}명` : ""}"><span class="fill" style="display:block;width:${Math.round(100 * n / maxN)}%"></span></span>
+            <b>${n}${multi ? `<span class="small muted" style="font-weight:600">+${multi}</span>` : ""}</b></div>`).join("")}</div>
+          <span class="small muted">숫자 = 주 포지션 인원 · +는 멀티 포지션</span>
+          ${trainees.length ? `<div style="display:flex;flex-direction:column;gap:4px"><b class="small">수습 중</b><div class="dlist">${trainees.map((m) => {
+            const a = S.apps.find((x) => x.user_id === m.id);
+            const st = a ? tstate(a) : { week: 0 };
+            const label = !a ? "" : st.paused ? `${st.nextWeek}주차 연기 중` : st.week === 0 ? `${md(st.resume || a.trainee_start)} 시작` : st.week > 5 ? "5주 완료 · 전환 결정" : `${st.week}주차 · ${TRAINEE_WEEKS[st.week - 1].title}`;
+            return `<div><span><b>${esc(m.name)}</b> <span class="muted small">${esc(positionName(m.main_position))}</span></span>
+              ${a ? `<a class="small" href="#app/${a.id}" style="font-weight:700;text-decoration:none">${label}</a>` : ""}</div>`;
+          }).join("")}</div></div>` : ""}
+        </section>
+      </div>`;
+
+    const c = $("#content");
+    c.querySelectorAll("[data-sat]").forEach((a) => a.addEventListener("click", () => { A.sel = a.dataset.sat; A.month = monthOf(a.dataset.sat); }));
+    c.querySelectorAll("[data-lmonth]").forEach((a) => a.addEventListener("click", () => { V.lineupMonth = a.dataset.lmonth; }));
+    c.querySelectorAll("[data-rmonth]").forEach((a) => a.addEventListener("click", () => { V.month = a.dataset.rmonth; }));
+    c.querySelectorAll("[data-nudge]").forEach((b) => b.addEventListener("click", async () => {
+      const r = resp.find((x) => x.m.month === b.dataset.nudge);
+      const names = [...r.none, ...r.partial].map((p) => p.name + "님").join(", ");
+      const msg = `[찬양팀] ${names}\n${monthLabel(r.m.month)} 섬김 응답이 아직 남아 있어요.${r.m.deadline ? " " + fmtDate(r.m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : ""} 체크 부탁드려요!\n\n${location.origin}/me.html#respond`;
+      toast((await copyText(msg)) ? "독촉 문구를 복사했어요" : "복사하지 못했어요");
+    }));
+  }
+
   // ---------------------------------------------------------------- 설정 · 테스트 데이터
   async function renderSettings() {
     $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">설정</h1></div><div class="empty">불러오는 중…</div>`;
@@ -1259,7 +1616,8 @@
             <li>정식 팀원 11명 + 휴면 1명 (포지션·멀티 포지션 포함)</li>
             <li>지원자: 접수 2 · 면접 1 · 수습 3주차 1 · 재가입 면담 1 · 종료 2 (그중 1건은 3개월 지난 일괄 삭제 대상)</li>
             <li>다음 달 섬김 응답 (열린 상태, 미응답자 포함)</li>
-            <li>이번 달 남은 주일 배치표 (공개 상태)</li></ul></div>
+            <li>지난 4주 + 이번 달 남은 주일 배치표 (공개 상태)</li>
+            <li>지난 8주 토요 출석 (연습·팀모임, 연속 결석·지각 사례 포함)</li></ul></div>
           <div class="card" style="background:var(--bg)"><b>폰으로 로그인해 보기</b><ul style="margin:6px 0 0;padding-left:18px;line-height:1.8">
             <li>팀원: <b>demo02@pole2.test</b> (김하늘(T))</li>
             <li>수습생: <b>trainee1@pole2.test</b> (노새벽(T))</li>
@@ -1307,7 +1665,7 @@
         S.newIds.add(payload.new.id);
         toast(`새 지원서: ${payload.new.name}님`, 4000);
         await loadAll();
-        if (!location.hash || location.hash === "#pipeline") route(); else updateTodoCount();
+        if (["", "#pipeline", "#dashboard"].includes(location.hash)) route(); else updateTodoCount();
       })
       .subscribe();
   })();

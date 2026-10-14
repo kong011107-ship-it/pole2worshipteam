@@ -8,7 +8,7 @@
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="assets/app.css?v=8">
+  <link rel="stylesheet" href="assets/app.css?v=9">
 </head>
 <body>
 <div class="m-wrap">
@@ -42,9 +42,9 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=8"></script>
+<script src="assets/config.js?v=9"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=8"></script>
+<script src="assets/common.js?v=9"></script>
 <script>
   let ctx, me, app, extras = [];
 
@@ -68,6 +68,7 @@
     if (me.status === "trainee") {
       const { data: pps } = await sb.rpc("my_trainee_postpones");
       renderTraineeHome(pps || []);
+      $("#view-home").insertAdjacentHTML("beforeend", await meetingCard());
     } else await renderMemberHome();
     showView();
   })();
@@ -96,6 +97,33 @@
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", showView);
+
+  // ---------- 이번 주 팀모임 + 최근 출석 ----------
+  async function meetingCard() {
+    const sat = upcomingSaturday();
+    const [tm, at] = await Promise.all([
+      sb.from("team_meetings").select("meeting_date, meeting_status").eq("meeting_date", sat).maybeSingle(),
+      sb.from("attendance").select("status, kind, team_meetings(meeting_date, meeting_status)").eq("member_id", me.id).eq("kind", "meeting"),
+    ]);
+    const ms = tm.data?.meeting_status || "tbd";
+    const chip = { yes: "chip-ok", no: "chip-gray", tbd: "chip-mid" }[ms];
+    const sub = { yes: "토요 연습 후 함께 모여요", no: "이번 주는 팀모임이 없어요", tbd: "정해지면 여기에 보여요" }[ms];
+    const recs = (at.data || []).filter((r) => r.team_meetings && r.team_meetings.meeting_status === "yes")
+      .sort((a, b) => b.team_meetings.meeting_date.localeCompare(a.team_meetings.meeting_date)).slice(0, 5).reverse();
+    const attended = recs.filter((r) => r.status === "present" || r.status === "late").length;
+    const color = (s) => s === "present" ? "var(--violet)" : s === "late" ? "#D9A066" : s === "excused" ? "#C3BACF" : "#D8D2E3";
+    return `<section class="card" id="meetCard" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <span style="display:flex;flex-direction:column;gap:2px"><span class="muted small">이번 주 팀모임 · ${fmtDate(sat, { month: "long", day: "numeric", weekday: "short" })}</span>
+          <b style="font-size:17px">${sub}</b></span>
+        <span class="chip ${chip}" style="font-size:14px;padding:6px 12px;border-radius:999px">${MEETING[ms]}</span>
+      </div>
+      ${recs.length ? `<div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:12px">
+        <span style="display:flex;flex-direction:column;gap:2px"><span class="muted small">최근 팀모임 출석</span><b>${recs.length}번 중 ${attended}번</b></span>
+        <span style="display:flex;gap:6px" role="img" aria-label="최근 ${recs.length}번 중 ${attended}번 출석">${recs.map((r) =>
+          `<span title="${fmtDate(r.team_meetings.meeting_date)} ${ATT[r.status]}" style="width:10px;height:10px;border-radius:999px;background:${color(r.status)}"></span>`).join("")}</span></div>` : ""}
+    </section>`;
+  }
 
   // ---------- 수습생 홈 ----------
   function renderTraineeHome(pps) {
@@ -163,9 +191,9 @@
   async function renderMemberHome() {
     const today = todayISO();
     const monthStart = today.slice(0, 8) + "01";
-    const [lu, at] = await Promise.all([
+    const [lu, meet] = await Promise.all([
       sb.from("published_lineups").select("*").gte("service_date", monthStart).order("service_date"),
-      sb.from("attendance").select("status, team_meetings(meeting_date)").eq("member_id", me.id),
+      meetingCard(),
     ]);
     const rows = lu.data || [];
     const mine = rows.filter((r) => r.member_id === me.id);
@@ -197,15 +225,7 @@
           ${roleChip(r) ? `<span class="chip chip-violet">${roleChip(r)}</span>` : "<span></span>"}</div>`).join("")
         : `<p class="muted small" style="margin:0">이번 달 확정된 배치가 아직 없어요.</p>`}</section>`;
 
-    const recs = (at.data || []).filter((r) => r.team_meetings).sort((a, b) =>
-      b.team_meetings.meeting_date.localeCompare(a.team_meetings.meeting_date)).slice(0, 5).reverse();
-    const attended = recs.filter((r) => r.status === "present" || r.status === "late").length;
-    const attCard = recs.length ? `<section class="card" style="display:flex;align-items:center;justify-content:space-between">
-      <span style="display:flex;flex-direction:column;gap:2px"><span class="muted small">최근 팀모임 출석</span><b style="font-size:17px">${recs.length}번 중 ${attended}번</b></span>
-      <span style="display:flex;gap:6px" role="img" aria-label="최근 ${recs.length}번 중 ${attended}번 출석">${recs.map((r) =>
-        `<span style="width:10px;height:10px;border-radius:999px;background:${r.status === "present" || r.status === "late" ? "var(--violet)" : "#D8D2E3"}"></span>`).join("")}</span></section>` : "";
-
-    $("#view-home").innerHTML = (await respondBanner()) + hero + monthCard + attCard;
+    $("#view-home").innerHTML = (await respondBanner()) + hero + meet + monthCard;
   }
 
   // ---------- 섬김 응답 ----------

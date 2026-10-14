@@ -8,19 +8,19 @@
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="assets/app.css?v=8">
+  <link rel="stylesheet" href="assets/app.css?v=9">
 </head>
 <body>
 <div class="shell">
   <aside class="side">
     <img src="assets/logo-violet.png" alt="Pole2">
     <nav aria-label="관리 메뉴">
-      <span>대시보드 <small>준비 중</small></span>
+      <a href="#dashboard" data-nav="dashboard">대시보드</a>
       <a href="#pipeline" data-nav="pipeline">모집·수습 <span class="badge-count hidden" id="todoCount"></span></a>
       <a href="#members" data-nav="members">멤버</a>
       <a href="#respond" data-nav="respond">섬김 응답</a>
       <a href="#lineup" data-nav="lineup">배치표</a>
-      <span>팀모임 출석 <small>준비 중</small></span>
+      <a href="#attendance" data-nav="attendance">토요 출석</a>
       <a href="#templates" data-nav="templates">안내 문구·서약서</a>
       <a href="#settings" data-nav="settings">설정</a>
       <a href="me.html#respond" style="margin-top:12px;border:1px solid var(--line-2)">내 섬김 응답·배치표</a>
@@ -31,9 +31,9 @@
 </div>
 <div id="modalRoot"></div>
 
-<script src="assets/config.js?v=8"></script>
+<script src="assets/config.js?v=9"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=8"></script>
-<script src="assets/admin.js?v=8"></script>
+<script src="assets/common.js?v=9"></script>
+<script src="assets/admin.js?v=9"></script>
 </body>
 </html>

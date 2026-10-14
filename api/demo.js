@@ -5,12 +5,14 @@ import { adminClient, requireAdmin, handler, HttpError } from "./_lib.js";
 
 const DOMAIN = "@pole2.test";
 const PASSWORD = "pole2test!";
+const MEETING_NOTE = "(T) 테스트 데이터";
 
 // ---------- 날짜 (한국 시간) ----------
 const today = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const dow = (iso) => new Date(iso + "T00:00:00Z").getUTCDay();
 const nextSat = (iso) => addDays(iso, ((6 - dow(iso) + 7) % 7) || 7);
+const lastSat = (iso) => addDays(iso, -((dow(iso) + 1) % 7));
 const monthStart = (iso) => iso.slice(0, 8) + "01";
 const nextMonth = (iso) => { const [y, m] = iso.split("-").map(Number); return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10); };
 const sundaysOf = (mon) => { const out = []; let d = mon; while (dow(d) !== 0) d = addDays(d, 1); while (d.slice(0, 7) === mon.slice(0, 7)) { out.push(d); d = addDays(d, 7); } return out; };
@@ -30,6 +32,16 @@ const MEMBERS = [
   ["서충성(T)", "drum", [], "yy--------"],
   ["임소금(T)", "drum", [], "yyyyyyyyyy"],
 ];
+
+// 지난 토요일 팀모임 출석 패턴 (최근 주가 맨 오른쪽). p 출석 / l 지각 / a 결석 / e 사유결석 / - 미기록
+// 8주 중 뒤에서 세 번째 주는 팀모임 없음(x)
+const MEETING_PATTERN = {
+  "서충성(T)": "ppaaxaaa",   // 팀모임 연속 결석 5회 → 대시보드 경고
+  "박은혜(T)": "ppppxaaa",   // 3회 → '곧 5회' 목록
+  "최다윗(T)": "ppepxpep",
+};
+// 연습 지각 (최근 4주, 배치된 주만 기록됨)
+const LATE = { "오평강(T)": 2, "강온유(T)": 1 };
 
 async function demoIds(db) {
   const { data: ms } = await db.from("members").select("id, name, email").ilike("email", `%${DOMAIN}`);
@@ -56,8 +68,14 @@ async function clear(db) {
     if (!count) await db.from("services").delete().eq("id", sid);
   }
   if (apps.length) await db.from("applications").delete().in("id", apps.map((a) => a.id));
-  for (const id of userIds) await db.auth.admin.deleteUser(id);
+  for (const id of userIds) await db.auth.admin.deleteUser(id);   // 출석 기록은 멤버와 함께 지워짐
   await db.from("alumni").delete().like("name", "%(T)");
+  // 테스트로 만든 토요일: 실제 기록이 없으면 지우고, 있으면 표시만 지움
+  const { data: tms } = await db.from("team_meetings").select("id, attendance(member_id)").eq("note", MEETING_NOTE);
+  for (const t of tms || []) {
+    if (t.attendance?.length) await db.from("team_meetings").update({ note: null }).eq("id", t.id);
+    else await db.from("team_meetings").delete().eq("id", t.id);
+  }
   return { removedMembers: userIds.length, removedApplications: apps.length };
 }
 
@@ -95,6 +113,7 @@ async function seed(db, me) {
   const pick = (want) => (recruiting.includes(want) ? want : recruiting[0]);
   const { data: pledge } = await db.from("pledge_versions").select("id").eq("is_active", true).maybeSingle();
   const apps = {};
+  let traineeId = null;
   if (recruiting.length && pledge) {
     const mk = async (key, name, pos, motivation) => {
       const email = `${key}${DOMAIN}`;
@@ -119,11 +138,11 @@ async function seed(db, me) {
     const a4 = await mk("trainee1", "노새벽(T)", "singer", "예배 인도를 배우고 싶어요");
     await log(a4, "1"); await log(a4, "2");
     await db.rpc("demo_set_stage", { p_id: a4, p_stage: "interview", p_interview_at: `${addDays(nextSat(t), -28)}T19:00:00+09:00`, p_place: "본당 2층" });
-    const traineeId = await createUser(db, `trainee1${DOMAIN}`, "노새벽(T)");
+    traineeId = await createUser(db, `trainee1${DOMAIN}`, "노새벽(T)");
     const start = addDays(nextSat(t), -21);
     const { error: te } = await db.rpc("start_trainee", { p_application_id: a4, p_user_id: traineeId, p_main_position: pick("singer"), p_start: start, p_result: "pass_cond", p_condition: "합주 시 타 파트 청취 보완" });
     if (te) throw new HttpError(500, "테스트 수습생을 만들지 못했습니다: " + te.message);
-    await db.from("members").update({ must_change_password: false }).eq("id", traineeId);
+    await db.from("members").update({ must_change_password: false, joined_at: start }).eq("id", traineeId);
     await log(a4, "4");
     await db.from("trainee_weeks").update({ leader_id: me.id, sat_attended: true, sun_attended: true, updated_by: me.id,
       note: "첫 주라 긴장했지만 세팅 동선을 빠르게 익힘\n팀원 이름을 먼저 외워서 인사함\n다음 주엔 리허설 흐름을 같이 보기로" }).eq("application_id", a4).eq("week", 1);
@@ -155,15 +174,19 @@ async function seed(db, me) {
   await db.from("availability").upsert(rows);
   await db.from("availability_notes").upsert({ member_id: ids["김하늘(T)"], month: nm, note: "셋째 주는 오후만 가능해요" });
 
-  // ---------- 4. 이번 달 남은 주일 배치표 (공개) ----------
+  // ---------- 4. 배치표: 지난 4주 + 이번 달 남은 주일 (공개) ----------
   const LINEUPS = [
     { leader: "정사랑(T)", singers: ["김하늘(T)", "이소망(T)", "박은혜(T)"], sl: "김하늘(T)", key_main: "한믿음(T)", key_second: "윤기쁨(T)", e_guitar: "오평강(T)", bass: "강온유(T)", drum: "서충성(T)", bm: "한믿음(T)" },
     { leader: "정사랑(T)", singers: ["이소망(T)", "최다윗(T)"], sl: "이소망(T)", key_main: "윤기쁨(T)", e_guitar: "오평강(T)", bass: "강온유(T)", drum: "임소금(T)", bm: "강온유(T)" },
   ];
+  const last = lastSat(t) === t ? addDays(t, -7) : lastSat(t);     // 오늘이 토요일이면 오늘은 비워 둠
+  const pastSundays = [3, 2, 1, 0].map((k) => addDays(last, 1 - 7 * k)).filter((d) => d < t);
   const upcoming = sundaysOf(monthStart(t)).filter((d) => d >= t);
+  const lineupOf = {};
   let lineupCount = 0;
-  for (let i = 0; i < upcoming.length; i++) {
-    const d = upcoming[i], L = LINEUPS[i % LINEUPS.length];
+  const allSundays = [...pastSundays, ...upcoming];
+  for (let i = 0; i < allSundays.length; i++) {
+    const d = allSundays[i], L = LINEUPS[i % LINEUPS.length];
     let { data: s } = await db.from("services").select("id, assignments(id)").eq("service_date", d).maybeSingle();
     if (s && s.assignments?.length) continue;   // 실제 배치가 있으면 건드리지 않음
     if (!s) ({ data: s } = await db.from("services").insert({ service_date: d }).select("id").single());
@@ -172,7 +195,48 @@ async function seed(db, me) {
     for (let k = 0; k < L.singers.length; k++) await put("singer", k + 1, L.singers[k], { is_singer_leader: L.singers[k] === L.sl });
     for (const pos of ["key_main", "key_second", "e_guitar", "bass", "drum"]) if (L[pos]) await put(pos, 1, L[pos], { is_band_master: L[pos] === L.bm });
     await db.from("services").update({ status: "published", published_at: new Date().toISOString() }).eq("id", s.id);
-    lineupCount++;
+    lineupOf[d] = [...new Set([L.leader, ...L.singers, L.key_main, L.key_second, L.e_guitar, L.bass, L.drum].filter(Boolean))];
+    if (d >= t) lineupCount++;
+  }
+
+  // ---------- 5. 토요 출석: 지난 8주 (연습 · 팀모임) + 이번 주는 '미정' ----------
+  const sats = [7, 6, 5, 4, 3, 2, 1, 0].map((k) => addDays(last, -7 * k));
+  const upSat = addDays(t, (6 - dow(t) + 7) % 7);
+  const satRow = {};
+  for (const d of [...sats, upSat]) {
+    let { data: row } = await db.from("team_meetings").select("id, meeting_status, note").eq("meeting_date", d).maybeSingle();
+    if (!row) ({ data: row } = await db.from("team_meetings").insert({ meeting_date: d, note: MEETING_NOTE }).select("id, meeting_status, note").single());
+    satRow[d] = row;
+  }
+  const att = [];
+  const lateLeft = { ...LATE };
+  for (let i = 0; i < sats.length; i++) {
+    const d = sats[i], row = satRow[d];
+    const pat = (name) => (MEETING_PATTERN[name] || "pppppppp")[i];
+    // 팀모임: 테스트로 만든 토요일만 여부를 정함 (실제 토요일은 건드리지 않음)
+    if (row.note === MEETING_NOTE) {
+      const status = i === 4 ? "no" : "yes";
+      await db.from("team_meetings").update({ meeting_status: status }).eq("id", row.id);
+      row.meeting_status = status;
+    }
+    if (row.meeting_status !== "no") {
+      MEMBERS.forEach(([name]) => {
+        const c = pat(name);
+        if (c !== "-" && c !== "x") att.push({ meeting_id: row.id, member_id: ids[name], kind: "meeting", status: { p: "present", l: "late", a: "absent", e: "excused" }[c] });
+      });
+      if (traineeId && d >= addDays(nextSat(t), -21) && d <= t) att.push({ meeting_id: row.id, member_id: traineeId, kind: "meeting", status: "present" });
+    }
+    // 연습: 그 주 배치된 사람만
+    const team = lineupOf[addDays(d, 1)] || [];
+    team.forEach((name) => {
+      const late = i >= sats.length - 4 && lateLeft[name] > 0;
+      if (late) lateLeft[name]--;
+      att.push({ meeting_id: row.id, member_id: ids[name], kind: "practice", status: late ? "late" : "present" });
+    });
+  }
+  if (att.length) {
+    const { error } = await db.from("attendance").upsert(att);
+    if (error) throw new HttpError(500, "테스트 출석을 만들지 못했습니다: " + error.message);
   }
 
   return {
