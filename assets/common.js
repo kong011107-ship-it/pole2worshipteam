@@ -67,7 +67,8 @@
   };
 
   // ---------- 출석 ----------
-  window.ATT = { present: "출석", late: "지각", absent: "결석", excused: "사유결석" };
+  window.ATT = { present: "출석", late: "지각", absent: "결석" };
+  window.REASON_TAGS = ["직장", "학업·시험", "가족 일정", "건강", "여행·지방", "교회 다른 섬김"];
   window.MEETING = { yes: "있음", no: "없음", tbd: "미정" };
 
   // ---------- 수습 일정 ----------

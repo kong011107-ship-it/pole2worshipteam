@@ -33,15 +33,22 @@ const MEMBERS = [
   ["임소금(T)", "drum", [], "yyyyyyyyyy"],
 ];
 
-// 지난 토요일 팀모임 출석 패턴 (최근 주가 맨 오른쪽). p 출석 / l 지각 / a 결석 / e 사유결석 / - 미기록
-// 8주 중 뒤에서 세 번째 주는 팀모임 없음(x)
+// 지난 토요일 팀모임 출석 패턴 (최근 주가 맨 오른쪽). p 출석 / l 지각 / a 결석 / - 미기록
+// 8주 중 뒤에서 네 번째 주는 팀모임 없음(x)
 const MEETING_PATTERN = {
   "서충성(T)": "ppaaxaaa",   // 팀모임 연속 결석 5회 → 대시보드 경고
-  "박은혜(T)": "ppppxaaa",   // 3회 → '곧 5회' 목록
-  "최다윗(T)": "ppepxpep",
+  "박은혜(T)": "ppppxaaa",   // 3회
+  "최다윗(T)": "ppapxpap",
 };
-// 연습 지각 (최근 4주, 배치된 주만 기록됨)
+// 결석 사유 (사람별로 돌려 씀): [칩, 직접 입력]
+const REASONS = {
+  "서충성(T)": [["직장", "토요 근무"], ["직장", null]],
+  "박은혜(T)": [["가족 일정", "부모님 생신"], ["건강", null], ["가족 일정", null]],
+  "최다윗(T)": [["학업·시험", "중간고사"], [null, "본가 방문"]],
+};
+// 지각 (최근 4주, 배치된 주만 기록됨): 연습 / 주일 리허설
 const LATE = { "오평강(T)": 2, "강온유(T)": 1 };
+const REHEARSAL_LATE = { "이소망(T)": 2 };
 
 async function demoIds(db) {
   const { data: ms } = await db.from("members").select("id, name, email").ilike("email", `%${DOMAIN}`);
@@ -100,6 +107,7 @@ async function seed(db, me) {
     const { error } = await db.from("members").insert({
       id, name, email, phone: "010-0000-00" + String(n).padStart(2, "0"), main_position: pos,
       status: "active", must_change_password: false, joined_at: addDays(t, -200 + n * 7),
+      small_group: `${(n % 5) + 1}순`, served_since: addDays(t, -900 + n * 60),
     });
     if (error) throw new HttpError(500, "테스트 팀원을 만들지 못했습니다: " + error.message);
     for (const e of extra) await db.from("member_extra_positions").insert({ member_id: id, position_code: e });
@@ -209,7 +217,12 @@ async function seed(db, me) {
     satRow[d] = row;
   }
   const att = [];
-  const lateLeft = { ...LATE };
+  const lateLeft = { ...LATE }, rLateLeft = { ...REHEARSAL_LATE }, reasonIdx = {};
+  const absent = (name) => {
+    const list = REASONS[name] || [["가족 일정", null]];
+    const i = reasonIdx[name] = ((reasonIdx[name] ?? -1) + 1) % list.length;
+    return { status: "absent", reason_tag: list[i][0], reason: list[i][1] };
+  };
   for (let i = 0; i < sats.length; i++) {
     const d = sats[i], row = satRow[d];
     const pat = (name) => (MEETING_PATTERN[name] || "pppppppp")[i];
@@ -222,7 +235,8 @@ async function seed(db, me) {
     if (row.meeting_status !== "no") {
       MEMBERS.forEach(([name]) => {
         const c = pat(name);
-        if (c !== "-" && c !== "x") att.push({ meeting_id: row.id, member_id: ids[name], kind: "meeting", status: { p: "present", l: "late", a: "absent", e: "excused" }[c] });
+        if (c === "a") att.push({ meeting_id: row.id, member_id: ids[name], kind: "meeting", ...absent(name) });
+        else if (c === "p" || c === "l") att.push({ meeting_id: row.id, member_id: ids[name], kind: "meeting", status: c === "p" ? "present" : "late" });
       });
       if (traineeId && d >= addDays(nextSat(t), -21) && d <= t) att.push({ meeting_id: row.id, member_id: traineeId, kind: "meeting", status: "present" });
     }
@@ -232,10 +246,14 @@ async function seed(db, me) {
       const late = i >= sats.length - 4 && lateLeft[name] > 0;
       if (late) lateLeft[name]--;
       att.push({ meeting_id: row.id, member_id: ids[name], kind: "practice", status: late ? "late" : "present" });
+      const rLate = i >= sats.length - 4 && rLateLeft[name] > 0;
+      if (rLate) rLateLeft[name]--;
+      att.push({ meeting_id: row.id, member_id: ids[name], kind: "rehearsal", status: rLate ? "late" : "present" });
     });
   }
+  await db.from("member_notes").upsert({ member_id: ids["오평강(T)"], note: "10월부터 직장 일정으로 토요일 오후 2시 이후 도착 가능. 지각 사유 확인됨.", updated_by: me.id });
   if (att.length) {
-    const { error } = await db.from("attendance").upsert(att);
+    const { error } = await db.from("attendance").upsert(att.map((r) => ({ reason_tag: null, reason: null, ...r })));
     if (error) throw new HttpError(500, "테스트 출석을 만들지 못했습니다: " + error.message);
   }
 
