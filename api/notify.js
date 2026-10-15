@@ -12,6 +12,21 @@ export default handler(async (req, body) => {
   const db = adminClient();
   const user = await requireAdmin(req, db);
   const kind = body.kind;
+
+  // ---------- 리더십이 직접 보내는 안내 · 독촉 (보내기 창, 014)
+  //  { kind: "message", title, body, member_ids, url, ctx_key, label }
+  if (kind === "message") {
+    const title = String(body.title || "").trim(), text = String(body.body || "").trim();
+    if (!title) throw new HttpError(400, "알림 제목을 적어 주세요.");
+    if (title.length > 80 || text.length > 500) throw new HttpError(400, "제목은 80자, 내용은 500자까지예요.");
+    const ids = new Set([].concat(body.member_ids || []));
+    const people = (await activeMembers(db, { trainees: true })).filter((m) => ids.has(m.id));
+    if (!people.length) throw new HttpError(400, "받는 사람이 없어요.");
+    const url = /^\/me\.html(#[a-z]+)?$/.test(body.url || "") ? body.url : "/me.html#respond";
+    const items = people.map((m) => ({ member_id: m.id, title: fill(title, { "이름": m.name }), body: fill(text, { "이름": m.name }) }));
+    return deliver(db, { kind, items, url, label: `${String(body.label || "안내").slice(0, 80)} · ${people.length}명`, by: user.id, ctxKey: body.ctx_key || null });
+  }
+
   const st = await settingOf(db, kind === "test" ? body.test_kind : kind);
   if (!st.kind || !st.title) throw new HttpError(400, "알 수 없는 알림이에요.");
   if (kind !== "test" && kind !== "notice" && !st.enabled) return { skipped: true, recipients: 0, pushed: 0 };

@@ -79,7 +79,7 @@ function setupVapid() {
 
 // items: [{ member_id, title, body }] — 사람마다 문구가 다를 수 있음
 // 반환: { id, recipients, pushed }
-export async function deliver(db, { kind, items, url, label, by = null, sentKey = null, push = true }) {
+export async function deliver(db, { kind, items, url, label, by = null, sentKey = null, push = true, ctxKey = null }) {
   const uniq = [];
   const seen = new Set();
   for (const it of items) if (it.member_id && !seen.has(it.member_id)) { seen.add(it.member_id); uniq.push(it); }
@@ -87,7 +87,7 @@ export async function deliver(db, { kind, items, url, label, by = null, sentKey 
   const first = uniq[0];
   const { data: n, error } = await db.from("notifications").insert({
     kind, title: first.title.slice(0, 120), body: (first.body || "").slice(0, 600), url, target_label: label?.slice(0, 120) || null,
-    recipients: uniq.length, created_by: by,
+    recipients: uniq.length, created_by: by, ...(ctxKey ? { ctx_key: String(ctxKey).slice(0, 200) } : {}),
   }).select("id").single();
   if (error) throw new Error("알림을 저장하지 못했습니다: " + error.message);
   await db.from("notification_inbox").insert(uniq.map((it) => ({ notification_id: n.id, member_id: it.member_id, title: it.title.slice(0, 120), body: (it.body || "").slice(0, 600) })));
@@ -135,16 +135,17 @@ export async function pendingForMonth(db, month, today) {
   const from = addDays(suns[0], -1), to = suns[suns.length - 1];
   const [av, mis] = await Promise.all([
     db.from("availability").select("member_id, date, kind").gte("date", from).lte("date", to),
-    db.from("ministries").select("*, services(id, service_date), ministry_practices(id, practice_date), ministry_targets(member_id)").eq("response_mode", "monthly"),
+    db.from("ministries").select("*, services(id, service_date), ministry_practices(id, practice_date, service_id), ministry_targets(member_id)").eq("response_mode", "monthly"),
   ]);
   const mins = (mis.data || []).filter((mi) => mi.services.some((s) => s.service_date.slice(0, 7) === month.slice(0, 7) && s.service_date >= today));
   const sids = mins.flatMap((mi) => mi.services.map((s) => s.id));
   const pids = mins.filter((mi) => mi.practice_mode === "fixed").flatMap((mi) => mi.ministry_practices.filter((p) => p.practice_date >= today).map((p) => p.id));
   const [ma, pa] = await Promise.all([
-    sids.length ? db.from("ministry_availability").select("service_id, member_id").in("service_id", sids) : { data: [] },
+    sids.length ? db.from("ministry_availability").select("service_id, member_id, available").in("service_id", sids) : { data: [] },
     pids.length ? db.from("practice_answers").select("practice_id, member_id").in("practice_id", pids) : { data: [] },
   ]);
   return people.map((m) => {
+    const yes = (sid) => (ma.data || []).some((a) => a.member_id === m.id && a.service_id === sid && a.available);
     let total = suns.length * 2;
     let done = (av.data || []).filter((a) => a.member_id === m.id).length;
     for (const mi of mins) {
@@ -152,7 +153,8 @@ export async function pendingForMonth(db, month, today) {
       total += mi.services.length;
       done += (ma.data || []).filter((a) => a.member_id === m.id && mi.services.some((s) => s.id === a.service_id)).length;
       if (mi.practice_mode === "fixed") {
-        const ps = mi.ministry_practices.filter((p) => p.practice_date >= today);
+        // 정해진 연습은 본 섬김 '가능'인 예배의 것만 물어요 (014)
+        const ps = mi.ministry_practices.filter((p) => p.practice_date >= today && (p.service_id ? yes(p.service_id) : mi.services.some((s) => yes(s.id))));
         total += ps.length;
         done += (pa.data || []).filter((a) => a.member_id === m.id && ps.some((p) => p.id === a.practice_id)).length;
       }
@@ -166,12 +168,14 @@ export async function pendingForMinistry(db, mi, today) {
   const sids = (mi.services || []).map((s) => s.id);
   const ps = mi.practice_mode === "fixed" ? (mi.ministry_practices || []).filter((p) => p.practice_date >= today) : [];
   const [ma, pa] = await Promise.all([
-    sids.length ? db.from("ministry_availability").select("service_id, member_id").in("service_id", sids) : { data: [] },
+    sids.length ? db.from("ministry_availability").select("service_id, member_id, available").in("service_id", sids) : { data: [] },
     ps.length ? db.from("practice_answers").select("practice_id, member_id").in("practice_id", ps.map((p) => p.id)) : { data: [] },
   ]);
   return people.map((m) => {
-    const total = sids.length + ps.length;
-    const done = (ma.data || []).filter((a) => a.member_id === m.id).length + (pa.data || []).filter((a) => a.member_id === m.id).length;
+    const yes = (sid) => (ma.data || []).some((a) => a.member_id === m.id && a.service_id === sid && a.available);
+    const mine = ps.filter((p) => (p.service_id ? yes(p.service_id) : sids.some(yes)));
+    const total = sids.length + mine.length;
+    const done = (ma.data || []).filter((a) => a.member_id === m.id).length + (pa.data || []).filter((a) => a.member_id === m.id && mine.some((p) => p.id === a.practice_id)).length;
     return { m, left: Math.max(0, total - done) };
   }).filter((x) => x.left > 0);
 }

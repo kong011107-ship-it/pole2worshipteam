@@ -82,7 +82,9 @@
   }
 
   // ---------------------------------------------------------------- 라우팅
+  let routed = null;
   function route() {
+    routed = location.hash;
     const h = location.hash.slice(1) || "dashboard";
     const [view, id] = h.split("/");
     const navOf = { app: "pipeline", member: "members", ministry: "schedule" };
@@ -102,7 +104,50 @@
     if (view === "notify") return renderNotify();
     return renderDashboard();
   }
-  window.addEventListener("hashchange", () => { route(); window.scrollTo(0, 0); });
+  // ---------------------------------------------------------------- 뒤로가기 (014)
+  //  기록: [대시보드] → 메뉴 한 칸 → 상세(멤버·사역·지원자) …
+  //  메뉴끼리 옮길 때는 메뉴 칸을 바꿔 끼워서, 어느 메뉴에서든 뒤로가기 = 대시보드, 대시보드에서 뒤로가기 = 종료
+  //  창(모달)이 열려 있으면 뒤로가기는 창만 닫음
+  const MAIN = ["dashboard", "pipeline", "members", "schedule", "respond", "lineup", "attendance", "notify", "templates", "settings"];
+  const lv = () => history.state?.lv ?? 0;
+  let curClose = null;
+  let pendingNav = null, modalPushed = false, popWait = null, popDone = null;
+  const routeTop = () => { route(); window.scrollTo(0, 0); };
+  function nav(hash) {
+    hash = String(hash).replace(/^#/, "") || "dashboard";
+    if (popWait) return void popWait.then(() => nav(hash));   // 창 닫기(뒤로) 처리 뒤에
+    if ("#" + hash === location.hash) return routeTop();
+    if (hash === "dashboard") {
+      if (lv() > 0) return void history.go(-lv());
+      history.replaceState({ lv: 0 }, "", "#dashboard"); return routeTop();
+    }
+    if (MAIN.includes(hash)) {
+      if (lv() === 0) history.pushState({ lv: 1 }, "", "#" + hash);
+      else if (lv() === 1) history.replaceState({ lv: 1 }, "", "#" + hash);
+      else { pendingNav = hash; return void history.go(-(lv() - 1)); }   // 상세에서 다른 메뉴로: 메뉴 칸까지 돌아가서 바꿔 끼움
+      return routeTop();
+    }
+    history.pushState({ lv: lv() + 1 }, "", "#" + hash);
+    routeTop();
+  }
+  window.nav = nav;
+  window.addEventListener("popstate", () => {
+    if (popDone) { const f = popDone; popDone = null; popWait = null; return f(); }   // 우리가 닫은 창의 기록
+    if (modalPushed && $("#modalRoot").innerHTML) { modalPushed = false; $("#modalRoot").innerHTML = ""; return; }   // 뒤로가기로 창 닫기
+    if (pendingNav) { const h = pendingNav; pendingNav = null; history.replaceState({ lv: 1 }, "", "#" + h); }
+    if (location.hash !== routed) routeTop();
+  });
+  window.addEventListener("hashchange", () => {   // 주소창에 직접 쓴 경우: 기록 단계를 붙여 둠
+    if (!(history.state && "lv" in history.state)) history.replaceState({ lv: location.hash.includes("/") ? 2 : ["", "#", "#dashboard"].includes(location.hash) ? 0 : 1 }, "");
+    if (location.hash !== routed) routeTop();
+  });
+  // 화면 안 링크(#…)도 같은 규칙으로
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest('a[href^="#"]');
+    if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    nav(a.getAttribute("href"));
+  });
   // 이미 보고 있는 메뉴를 다시 누르면 새로 불러오기
   document.addEventListener("click", async (e) => {
     const a = e.target.closest(".side nav a");
@@ -280,7 +325,16 @@
       <div class="actions"><button type="button" class="btn btn-ghost" id="mCancel">${cancelLabel}</button>
         ${confirmLabel ? `<button type="button" class="btn ${danger ? "btn-bad" : "btn-primary"}" id="mOk">${esc(confirmLabel)}</button>` : ""}</div>
     </div></div>`;
-    const close = () => (root.innerHTML = "");
+    if (!modalPushed) { history.pushState({ ...(history.state || {}), modal: true }, ""); modalPushed = true; }
+    const close = () => {
+      root.innerHTML = "";
+      if (modalPushed) {   // 창이 쌓아 둔 기록을 걷어 냄 (뒤로가기 한 번 = 이전 화면)
+        modalPushed = false;
+        popWait = new Promise((ok) => (popDone = ok));
+        history.back();
+      }
+    };
+    curClose = close;
     $("#mCancel").onclick = close;
     $(".modal-back").addEventListener("click", (e) => { if (e.target.classList.contains("modal-back")) close(); });
     document.onkeydown = (e) => { if (e.key === "Escape") close(); };
@@ -320,6 +374,78 @@
     } catch (e) { return ` · 알림을 보내지 못했어요 (${e.message})`; }
   }
   const msgOnly = (text) => `<div class="msg" id="mMsg">${esc(text)}</div>`;
+
+  // ---------------------------------------------------------------- 보내기 창 (014)
+  //  팀원에게 가는 안내·독촉: 푸시 발송 + 카톡 문구 복사(푸시를 못 받는 사람용)를 한 창에서
+  //  o = { title, ctx: 같은 안내끼리 묶는 키, label: 보낸 기록 이름, url,
+  //        groups: [{ id, label, people }], push(sel) → { title, body }, text(sel, names) → 카톡 문구 }
+  const warnHours = () => S.settings?.resend_warn_hours ?? 24;
+  async function recentSends(ctx) {
+    if (!ctx) return [];
+    const { data } = await sb.from("notifications").select("id, created_at, created_by, recipients, pushed, notification_inbox(member_id)")
+      .eq("ctx_key", ctx).order("created_at", { ascending: false }).limit(5);
+    return data || [];
+  }
+  const sentLine = (n) => `${fmtDateTime(n.created_at)} · ${esc(n.created_by ? memberName(n.created_by) : "자동")} · 푸시 ${n.pushed}명 / 알림함 ${n.recipients}명`;
+  async function openSend(o) {
+    const groups = o.groups.filter((g) => g.people.length);
+    if (!groups.length) return toast("보낼 사람이 없어요");
+    const sel = new Set(groups.map((g) => g.id));
+    const [{ data: subs }, recent] = await Promise.all([sb.from("push_subscriptions").select("member_id"), recentSends(o.ctx)]);
+    const canPush = new Set((subs || []).map((s) => s.member_id));
+    const H = warnHours(), since = Date.now() - H * 3600e3;
+    const touched = (o.edited = { title: false, body: false, text: false });
+    const people = () => { const seen = new Map(); groups.filter((g) => sel.has(g.id)).forEach((g) => g.people.forEach((m) => seen.set(m.id, m))); return [...seen.values()]; };
+    const split = () => { const ps = people(); return { ps, yes: ps.filter((m) => canPush.has(m.id)), no: ps.filter((m) => !canPush.has(m.id)) }; };
+    const kakaoNames = () => { const { ps, yes, no } = split(); return yes.length && no.length ? no : ps; };
+    const first = o.push([...sel]);
+    modal({ title: o.title, wide: true, cancelLabel: "닫기", confirmLabel: "푸시 보내기",
+      body: `${groups.length > 1 ? `<div class="row" id="sGroups">${groups.map((g) => `<label class="pillchk"><input type="checkbox" data-g="${g.id}" checked> ${esc(g.label)} ${g.people.length}명</label>`).join("")}</div>` : ""}
+        <div class="sendwho" id="sWho"></div>
+        <div id="sWarn"></div>
+        <section class="sendbox"><div class="sendhd"><b>푸시 알림</b><span class="small muted" id="sPushN"></span></div>
+          <label class="field">제목<input type="text" id="sT" maxlength="80" value="${esc(first.title)}"></label>
+          <label class="field">내용<textarea id="sB" maxlength="500" style="min-height:64px">${esc(first.body)}</textarea></label>
+          <div class="phone-pv"><img src="assets/icon-192.png" alt=""><span><small>Pole2 찬양팀 · 지금</small><b id="sPT"></b><span class="pb" id="sPB"></span></span></div>
+          <span class="small muted">알림을 누르면 팀원 화면의 해당 페이지가 열려요. 알림을 꺼 둔 사람도 앱 안 알림함에는 남아요.</span></section>
+        <section class="sendbox"><div class="sendhd"><b>카톡 문구</b><button type="button" class="btn btn-soft btn-sm" id="sCopy">문구 복사</button></div>
+          <span class="small muted" id="sCopyHint"></span>
+          <textarea class="input" id="sText" style="min-height:130px">${esc(o.text([...sel], kakaoNames()))}</textarea></section>
+        ${recent.length ? `<details class="sendlog"${recent.some((n) => Date.parse(n.created_at) > since) ? " open" : ""}><summary>보낸 기록 ${recent.length}건</summary>
+          <ul>${recent.map((n) => `<li>${sentLine(n)}</li>`).join("")}</ul></details>` : ""}`,
+      onInput: (e) => {
+        if (e?.target?.dataset?.g) {
+          e.target.checked ? sel.add(e.target.dataset.g) : sel.delete(e.target.dataset.g);
+          const nx = o.push([...sel]);
+          if (!touched.title) $("#sT").value = nx.title;
+          if (!touched.body) $("#sB").value = nx.body;
+        }
+        if (e?.type === "input" && ["sT", "sB", "sText"].includes(e.target.id)) touched[{ sT: "title", sB: "body", sText: "text" }[e.target.id]] = true;
+        const { ps, yes, no } = split();
+        if (!touched.text) $("#sText").value = o.text([...sel], kakaoNames());
+        $("#sWho").innerHTML = `<b>대상 ${ps.length}명</b><span>푸시 받을 수 있는 ${yes.length}명 · 못 받는 ${no.length}명</span>
+          <div class="ppl">${ps.map((m) => `<span class="${canPush.has(m.id) ? "on" : ""}" title="${canPush.has(m.id) ? "알림 켠 기기 있음" : "알림 켠 기기 없음"}">${esc(m.name)}</span>`).join("")}</div>`;
+        const again = recent.filter((n) => Date.parse(n.created_at) > since)
+          .map((n) => ({ n, hit: ps.filter((m) => (n.notification_inbox || []).some((x) => x.member_id === m.id)) })).filter((x) => x.hit.length);
+        $("#sWarn").innerHTML = H && again.length ? `<div class="notice warn" style="margin:0">${again.map(({ n, hit }) =>
+          `${fmtDateTime(n.created_at)}에 ${esc(n.created_by ? memberName(n.created_by) : "자동")}님이 이미 보냈어요. 지금 대상 중 ${hit.length}명(${hit.slice(0, 4).map((m) => esc(m.name)).join(", ")}${hit.length > 4 ? " 외" : ""})이 ${H}시간 안에 받았어요.`).join("<br>")}</div>` : "";
+        $("#sPushN").textContent = yes.length ? `${yes.length}명 휴대폰으로 · ${ps.length}명 알림함에` : `알림 켠 사람이 없어서 알림함에만 남아요`;
+        $("#sCopyHint").textContent = yes.length && no.length ? `푸시를 못 받는 ${no.length}명(${no.slice(0, 5).map((m) => m.name).join(", ")}${no.length > 5 ? " 외" : ""})에게 카톡으로 보낼 때 써요.` : yes.length ? "모두 푸시를 받을 수 있어요. 단체방에 함께 올릴 때 써요." : "아직 아무도 알림을 켜지 않았어요. 카톡으로 보내 주세요.";
+        $("#sPT").textContent = $("#sT").value || " "; $("#sPB").textContent = $("#sB").value;
+        const ok = $("#mOk"); if (ok) { ok.textContent = `${again.length && H ? "그래도 " : ""}푸시 보내기 · ${ps.length}명`; ok.disabled = !ps.length; ok.classList.toggle("btn-bad", !!(again.length && H)); }
+      },
+      onConfirm: async (close) => {
+        const { ps } = split();
+        if (!$("#sT").value.trim()) throw new Error("알림 제목을 적어 주세요");
+        const r = await api("/api/notify", { kind: "message", title: $("#sT").value, body: $("#sB").value, member_ids: ps.map((m) => m.id), url: o.url || "/me.html#respond", ctx_key: o.ctx, label: o.label });
+        close();
+        toast(r.noPushReady ? `알림함 ${r.recipients}명에게 남겼어요 (푸시 키 설정 필요)` : `보냈어요 · 푸시 ${r.pushed}명 / 알림함 ${r.recipients}명`, 4000);
+        o.after?.();
+      } });
+    $("#sCopy").onclick = async () => toast((await copyText($("#sText").value)) ? "카톡 문구를 복사했어요" : "복사하지 못했어요. 문구를 길게 눌러 복사해 주세요");
+  }
+  const dlText = (d) => d ? fmtDate(d, { month: "long", day: "numeric", weekday: "short" }) + "까지" : "";
+  const namesNim = (list) => list.map((m) => m.name + "님").join(", ");
 
   const msgBox = (text) => `<div class="msg" id="mMsg">${esc(text)}</div>
     <p class="small muted" style="margin:0">남은 [대괄호] 부분을 채워서 보내 주세요. 보낸 기록이 남아요.</p>`;
@@ -834,10 +960,13 @@
         m.status === "trainee" && `<span class="chip chip-mid">${traineeLabel(m)}</span>`,
         !m.is_active && `<span class="chip chip-gray">휴면</span>`,
         s.streak >= STREAK_LIMIT && `<span class="chip chip-bad">팀모임 ${s.streak}회 연속 결석</span>`].filter(Boolean).join("");
-      return `<a class="mrow" href="#member/${m.id}"><span class="nm">${esc(m.name)} ${badges}</span><span class="sub">${esc(posText(m))}</span>
+      const pick = S.memberSelect;
+      const tag = pick ? `label class="mrow pickrow ${S.picked.has(m.id) ? "on" : ""}"` : `a class="mrow" href="#member/${m.id}"`;
+      const box = pick ? `<input type="checkbox" data-pick="${m.id}" ${S.picked.has(m.id) ? "checked" : ""} ${m.id === S.me.id ? `disabled title="본인 계정은 고를 수 없어요"` : ""} aria-label="${esc(m.name)} 고르기">` : "";
+      return `<${tag}><span class="nm">${box}${esc(m.name)} ${badges}</span><span class="sub">${esc(posText(m))}</span>
         ${m.status === "trainee" ? `<span class="sub">–</span><span class="sub">–</span>` : `<span class="num"><b>${s.monthN}</b>회</span><span class="num"><b>${s.q3}</b>회</span>`}
         ${s.marks.length ? dotsHTML(s.marks) : `<span class="sub">–</span>`}
-        ${s.lates ? `<span style="color:var(--mid);font-weight:800">${s.lates}회</span>` : `<span class="sub">–</span>`}<span class="arrow">›</span></a>`;
+        ${s.lates ? `<span style="color:var(--mid);font-weight:800">${s.lates}회</span>` : `<span class="sub">–</span>`}<span class="arrow">${pick ? "" : "›"}</span></${pick ? "label" : "a"}>`;
     };
     const byName = (a, b) => a.name.localeCompare(b.name, "ko");
     let body;
@@ -850,7 +979,9 @@
 
     $("#content").innerHTML = `${head}
       <div class="mtools">
-        <input class="search" id="mSearch" type="search" placeholder="이름 검색" value="${esc(q)}" aria-label="이름 검색">
+        <div class="row"><input class="search" id="mSearch" type="search" placeholder="이름 검색" value="${esc(q)}" aria-label="이름 검색">
+          <button type="button" class="btn btn-ghost btn-sm" id="mPickMode" aria-pressed="${!!S.memberSelect}">${S.memberSelect ? "고르기 끝" : "여러 명 고르기"}</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="mBulkAdd">엑셀로 일괄 등록</button></div>
         <div class="seg" id="mGroup"><span class="small muted" style="align-self:center;margin-right:4px">묶어 보기</span>
           <button type="button" data-g="part" aria-pressed="${S.memberGroup !== "name"}">파트별</button><button type="button" data-g="name" aria-pressed="${S.memberGroup === "name"}">이름순</button></div>
       </div>
@@ -858,14 +989,202 @@
         <div class="mrow head"><span>이름</span><span>포지션</span><span>이번 달 섬김</span><span>최근 3개월</span><span>최근 팀모임 ${held.length}회</span><span>지각 ${LATE_WEEKS}주</span><span></span></div>
         ${body || `<div class="empty" style="border:0;border-radius:0">해당하는 멤버가 없어요.</div>`}
       </div>
-      <p class="small muted" style="margin:0">줄을 누르면 상세 화면에서 정보 수정·섬김 통계·출석을 볼 수 있어요. 지각은 토요 연습·주일 리허설 합계예요.</p>`;
+      <p class="small muted" style="margin:0">줄을 누르면 상세 화면에서 정보 수정·섬김 통계·출석을 볼 수 있어요. 지각은 토요 연습·주일 리허설 합계예요.</p>
+      ${S.memberSelect ? `<div class="selbar" id="selBar"></div>` : ""}`;
     bindMemberHead();
+    bindMemberBulk(list);
     $("#mGroup").onclick = (e) => { const b = e.target.closest("button"); if (b) { S.memberGroup = b.dataset.g; renderMembers(); } };
     $("#mSearch").oninput = (e) => {
       S.memberQuery = e.target.value;
       clearTimeout(renderMembers.t); renderMembers.t = setTimeout(async () => { await renderMembers(); const i = $("#mSearch"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250);
     };
   }
+  // ---------------------------------------------------------------- 여러 명 고르기 · 휴면 · 삭제 · 일괄 등록 (014)
+  S.picked = new Set();
+  function bindMemberBulk(list) {
+    $("#mPickMode").onclick = () => { S.memberSelect = !S.memberSelect; S.picked.clear(); renderMembers(); };
+    $("#mBulkAdd").onclick = () => openBulkAdd();
+    if (!S.memberSelect) return;
+    const pickable = list.filter((m) => m.id !== S.me.id);
+    const bar = () => {
+      const ms = S.members.filter((m) => S.picked.has(m.id));
+      const anyOn = ms.some((m) => m.is_active), anyOff = ms.some((m) => !m.is_active);
+      $("#selBar").innerHTML = `<b>${ms.length}명 골랐어요</b>
+        <button type="button" class="btn btn-ghost btn-sm" id="selAll">${pickable.every((m) => S.picked.has(m.id)) && pickable.length ? "모두 해제" : `보이는 ${pickable.length}명 모두`}</button>
+        <span style="flex:1"></span>
+        ${anyOn ? `<button type="button" class="btn btn-ghost btn-sm" id="selOff">휴면으로</button>` : ""}
+        ${anyOff ? `<button type="button" class="btn btn-ghost btn-sm" id="selOn">활동으로</button>` : ""}
+        <button type="button" class="btn btn-danger btn-sm" id="selDel" ${ms.length ? "" : "disabled"}>삭제</button>`;
+      $("#selAll").onclick = () => { const all = pickable.every((m) => S.picked.has(m.id)); pickable.forEach((m) => all ? S.picked.delete(m.id) : S.picked.add(m.id)); renderMembers(); };
+      $("#selOff")?.addEventListener("click", () => setActive(ms.filter((m) => m.is_active), false));
+      $("#selOn")?.addEventListener("click", () => setActive(ms.filter((m) => !m.is_active), true));
+      $("#selDel").onclick = () => openBulkDelete(ms);
+    };
+    $$("[data-pick]").forEach((c) => c.addEventListener("change", () => {
+      c.checked ? S.picked.add(c.dataset.pick) : S.picked.delete(c.dataset.pick);
+      c.closest(".pickrow")?.classList.toggle("on", c.checked); bar();
+    }));
+    bar();
+  }
+  // 휴면: 로그인·응답·출석·배치 추천에서 빠지고, 지난 기록·통계는 그대로. 언제든 활동으로 되돌릴 수 있어요
+  function setActive(ms, on) {
+    if (!ms.length) return;
+    modal({ title: `${ms.length}명 ${on ? "활동으로 전환" : "휴면으로 전환"}`,
+      body: `<p style="margin:0">${ms.map((m) => esc(m.name)).join(", ")}</p>
+        <p class="small muted" style="margin:0">${on ? "다시 로그인하고 응답·배치 대상에 들어가요." : "로그인할 수 없고 섬김 응답·출석·배치 추천 대상에서 빠져요. 지난 출석·섬김 기록과 통계는 그대로 남고, 언제든 활동으로 되돌릴 수 있어요."}</p>`,
+      confirmLabel: on ? "활동으로" : "휴면으로",
+      onConfirm: async (close) => {
+        const { error } = await sb.from("members").update({ is_active: on }).in("id", ms.map((m) => m.id));
+        if (error) throw new Error("바꾸지 못했습니다: " + error.message);
+        await loadAll(); S.picked.clear(); close(); toast(`${ms.length}명을 ${on ? "활동" : "휴면"}으로 바꿨어요`); renderMembers();
+      } });
+  }
+  function openBulkDelete(ms) {
+    modal({ title: `${ms.length}명 삭제`, danger: true, confirmLabel: `${ms.length}명 삭제`,
+      body: `<p class="notice warn" style="margin:0">정식 운영 전 정리용이에요. 계정·연락처·지원서·응답·출석 기록이 모두 지워지고 되돌릴 수 없어요. 탈퇴 기록도 남지 않아요.<br>운영 중에는 삭제 대신 <b>휴면</b>(기록 유지)이나 상세 화면의 <b>탈퇴 처리</b>를 써 주세요.</p>
+        <p style="margin:0;font-size:14px">${ms.map((m) => esc(m.name)).join(", ")}</p>
+        <label class="field">확인을 위해 <b>삭제</b>라고 적어 주세요<input type="text" id="delConfirm" autocomplete="off"></label>`,
+      onInput: () => { const ok = $("#mOk"); if (ok) ok.disabled = $("#delConfirm").value.trim() !== "삭제"; },
+      onConfirm: async (close) => {
+        if ($("#delConfirm").value.trim() !== "삭제") throw new Error("'삭제'라고 적어 주세요");
+        $("#mOk").textContent = "지우는 중…";
+        const r = await api("/api/members-bulk", { action: "delete", ids: ms.map((m) => m.id), confirm: "삭제" });
+        await loadAll(); S.picked.clear(); close();
+        toast(`${r.removed}명을 삭제했어요${r.failed.length ? ` · 실패 ${r.failed.join(", ")}` : ""}`, 4000); renderMembers();
+      } });
+  }
+
+  // 엑셀 도구 (SheetJS) — 일괄 등록할 때만 불러옴
+  let xlsxP = null;
+  const loadXLSX = () => xlsxP || (xlsxP = new Promise((ok, no) => {
+    if (window.XLSX) return ok(window.XLSX);
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    sc.onload = () => (window.XLSX ? ok(window.XLSX) : no(new Error("엑셀 도구를 불러오지 못했어요")));
+    sc.onerror = () => { xlsxP = null; no(new Error("엑셀 도구를 불러오지 못했어요. 인터넷 연결을 확인해 주세요")); };
+    document.head.appendChild(sc);
+  }));
+  const BULK_HEAD = ["이름", "이메일(아이디)", "연락처", "성별(남/여)", "주 포지션", "추가 포지션", "숙련도(상/중/하)", "순모임", "구분(정식/수습)"];
+  async function downloadTemplate() {
+    const X = await loadXLSX();
+    const ps = window.__allPositions || [];
+    const ws = X.utils.aoa_to_sheet([BULK_HEAD,
+      ["홍길동(예시)", "gildong@example.com", "010-1234-5678", "남", "싱어", "", "중", "1순", "정식"],
+      ["김예시(예시)", "yesi@example.com", "010-2345-6789", "여", "메인건반", "세컨건반, 싱어", "상", "", "정식"]]);
+    ws["!cols"] = [12, 26, 16, 10, 12, 18, 14, 10, 14].map((w) => ({ wch: w }));
+    const guide = X.utils.aoa_to_sheet([["항목", "적는 법"], ["이름 · 이메일 · 주 포지션", "꼭 적어 주세요. 이메일이 로그인 아이디가 돼요"],
+      ["포지션", ps.map((p) => p.name).join(", ") + " (줄여서 " + Object.values(POS_SHORT).join(", ") + "도 돼요)"],
+      ["추가 포지션", "여러 개면 쉼표로 (예: 세컨건반, 싱어)"], ["성별", "남 / 여 (배치 성비에 써요)"], ["숙련도", "상 / 중 / 하 — 주 포지션 기준, 비우면 '중'"],
+      ["구분", "정식 / 수습 — 비우면 정식"], ["예시 줄", "이름에 (예시)가 들어간 줄은 등록하지 않아요. 지우고 써도 돼요"]]);
+    guide["!cols"] = [{ wch: 24 }, { wch: 80 }];
+    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, "팀원"); X.utils.book_append_sheet(wb, guide, "적는 법");
+    X.writeFile(wb, "Pole2_멤버_일괄등록_양식.xlsx");
+  }
+  // 엑셀 한 장 → [{ line, raw, row, errors }]
+  function parseBulk(X, buf) {
+    const wb = X.read(buf, { type: "array" });
+    const aoa = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true });
+    const hi = aoa.findIndex((r) => r.some((c) => String(c).replace(/\s/g, "") === "이름"));
+    if (hi < 0) throw new Error("첫 줄에 '이름' 칸이 있는 양식으로 올려 주세요");
+    const head = aoa[hi].map((c) => String(c).replace(/\s/g, ""));
+    const col = (...keys) => head.findIndex((h) => keys.some((k) => h.startsWith(k)));
+    const C = { name: col("이름"), email: col("이메일", "아이디"), phone: col("연락처", "전화", "휴대폰"), gender: col("성별"), main: col("주포지션", "포지션"),
+      extra: col("추가포지션", "추가"), skill: col("숙련도"), group: col("순모임"), status: col("구분", "상태") };
+    if (C.name < 0 || C.email < 0 || C.main < 0) throw new Error("이름 · 이메일 · 주 포지션 칸이 필요해요. 양식을 내려받아 써 주세요");
+    const ps = window.__allPositions || [];
+    const norm = (v) => String(v ?? "").replace(/\s/g, "");
+    const POSMAP = {};
+    ps.forEach((p) => { POSMAP[norm(p.name)] = p.code; POSMAP[p.code] = p.code; if (POS_SHORT[p.code]) POSMAP[POS_SHORT[p.code]] = p.code; });
+    Object.assign(POSMAP, { "인도자": "leader", "보컬": "singer", "건반": "key_main", "메인건반": "key_main", "세컨": "key_second", "일렉": "e_guitar", "기타": "e_guitar", "베이스": "bass", "드럼": "drum" });
+    const have = new Set(S.members.map((m) => String(m.email || "").toLowerCase()));
+    const seen = new Map();
+    const out = [];
+    aoa.slice(hi + 1).forEach((r, i) => {
+      const get = (k) => (C[k] >= 0 ? r[C[k]] : "");
+      const name = String(get("name")).trim();
+      if (!name && !String(get("email")).trim()) return;
+      if (name.includes("예시")) return;
+      const errors = [];
+      const email = String(get("email")).trim().toLowerCase();
+      let phone = get("phone"); if (typeof phone === "number") phone = "0" + phone; phone = String(phone).trim();
+      const g = norm(get("gender")), gender = /^(남|남자|m|male)$/i.test(g) ? "m" : /^(여|여자|f|female)$/i.test(g) ? "f" : g ? "?" : null;
+      const main = POSMAP[norm(get("main"))];
+      const extraRaw = String(get("extra")).split(/[,，/·]/).map(norm).filter(Boolean);
+      const extra = extraRaw.map((x) => POSMAP[x]);
+      const sk = norm(get("skill")), skill = { "상": 3, "중": 2, "하": 1 }[sk] ?? (sk ? "?" : null);
+      const st = norm(get("status")), status = st === "수습" ? "trainee" : !st || st === "정식" ? "active" : "?";
+      if (!name) errors.push("이름 없음");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errors.push(email ? "이메일 형식" : "이메일 없음");
+      else if (have.has(email)) errors.push("이미 등록된 이메일");
+      else if (seen.has(email)) errors.push(`${seen.get(email)}번 줄과 이메일 중복`);
+      if (!main) errors.push(get("main") ? `포지션 '${get("main")}'?` : "주 포지션 없음");
+      extra.forEach((c, k) => { if (!c) errors.push(`추가 포지션 '${extraRaw[k]}'?`); });
+      if (gender === "?") errors.push("성별은 남/여");
+      if (skill === "?") errors.push("숙련도는 상/중/하");
+      if (status === "?") errors.push("구분은 정식/수습");
+      if (email && !seen.has(email)) seen.set(email, hi + i + 2);
+      out.push({ line: hi + i + 2, errors, row: { name, email, phone, gender: gender === "?" ? null : gender, main_position: main, extra_positions: extra.filter(Boolean),
+        skill: skill === "?" ? null : skill, small_group: String(get("group")).trim(), status: status === "?" ? "active" : status } });
+    });
+    return out;
+  }
+  function openBulkAdd() {
+    let parsed = null;
+    const draw = () => {
+      const ok = parsed ? parsed.filter((x) => !x.errors.length) : [];
+      const bad = parsed ? parsed.filter((x) => x.errors.length) : [];
+      $("#bkPrev").innerHTML = !parsed ? "" : !parsed.length ? `<div class="empty">등록할 줄이 없어요.</div>` : `
+        <div class="row"><span class="chip chip-ok">등록할 수 있어요 ${ok.length}명</span>${bad.length ? `<span class="chip chip-warn">고칠 곳 있음 ${bad.length}명 · 등록하지 않아요</span>` : ""}</div>
+        <div class="evaltable" style="max-height:340px;overflow:auto"><table class="bk-table"><thead><tr><th>줄</th><th>이름</th><th>이메일(아이디)</th><th>포지션</th><th>성별</th><th>숙련도</th><th>구분</th><th>확인</th></tr></thead>
+          <tbody>${parsed.map((x) => `<tr class="${x.errors.length ? "bad" : ""}"><td>${x.line}</td><td><b>${esc(x.row.name)}</b></td><td>${esc(x.row.email)}</td>
+            <td>${esc([x.row.main_position && positionName(x.row.main_position), ...x.row.extra_positions.map(positionName)].filter(Boolean).join(", "))}</td>
+            <td>${x.row.gender ? GENDER[x.row.gender] : "–"}</td><td>${x.row.skill ? LEVEL[x.row.skill] : "–"}</td><td>${x.row.status === "trainee" ? "수습" : "정식"}</td>
+            <td>${x.errors.length ? `<span class="bk-err">${esc(x.errors.join(" · "))}</span>` : `<span class="bk-ok">OK</span>`}</td></tr>`).join("")}</tbody></table></div>
+        ${bad.length ? `<p class="small muted" style="margin:0">빨간 줄은 엑셀에서 고쳐 다시 올리거나, 나머지만 먼저 등록하고 따로 추가해도 돼요.</p>` : ""}`;
+      const b = $("#mOk"); if (b) { b.disabled = !ok.length; b.textContent = ok.length ? `${ok.length}명 등록` : "등록"; }
+    };
+    modal({ title: "엑셀로 멤버 일괄 등록", wide: true, confirmLabel: "등록",
+      body: `<ol class="bk-steps"><li>양식을 내려받아 한 줄에 한 명씩 채워 주세요. <button type="button" class="btn btn-soft btn-sm" id="bkTpl">양식 내려받기</button></li>
+          <li>채운 파일(.xlsx · .csv)을 올리면 등록 전에 미리 보여 줘요. <label class="btn btn-ghost btn-sm" style="margin-left:4px">파일 고르기<input type="file" id="bkFile" accept=".xlsx,.xls,.csv" hidden></label> <span class="small muted" id="bkName"></span></li>
+          <li>등록하면 사람마다 다른 임시 비밀번호가 만들어져요. 목록을 받아 개인 카톡으로 전해 주세요. 첫 로그인 때 비밀번호를 바꿔야 해요.</li></ol>
+        <div id="bkPrev" style="display:flex;flex-direction:column;gap:10px"></div>`,
+      onConfirm: async (close) => {
+        const rows = (parsed || []).filter((x) => !x.errors.length).map((x) => x.row);
+        if (!rows.length) throw new Error("등록할 사람이 없어요");
+        $("#mOk").textContent = `등록하는 중… (${rows.length}명)`;
+        const r = await api("/api/members-bulk", { action: "add", rows });
+        await loadAll(); close(); renderMembers();
+        showTempPasswords(r.results);
+      } });
+    draw();
+    $("#bkTpl").onclick = async () => { try { await downloadTemplate(); } catch (e) { toast(e.message, 4000); } };
+    $("#bkFile").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      $("#bkName").textContent = f.name;
+      try { const X = await loadXLSX(); parsed = parseBulk(X, await f.arrayBuffer()); }
+      catch (err) { parsed = null; toast(err.message, 4500); }
+      draw();
+    };
+  }
+  const accountMsg = (r) => `[찬양팀] ${r.name}님, 찬양팀 플랫폼 계정이 만들어졌어요.\n· 주소: ${location.origin}/login.html\n· 아이디: ${r.email}\n· 임시 비밀번호: ${r.tempPassword}\n첫 로그인 때 비밀번호를 바꿔 주세요. 로그인한 뒤 '홈 화면에 추가'하면 알림도 받을 수 있어요.`;
+  function showTempPasswords(results) {
+    const ok = results.filter((x) => x.ok), bad = results.filter((x) => !x.ok);
+    modal({ title: `${ok.length}명 등록했어요`, wide: true, cancelLabel: "닫기", confirmLabel: ok.length ? "목록 내려받기 (엑셀)" : "",
+      body: `${ok.length ? `<p class="notice warn" style="margin:0">임시 비밀번호는 이 창을 닫으면 다시 볼 수 없어요. 목록을 내려받거나 사람마다 문구를 복사해 개인 카톡으로 보내 주세요. 다 전한 뒤에는 내려받은 파일을 지워 주세요.</p>
+        <div class="evaltable" style="max-height:360px;overflow:auto"><table class="bk-table"><thead><tr><th>이름</th><th>아이디</th><th>임시 비밀번호</th><th></th></tr></thead>
+          <tbody>${ok.map((x, i) => `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.email)}</td><td class="temp-pw" style="font-size:16px">${esc(x.tempPassword)}</td>
+            <td><button type="button" class="btn btn-ghost btn-sm" data-acopy="${i}">문구 복사</button></td></tr>`).join("")}</tbody></table></div>` : ""}
+        ${bad.length ? `<div class="notice error" style="margin:0">등록하지 못한 ${bad.length}명: ${bad.map((x) => `${esc(x.name || x.email)} (${esc(x.error)})`).join(", ")}</div>` : ""}`,
+      onConfirm: ok.length ? async () => {
+        const X = await loadXLSX();
+        const ws = X.utils.aoa_to_sheet([["이름", "아이디(이메일)", "임시 비밀번호", "보낼 문구"], ...ok.map((x) => [x.name, x.email, x.tempPassword, accountMsg(x)])]);
+        ws["!cols"] = [{ wch: 12 }, { wch: 28 }, { wch: 16 }, { wch: 90 }];
+        const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, "임시 비밀번호");
+        X.writeFile(wb, `Pole2_임시비밀번호_${todayISO()}.xlsx`);
+      } : null });
+    $$("[data-acopy]").forEach((b) => b.addEventListener("click", async () => toast((await copyText(accountMsg(ok[+b.dataset.acopy]))) ? `${ok[+b.dataset.acopy].name}님 안내 문구를 복사했어요` : "복사하지 못했어요")));
+  }
+
   function bindMemberHead() {
     $("#mFilter").onclick = (e) => { const b = e.target.closest("button"); if (b) { S.memberFilter = b.dataset.f; renderMembers(); } };
   }
@@ -908,7 +1227,7 @@
       const { error } = await sb.from("guests").delete().eq("id", g.id);
       if (error) return toast("지우지 못했습니다");
       S.guests = S.guests.filter((x) => x.id !== g.id);
-      $("#modalRoot").innerHTML = ""; toast("지웠어요"); after?.();
+      curClose?.(); toast("지웠어요"); after?.();
     });
   }
 
@@ -1193,7 +1512,7 @@
       onConfirm: async (close) => {
         const why = $("#rmWhy [aria-pressed=true]").dataset.v, note = $("#rmNote").value.trim();
         await api("/api/remove-member", { memberId: m.id, reason: note ? `${why} · ${note}` : why, confirmName: $("#rmName").value.trim() });
-        await loadAll(); close(); toast(`${m.name}님을 탈퇴 처리했어요`); location.hash = "members";
+        await loadAll(); close(); toast(`${m.name}님을 탈퇴 처리했어요`); nav("members");
       },
     });
     $("#mOk").disabled = true;
@@ -1328,8 +1647,18 @@
     const month = V.month;
     const [{ slots, info, avail, notes }, mins] = await Promise.all([loadMonth(month), loadMonthMinistries(month)]);
     const sids = mins.flatMap((mi) => mi.svs.map((s) => s.id));
-    const { data: mav } = sids.length ? await sb.from("ministry_availability").select("service_id, member_id, available").in("service_id", sids) : { data: [] };
+    const pids = mins.flatMap((mi) => (mi.ministry_practices || []).map((p) => p.id));
+    const pollIds = mins.filter((mi) => mi.practice_mode === "poll").map((mi) => mi.id);
+    const [{ data: mav }, { data: pans }, { data: polls }] = await Promise.all([
+      sids.length ? sb.from("ministry_availability").select("service_id, member_id, available").in("service_id", sids) : { data: [] },
+      pids.length ? sb.from("practice_answers").select("practice_id, member_id, available").in("practice_id", pids) : { data: [] },
+      pollIds.length ? sb.from("ministry_poll").select("ministry_id, member_id, slots").in("ministry_id", pollIds) : { data: [] },
+    ]);
     const mAns = (sid, mid) => (mav || []).find((a) => a.service_id === sid && a.member_id === mid)?.available;
+    const pAns = (pid, mid) => (pans || []).find((a) => a.practice_id === pid && a.member_id === mid)?.available;
+    const slotsOf = (miId, mid) => (polls || []).find((p) => p.ministry_id === miId && p.member_id === mid)?.slots;
+    // 칠한 시간이 확정된 연습 시간을 모두 덮는지 (30분 칸)
+    const covers = (slots, p) => { const set = new Set(slots); for (let t = toMin(p.start_time); t < toMin(p.end_time); t += 30) if (!set.has(`${p.practice_date} ${fromMin(t)}`)) return false; return true; };
     const multis = mins.filter((mi) => mi.multi), singles = mins.filter((mi) => !mi.multi);
     if (V.respView !== "month" && !multis.some((mi) => mi.id === V.respView)) V.respView = "month";
     const curMi = multis.find((mi) => mi.id === V.respView);
@@ -1337,19 +1666,41 @@
     const sundays = sundaysOf(month);
     const monthlyMins = mins.filter((x) => x.response_mode === "monthly");
 
-    // 칸: 토 연습 · 주일 · 사역 예배 (날짜순)
-    const KORD = { sat: 0, sun: 1, min: 2 };
-    const cols = curMi ? curMi.svs.map((s) => ({ type: "min", date: s.service_date, svc: s, mi: curMi }))
-      : [...sundays.flatMap((sun) => [{ type: "sat", date: addDays(sun, -1) }, { type: "sun", date: sun }]),
-        ...singles.map((mi) => ({ type: "min", date: mi.svs[0].service_date, svc: mi.svs[0], mi }))]
-        .sort((a, b) => a.date.localeCompare(b.date) || KORD[a.type] - KORD[b.type]);
-    const val = (m, c) => c.type === "min" ? (isTarget(c.mi, m) ? mAns(c.svc.id, m.id) : "x") : answerOf(avail, m.id, c.date, c.type === "sat" ? "sat_practice" : "sunday");
+    // 칸: 토 연습 · 주일 · 사역(연습 | 본 섬김) (날짜순, 사역 연습은 그 예배 바로 앞)
+    //  연습 칸: 정해진 연습 = 팀원 답 / 취합으로 정한 연습 = 칠한 시간 기준 자동 / 취합 중 = 응답·미응답만
+    const pracOf = (mi, svc) => (mi.ministry_practices || []).filter((p) => !p.service_id || p.service_id === svc.id)
+      .sort((a, b) => a.practice_date.localeCompare(b.practice_date) || a.start_time.localeCompare(b.start_time));
+    const minCols = (mi, svc) => {
+      const prs = pracOf(mi, svc);
+      const out = prs.map((p) => ({ type: "prac", date: svc.service_date, mi, svc, prac: p, auto: mi.practice_mode === "poll" }));
+      if (!prs.length && mi.practice_mode === "poll" && mi.poll_open) out.push({ type: "prac", date: svc.service_date, mi, svc, prac: null, polling: true });
+      return [...out, { type: "min", date: svc.service_date, svc, mi }];
+    };
+    const units = curMi ? curMi.svs.map((s) => minCols(curMi, s))
+      : [...sundays.map((sun) => [{ type: "sat", date: addDays(sun, -1) }, { type: "sun", date: sun }]),
+        ...singles.map((mi) => minCols(mi, mi.svs[0]))].sort((a, b) => a[a.length - 1].date.localeCompare(b[b.length - 1].date) || (a[0].type === "sat" ? -1 : 1));
+    const cols = units.flat();
+    const val = (m, c) => {
+      if (c.type === "sat" || c.type === "sun") return answerOf(avail, m.id, c.date, c.type === "sat" ? "sat_practice" : "sunday");
+      if (!isTarget(c.mi, m)) return "x";
+      if (c.type === "min") return mAns(c.svc.id, m.id);
+      if (mAns(c.svc.id, m.id) !== true) return "off";   // 본 섬김이 '가능'일 때만 연습을 물어요
+      if (c.polling) return slotsOf(c.mi.id, m.id)?.length ? "polled" : "pollnone";
+      const x = pAns(c.prac.id, m.id);
+      if (x !== undefined || !c.auto) return x;
+      const sl = slotsOf(c.mi.id, m.id);
+      return sl?.length ? (covers(sl, c.prac) ? "auto-yes" : "auto-no") : undefined;
+    };
+    const counts = (c) => c.type !== "prac" || (!c.auto && !c.polling);   // 응답 완료 계산에 들어가는 칸
     const shown = curMi ? people.filter((m) => isTarget(curMi, m)) : people;
-    const need = (m) => cols.filter((c) => val(m, c) !== "x");
+    const need = (m) => cols.filter((c) => counts(c) && !["x", "off"].includes(val(m, c)));
     const answered = (m) => need(m).filter((c) => val(m, c) !== undefined).length;
     const done = shown.filter((m) => answered(m) === need(m).length);
     const partial = shown.filter((m) => answered(m) > 0 && answered(m) < need(m).length);
     const none = shown.filter((m) => answered(m) === 0 && need(m).length);
+    const pollCols = cols.filter((c) => c.polling);
+    const pollPend = shown.filter((m) => pollCols.some((c) => val(m, c) === "pollnone"));
+    const pollMins = [...new Map(pollCols.map((c) => [c.mi.id, c.mi])).values()];
 
     const status = !info ? `<span class="chip chip-gray">월말 응답 아직 열지 않음</span>`
       : info.is_open ? `<span class="chip chip-ok">월말 응답 받는 중${info.deadline ? " · " + fmtDate(info.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : ""}</span>`
@@ -1364,25 +1715,35 @@
       : info.is_open
       ? `<label class="field" style="flex-direction:row;align-items:center;gap:8px;font-size:14px">마감일<input type="date" id="dl" value="${info.deadline || ""}" style="min-height:40px;width:auto"></label>
          <button type="button" class="btn btn-ghost" id="saveDl">마감일 저장</button>
-         <button type="button" class="btn btn-ghost" id="copyOpen">응답 안내 문구 복사</button>
+         <button type="button" class="btn btn-ghost" id="copyOpen">응답 안내 보내기</button>
          <button type="button" class="btn btn-danger" id="closeMonth">마감하기</button>`
       : `<button type="button" class="btn btn-ghost" id="reopen">다시 열기</button>`;
 
+    // 왼쪽 선: 주일은 토 연습과, 사역 본 섬김은 그 연습과 한 묶음
+    const lineAt = (i) => i === 0 || !(cols[i].type === "sun" || (cols[i].type === "min" && cols[i - 1]?.type === "prac"));
     const cell = (m, c, i) => {
-      const v = val(m, c), first = i === 0 || c.type !== "sun";
-      const bl = first ? ` style="border-left:1px solid var(--line)"` : "";
+      const v = val(m, c);
+      const bl = lineAt(i) ? ` style="border-left:1px solid var(--line)"` : "";
       if (v === "x") return `<td class="a-off"${bl}><span class="small" style="color:var(--faint)">대상 아님</span></td>`;
-      const [cls, label, next] = v === true ? ["a-yes", "가능", "불가"] : v === false ? ["a-no", "불가", "미응답"] : ["a-none", "–", "가능"];
-      const key = c.type === "min" ? `data-sid="${c.svc.id}"` : `data-date="${c.date}" data-kind="${c.type === "sat" ? "sat_practice" : "sunday"}"`;
-      return `<td class="${cls} ${c.type === "min" ? "a-min" : ""}"${bl}><button type="button" class="a-btn" data-mid="${m.id}" ${key} data-v="${v === undefined ? "" : v}"
-        aria-label="${esc(m.name)} ${md(c.date)} ${c.type === "min" ? esc(c.mi.name) : c.type === "sun" ? "주일" : "토 연습"} ${v === undefined ? "미응답" : label}, 누르면 ${next}">${label}</button></td>`;
+      if (v === "off") return `<td class="a-off"${bl} title="본 섬김이 '가능'일 때만 연습을 물어요"><span style="color:var(--faint)">–</span></td>`;
+      if (v === "polled" || v === "pollnone") return `<td class="${v === "polled" ? "a-yes" : "a-none"} a-min"${bl}><span class="a-txt">${v === "polled" ? "응답" : "미응답"}</span></td>`;
+      const auto = v === "auto-yes" || v === "auto-no";
+      const b = v === true || v === "auto-yes" ? true : v === false || v === "auto-no" ? false : undefined;
+      const [cls, label, next] = b === true ? ["a-yes", "가능", "불가"] : b === false ? ["a-no", "불가", auto ? "가능" : "미응답"] : ["a-none", "–", "가능"];
+      const key = c.type === "min" ? `data-sid="${c.svc.id}"` : c.type === "prac" ? `data-pid="${c.prac.id}"` : `data-date="${c.date}" data-kind="${c.type === "sat" ? "sat_practice" : "sunday"}"`;
+      const what = c.type === "min" ? esc(c.mi.name) : c.type === "prac" ? esc(c.mi.name) + " 연습" : c.type === "sun" ? "주일" : "토 연습";
+      return `<td class="${cls} ${c.type !== "sat" && c.type !== "sun" ? "a-min" : ""} ${auto ? "a-auto" : ""}"${bl}${auto ? ` title="칠한 시간 기준 (누르면 직접 정해요)"` : ""}><button type="button" class="a-btn" data-mid="${m.id}" ${key} data-v="${b === undefined ? "" : b}"${auto ? ` data-auto="1"` : ""}
+        aria-label="${esc(m.name)} ${md(c.date)} ${what} ${b === undefined ? "미응답" : label}${auto ? " (칠한 시간 기준)" : ""}, 누르면 ${next}">${label}</button></td>`;
     };
     const head = cols.map((c, i) => {
-      const first = i === 0 || c.type !== "sun";
-      return `<th class="${c.type === "min" ? "th-min" : ""}" style="${first ? "border-left:1px solid var(--line);" : ""}text-align:center">${c.type === "min"
+      const style = `${lineAt(i) ? "border-left:1px solid var(--line);" : ""}text-align:center`;
+      if (c.type === "prac") return `<th class="th-min th-prac" style="${style}">${esc(curMi ? c.svc.label || c.mi.name : c.mi.name)} 연습<br><span class="small" style="font-weight:600">${c.prac
+        ? `${mdw(c.prac.practice_date)} ${hm(c.prac.start_time)}` : "시간 취합 중"}</span></th>`;
+      return `<th class="${c.type === "min" ? "th-min" : ""}" style="${style}">${c.type === "min"
         ? `${esc(curMi ? c.svc.label || c.mi.name : c.mi.name)}<br><span class="small" style="font-weight:600">${mdw(c.date)}${c.svc.start_time ? " " + hm(c.svc.start_time) : ""}</span>`
         : `${md(c.date)}<br><span class="small" style="font-weight:600">${c.type === "sat" ? "토 연습" : "주일"}</span>`}</th>`;
     }).join("");
+    const isYes = (v) => v === true || v === "auto-yes" || v === "polled";
 
     $("#content").innerHTML = `
       <div class="page-head">${monthNav("섬김 응답", month)}<div class="row">${status}${sepChips}</div></div>
@@ -1391,9 +1752,10 @@
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
         <div class="card bordered"><span class="muted small">응답 완료</span><div style="font-size:26px;font-weight:800">${done.length}<span class="muted" style="font-size:15px;font-weight:600"> / ${shown.length}명</span></div></div>
         <div class="card bordered"><span class="muted small">응답 중</span><div style="font-size:26px;font-weight:800">${partial.length}<span class="muted" style="font-size:15px;font-weight:600">명</span></div></div>
-        <div class="card bordered" style="display:flex;flex-direction:column;gap:6px"><span class="muted small">미응답 ${none.length + partial.length}명</span>
+        <div class="card bordered" style="display:flex;flex-direction:column;gap:6px"><span class="muted small">미응답 ${none.length + partial.length}명${pollCols.length ? ` · 연습 시간 미응답 ${pollPend.length}명` : ""}</span>
           <span style="font-size:14px;font-weight:600">${[...none, ...partial].map((m) => esc(m.name)).join(", ") || "없음"}</span>
-          ${(none.length + partial.length) ? `<button type="button" class="btn btn-soft btn-sm" id="copyNudge" style="align-self:flex-start">독촉 문구 복사</button>` : ""}</div>
+          ${pollCols.length ? `<span class="small" style="font-weight:600"><span class="muted">연습 시간 (${esc(pollMins.map((x) => x.name).join(", "))}) ·</span> ${pollPend.map((m) => esc(m.name)).join(", ") || "모두 골랐어요"}</span>` : ""}
+          ${(none.length + partial.length + pollPend.length) ? `<button type="button" class="btn btn-soft btn-sm" id="copyNudge" style="align-self:flex-start">독촉 보내기</button>` : ""}</div>
       </div>
       <p class="lead" style="margin:0">칸을 누르면 리더십이 직접 바꿀 수 있어요 (가능 → 불가 → 미응답).${curMi ? " 예배마다 따로 응답받아요." : singles.length ? " 보라색 칸은 사역이에요 — 따로 받는 사역도 여기서 함께 봐요. 예배가 2개 이상인 사역은 위 탭에서 봐요." : ""}</p>
       <div class="evaltable"><table class="resp-table">
@@ -1402,16 +1764,21 @@
           ${cols.map((c, i) => cell(m, c, i)).join("")}
           ${curMi ? "" : `<td class="small" style="max-width:220px">${esc(notes.find((n) => n.member_id === m.id)?.note || "")}</td>`}</tr>`).join("") || `<tr><td colspan="99" class="muted">응답 대상이 없어요.</td></tr>`}
         <tr style="background:var(--bg)"><td colspan="2" class="small" style="font-weight:700">가능 인원</td>
-          ${cols.map((c, i) => `<td style="font-weight:800;color:var(--violet);${i === 0 || c.type !== "sun" ? "border-left:1px solid var(--line)" : ""}">${shown.filter((m) => val(m, c) === true).length}</td>`).join("")}${curMi ? "" : "<td></td>"}</tr></tbody></table></div>
+          ${cols.map((c, i) => `<td style="font-weight:800;color:var(--violet);${lineAt(i) ? "border-left:1px solid var(--line)" : ""}">${shown.filter((m) => isYes(val(m, c))).length}</td>`).join("")}${curMi ? "" : "<td></td>"}</tr></tbody></table></div>
+      ${cols.some((c) => c.type === "prac") ? `<p class="small muted" style="margin:-8px 0 0">사역 연습 칸은 본 섬김이 '가능'인 사람만 물어요. 점선 칸은 칠한 시간으로 자동 표시한 것이고, 누르면 직접 정할 수 있어요.</p>` : ""}
       ${info || mins.length ? `<a class="btn btn-primary" href="#lineup" style="align-self:flex-start" id="goLineup">${curMi ? esc(curMi.name) : monthLabel(month)} 배치하러 가기</a>` : ""}`;
 
     bindMonthNav((n) => { V.month = addMonths(V.month, n); V.respView = "month"; renderRespondAdmin(); });
     $$("[data-view]").forEach((b) => b.addEventListener("click", () => { V.respView = b.dataset.view; renderRespondAdmin(); }));
     $$(".a-btn").forEach((b) => b.addEventListener("click", async () => {
       const cur = b.dataset.v;   // "true" | "false" | ""
-      const next = cur === "true" ? false : cur === "false" ? null : true;
+      // 칠한 시간 기준 자동 칸은 누르면 반대로 직접 정함, 직접 정한 칸은 가능 → 불가 → 미응답(자동으로 돌아감)
+      const next = b.dataset.auto ? cur !== "true" : cur === "true" ? false : cur === "false" ? null : true;
       let error;
-      if (b.dataset.sid) {
+      if (b.dataset.pid) {
+        const key = { practice_id: b.dataset.pid, member_id: b.dataset.mid };
+        ({ error } = next === null ? await sb.from("practice_answers").delete().match(key) : await sb.from("practice_answers").upsert({ ...key, available: next }));
+      } else if (b.dataset.sid) {
         const key = { service_id: b.dataset.sid, member_id: b.dataset.mid };
         ({ error } = next === null ? await sb.from("ministry_availability").delete().match(key) : await sb.from("ministry_availability").upsert({ ...key, available: next }));
       } else {
@@ -1442,13 +1809,29 @@
       const { error } = await sb.from("availability_months").update({ deadline: $("#dl").value || null }).eq("month", month);
       toast(error ? "저장하지 못했습니다" : "마감일을 저장했어요"); renderRespondAdmin();
     });
-    $("#copyOpen")?.addEventListener("click", async () => toast((await copyText(openMsg())) ? "응답 안내 문구를 복사했어요" : "복사하지 못했어요"));
-    $("#copyNudge")?.addEventListener("click", async () => {
-      const names = [...none, ...partial].map((m) => m.name + "님").join(", ");
+    const people4open = () => (curMi && curMi.target_mode === "custom" ? shown : people);
+    $("#copyOpen")?.addEventListener("click", () => openSend({
+      title: `${monthLabel(month)} 응답 안내 보내기`, ctx: `open-info:${month}`, label: `${monthLabel(month)} 응답 안내`, url: "/me.html#respond",
+      groups: [{ id: "all", label: "정식 팀원", people: people4open() }],
+      push: () => ({ title: `${monthLabel(month)} 섬김 응답을 받고 있어요`, body: `${dlText(info?.deadline)} 토요 연습·주일${monthlyMins.length ? "·" + monthlyMins.map((x) => x.name).join("·") : ""} 가능 여부를 체크해 주세요`.trim() }),
+      text: () => openMsg(),
+    }));
+    $("#copyNudge")?.addEventListener("click", () => {
       const what = curMi ? `${curMi.name} 섬김 응답` : `${monthLabel(month)} 섬김 응답`;
       const dl = curMi ? (curMi.response_mode === "separate" ? curMi.response_deadline : info?.deadline) : info?.deadline;
-      const msg = `[찬양팀] ${names}\n${what}이 아직 남아 있어요.${dl ? " " + fmtDate(dl, { month: "long", day: "numeric", weekday: "short" }) + "까지" : ""} 체크 부탁드려요!\n\n${location.origin}/me.html#respond`;
-      toast((await copyText(msg)) ? "독촉 문구를 복사했어요" : "복사하지 못했어요");
+      const pdl = pollMins.map((x) => x.poll_deadline).filter(Boolean).sort()[0];
+      const pname = pollMins.map((x) => x.name).join("·");
+      openSend({
+        title: "독촉 보내기", ctx: curMi ? `nudge-min:${curMi.id}` : `nudge:${month}`, label: `${what} 독촉`, url: "/me.html#respond",
+        groups: [{ id: "resp", label: "섬김 응답 미응답", people: [...none, ...partial] }, { id: "poll", label: `${pname} 연습 시간 미응답`, people: pollPend }],
+        push: (sel) => sel.includes("resp") && sel.includes("poll") ? { title: `${what} · 연습 시간이 아직 남아 있어요`, body: "체크 부탁드려요!" }
+          : sel.includes("poll") ? { title: `${pname} 연습 시간을 아직 안 고르셨어요`, body: `${dlText(pdl)} 되는 칸을 눌러 주세요`.trim() }
+          : { title: `${what}이 아직 남아 있어요`, body: `${dlText(dl)} 체크 부탁드려요!`.trim() },
+        text: (sel, names) => sel.length > 1
+          ? `[찬양팀] ${namesNim(names)}\n아직 남은 응답이 있어요.\n· ${what}${dl ? ` (${dlText(dl)})` : ""}\n· ${pname} 연습 가능 시간${pdl ? ` (${dlText(pdl)})` : ""}\n체크 부탁드려요!\n\n${location.origin}/me.html#respond`
+          : sel.includes("poll") ? `[찬양팀] ${namesNim(names)}\n${pname} 연습 가능 시간을 아직 안 칠하셨어요.${pdl ? " " + dlText(pdl) : ""} 부탁드려요!\n\n${location.origin}/me.html#respond`
+          : `[찬양팀] ${namesNim(names)}\n${what}이 아직 남아 있어요.${dl ? " " + dlText(dl) : ""} 체크 부탁드려요!\n\n${location.origin}/me.html#respond`,
+      });
     });
     const setOpen = async (open) => {
       const { error } = await sb.from("availability_months").update({ is_open: open }).eq("month", month);
@@ -2807,7 +3190,7 @@
       <div style="height:10px;border-radius:999px;background:var(--tint-2);overflow:hidden" role="img" aria-label="응답 완료 ${r0.done.length}/${r0.total}"><div style="width:${r0.total ? Math.round(100 * r0.done.length / r0.total) : 0}%;height:10px;background:var(--violet)"></div></div>
       <div class="plist"><div><span>미응답</span><b style="text-align:right">${r0.none.map((p) => esc(p.name)).join(", ") || "없음"}</b></div>
         <div><span>응답 중</span><b style="text-align:right">${r0.partial.map((p) => esc(p.name)).join(", ") || "없음"}</b></div></div>
-      ${r0.none.length + r0.partial.length ? `<button type="button" class="btn btn-soft btn-sm" data-nudge="${r0.m.month}" style="align-self:flex-start">독촉 문구 복사</button>` : `<span class="small" style="color:var(--ok);font-weight:700">모두 응답했어요</span>`}
+      ${r0.none.length + r0.partial.length ? `<button type="button" class="btn btn-soft btn-sm" data-nudge="${r0.m.month}" style="align-self:flex-start">독촉 보내기</button>` : `<span class="small" style="color:var(--ok);font-weight:700">모두 응답했어요</span>`}
       ${resp.length > 1 ? `<span class="small muted">${resp.slice(1).map((x) => `${monthLabel(x.m.month)} 응답도 받는 중 (${x.done.length}/${x.total})`).join(" · ")}</span>` : ""}`
       : `<div class="head-num"><b class="muted">–</b><span class="muted">지금 응답 받는 달이 없어요</span></div>`;
 
@@ -2868,11 +3251,13 @@
     c.querySelectorAll("[data-stats]").forEach((a) => a.addEventListener("click", () => { A.tab = "stats"; }));
     c.querySelectorAll("[data-lmonth]").forEach((a) => a.addEventListener("click", () => { V.lineupMonth = a.dataset.lmonth; V.view = a.dataset.lview || "month"; }));
     c.querySelectorAll("[data-rmonth]").forEach((a) => a.addEventListener("click", () => { V.month = a.dataset.rmonth; }));
-    c.querySelectorAll("[data-nudge]").forEach((b) => b.addEventListener("click", async () => {
+    c.querySelectorAll("[data-nudge]").forEach((b) => b.addEventListener("click", () => {
       const r = resp.find((x) => x.m.month === b.dataset.nudge);
-      const names = [...r.none, ...r.partial].map((p) => p.name + "님").join(", ");
-      const msg = `[찬양팀] ${names}\n${monthLabel(r.m.month)} 섬김 응답이 아직 남아 있어요.${r.m.deadline ? " " + fmtDate(r.m.deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : ""} 체크 부탁드려요!\n\n${location.origin}/me.html#respond`;
-      toast((await copyText(msg)) ? "독촉 문구를 복사했어요" : "복사하지 못했어요");
+      const what = `${monthLabel(r.m.month)} 섬김 응답`;
+      openSend({ title: "독촉 보내기", ctx: `nudge:${r.m.month}`, label: `${what} 독촉`, url: "/me.html#respond",
+        groups: [{ id: "resp", label: "미응답", people: [...r.none, ...r.partial] }],
+        push: () => ({ title: `${what}이 아직 남아 있어요`, body: `${dlText(r.m.deadline)} 체크 부탁드려요!`.trim() }),
+        text: (sel, names) => `[찬양팀] ${namesNim(names)}\n${what}이 아직 남아 있어요.${r.m.deadline ? " " + dlText(r.m.deadline) : ""} 체크 부탁드려요!\n\n${location.origin}/me.html#respond` });
     }));
   }
 
@@ -2967,7 +3352,7 @@
           await setDayTime(sat, d, a, z); close(); toast("시간을 바꿨어요"); renderSchedule();
         },
       });
-      $("#tReset").onclick = async () => { await setDayTime(sat, d, null, null); $("#modalRoot").innerHTML = ""; toast("기본 시간으로 되돌렸어요"); renderSchedule(); };
+      $("#tReset").onclick = async () => { await setDayTime(sat, d, null, null); curClose?.(); toast("기본 시간으로 되돌렸어요"); renderSchedule(); };
     }));
     async function setDayTime(sat, d, a, z) {
       if (sat) {
@@ -3154,7 +3539,7 @@
         }
         close(); toast(mi ? "저장했어요" : `${name}을(를) 추가했어요`);
         if (!mi && rmode === "separate") MS.askPush = id;
-        if (location.hash === `#ministry/${id}`) route(); else location.hash = `ministry/${id}`;
+        nav(`ministry/${id}`);
       },
     });
   }
@@ -3211,7 +3596,7 @@
       <div class="page-head">
         <div><h1 class="page-title">${esc(mi.name)} <span class="chip chip-violet" style="vertical-align:middle">사역</span></h1>
           <p class="muted" style="margin:4px 0 0">${esc(dateText)} · 주일과 같은 포지션 구성${req.length ? ` · 필수 ${req.map((c) => POS_SHORT[c] || positionName(c)).join("·")}` : ""}</p></div>
-        <div class="row"><a class="btn btn-primary" href="#lineup" id="msLineup">배치하기</a><button type="button" class="btn btn-ghost" id="msCopy">응답 안내 문구 복사</button><button type="button" class="btn btn-ghost" id="msEdit">수정</button><button type="button" class="btn btn-danger" id="msDel">삭제</button></div>
+        <div class="row"><a class="btn btn-primary" href="#lineup" id="msLineup">배치하기</a><button type="button" class="btn btn-ghost" id="msCopy">응답 안내 보내기</button><button type="button" class="btn btn-ghost" id="msEdit">수정</button><button type="button" class="btn btn-danger" id="msDel">삭제</button></div>
       </div>
       <div class="kp4">
         <div class="ktile"><span>본 섬김 가능</span><b>${availPeople.length}명</b><small>모두 불가 ${noPeople.length} · 미응답 ${pendPeople.length} · 대상 ${targets.length}</small></div>
@@ -3226,11 +3611,14 @@
     $("#msBack").onclick = () => { SC.month = month; };
     $("#msLineup").onclick = () => { V.lineupMonth = month; V.view = svs.length > 1 ? mi.id : "month"; V.boardKey = null; };
     $("#msTabs").onclick = (e) => { const b = e.target.closest("[data-mtab]"); if (b && b.dataset.mtab !== MS.tab) { MS.tab = b.dataset.mtab; MS.open = null; renderMinistry(id); } };
-    $("#msCopy").onclick = async () => toast((await copyText(respMsg())) ? "응답 안내 문구를 복사했어요" : "복사하지 못했어요");
+    $("#msCopy").onclick = () => openSend({ title: `${mi.name} 응답 안내 보내기`, ctx: `min-info:${id}`, label: `${mi.name} 응답 안내`, url: "/me.html#respond",
+      groups: [{ id: "all", label: "응답 대상", people: targets }],
+      push: () => ({ title: `${mi.name} 섬김 응답을 받고 있어요`, body: `${mi.response_mode === "separate" ? dlText(mi.response_deadline) + " " : ""}${dateText} 가능 여부를 체크해 주세요`.trim() }),
+      text: () => respMsg() });
     $("#msEdit").onclick = () => openMinistryEdit(mi);
     $("#msDel").onclick = () => modal({
       title: `${mi.name} 삭제`, body: `<p style="margin:0">예배·응답·연습·배치·연습 출석이 모두 지워지고 되돌릴 수 없어요.</p>`, confirmLabel: "삭제", danger: true,
-      onConfirm: async (close) => { const { error } = await sb.from("ministries").delete().eq("id", id); if (error) throw new Error("삭제하지 못했습니다"); close(); toast("삭제했어요"); SC.month = month; location.hash = "schedule"; },
+      onConfirm: async (close) => { const { error } = await sb.from("ministries").delete().eq("id", id); if (error) throw new Error("삭제하지 못했습니다"); close(); toast("삭제했어요"); SC.month = month; nav("schedule"); },
     });
     const body = $("#msBody");
     const ctx = { mi, svs, prs, targets, availPeople, pendPeople, polled, pollMissing, aOf, av: av.data || [], poll: poll.data || [], ans: ans.data || [], patt: patt.data || [], respOpen, monthOpen, month, today, cnt, req, respMsg };
@@ -3245,7 +3633,7 @@
             <button type="button" class="btn btn-ghost" id="rdlSave">마감일 저장</button>
             <button type="button" class="btn ${mi.response_open ? "btn-danger" : "btn-primary"}" id="rToggle">${mi.response_open ? "마감하기" : "다시 열기"}</button>
             ${mi.response_open ? `<button type="button" class="btn btn-ghost" id="rPush">응답 알림 보내기</button>` : ""}`}
-          ${pendPeople.length && respOpen ? `<button type="button" class="btn btn-soft" id="rNudge" style="margin-left:auto">미응답 ${pendPeople.length}명 독촉 문구 복사</button>` : ""}
+          ${pendPeople.length && respOpen ? `<button type="button" class="btn btn-soft" id="rNudge" style="margin-left:auto">미응답 ${pendPeople.length}명 독촉 보내기</button>` : ""}
         </section>
         <p class="lead" style="margin:0">칸을 누르면 리더십이 직접 바꿀 수 있어요 (가능 → 불가 → 미응답).${mi.target_mode === "custom" ? ` 응답 대상 ${targets.length}명만 보여요.` : ""}</p>
         <div class="evaltable"><table class="resp-table">
@@ -3272,9 +3660,12 @@
       });
       $("#rPush")?.addEventListener("click", () => askMinOpenPush(mi, targets.length));
       if (MS.askPush === id) { MS.askPush = null; if (mi.response_mode === "separate" && mi.response_open) askMinOpenPush(mi, targets.length); }
-      $("#rNudge")?.addEventListener("click", async () => {
-        const msg = `[찬양팀] ${pendPeople.map((m) => m.name + "님").join(", ")}\n${mi.name} 섬김 응답이 아직 남아 있어요.${mi.response_mode === "separate" && mi.response_deadline ? " " + fmtDate(mi.response_deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : ""} 체크 부탁드려요!\n\n${location.origin}/me.html#respond`;
-        toast((await copyText(msg)) ? "독촉 문구를 복사했어요" : "복사하지 못했어요");
+      $("#rNudge")?.addEventListener("click", () => {
+        const dl = mi.response_mode === "separate" ? mi.response_deadline : mo.data?.deadline;
+        openSend({ title: "독촉 보내기", ctx: `nudge-min:${id}`, label: `${mi.name} 응답 독촉`, url: "/me.html#respond",
+          groups: [{ id: "resp", label: "미응답", people: pendPeople }],
+          push: () => ({ title: `${mi.name} 섬김 응답이 아직 남아 있어요`, body: `${dlText(dl)} 체크 부탁드려요!`.trim() }),
+          text: (sel, names) => `[찬양팀] ${namesNim(names)}\n${mi.name} 섬김 응답이 아직 남아 있어요.${dl ? " " + dlText(dl) : ""} 체크 부탁드려요!\n\n${location.origin}/me.html#respond` });
       });
       $$(".a-btn[data-sid]").forEach((b) => b.addEventListener("click", async () => {
         const cur = b.dataset.v, nx = cur === "true" ? false : cur === "false" ? null : true;
@@ -3303,7 +3694,7 @@
       const pend = availPeople.filter((m) => ansOf(p.id, m.id) === undefined);
       return `<div class="prow"><span>${multi ? `<span class="chip chip-violet" style="margin-right:6px">${esc(svcName(p.service_id))}</span>` : ""}<b>${fmtDate(p.practice_date, { month: "long", day: "numeric", weekday: "short" })} ${timeRange(p.start_time, p.end_time)}</b>
           ${mi.practice_mode === "fixed" ? `<span class="small muted"> · 가능 ${yes.length} · 불가 ${no.length}${no.length ? ` (${no.map((m) => esc(m.name)).join(", ")})` : ""}${pend.length ? ` · 미응답 ${pend.length}` : ""}</span>` : ""}</span>
-        <span class="row"><button type="button" class="btn btn-ghost btn-sm" data-pcopy="${p.id}">연습 안내 복사</button><button type="button" class="btn btn-ghost btn-sm" data-pdel="${p.id}">삭제</button></span></div>`;
+        <span class="row"><button type="button" class="btn btn-ghost btn-sm" data-pcopy="${p.id}">연습 안내 보내기</button><button type="button" class="btn btn-ghost btn-sm" data-pdel="${p.id}">삭제</button></span></div>`;
     }).join("");
     let pollHTML = "";
     let wins = [];
@@ -3337,7 +3728,7 @@
           <span class="small muted">본 섬김 '가능' ${availPeople.length}명이 대상이에요${mi.poll_deadline ? ` · ${md(mi.poll_deadline)} 마감` : ""}</span>
           <button type="button" class="btn ${mi.poll_open ? "btn-danger" : "btn-primary"}" id="pToggle">${mi.poll_open ? "취합 마감" : "취합 열고 안내 문구 복사"}</button>
           ${multi ? `<span class="small" style="flex-basis:100%;color:var(--violet);font-weight:600">예배가 ${svs.length}개라 연습은 예배마다 따로 정해요. 배치표에서 팀을 짜면서 '연습 시간 맞추기'로 확정하는 게 편해요.</span>` : ""}
-          ${mi.poll_open && pollMissing.length ? `<button type="button" class="btn btn-soft" id="pNudge" style="margin-left:auto">안 낸 ${pollMissing.length}명 독촉 문구 복사</button>` : ""}
+          ${mi.poll_open && pollMissing.length ? `<button type="button" class="btn btn-soft" id="pNudge" style="margin-left:auto">안 낸 ${pollMissing.length}명 독촉 보내기</button>` : ""}
         </section>
         <div class="cols2">
           <section class="box"><h2>연습 가능 시간 <small>칸 숫자 = 가능 인원 (${polled.length}명 응답)</small></h2>${heat}
@@ -3399,7 +3790,17 @@
     };
     $$("[data-pdel]").forEach((b) => b.addEventListener("click", () => modal({ title: "연습 삭제", body: `<p style="margin:0">이 연습의 가능 응답·출석 기록도 함께 지워져요.</p>`, confirmLabel: "삭제", danger: true,
       onConfirm: async (close) => { const { error } = await sb.from("ministry_practices").delete().eq("id", b.dataset.pdel); if (error) throw new Error("삭제하지 못했습니다"); close(); toast("삭제했어요"); renderMinistry(id); } })));
-    $$("[data-pcopy]").forEach((b) => b.addEventListener("click", async () => toast((await copyText(pracMsg(prs.find((p) => p.id === b.dataset.pcopy)))) ? "연습 안내를 복사했어요" : "복사하지 못했어요")));
+    // 연습 안내: 그 예배에 배치된 사람 (배치 전이면 본 섬김 '가능'인 사람)
+    $$("[data-pcopy]").forEach((b) => b.addEventListener("click", () => {
+      const p = prs.find((x) => x.id === b.dataset.pcopy);
+      const ids = new Set(svs.filter((s) => !p.service_id || s.id === p.service_id).flatMap((s) => (s.assignments || []).map((a) => a.member_id)).filter(Boolean));
+      const who = ids.size ? S.members.filter((m) => ids.has(m.id) && m.is_active) : availPeople;
+      const nm = `${mi.name}${multi && p.service_id ? " " + svcName(p.service_id) : ""}`;
+      openSend({ title: `${nm} 연습 안내 보내기`, ctx: `practice-info:${p.id}`, label: `${nm} 연습 안내`, url: "/me.html#home",
+        groups: [{ id: "p", label: ids.size ? "배치된 사람" : "본 섬김 가능", people: who }],
+        push: () => ({ title: `${nm} 연습 안내`, body: `${fmtDate(p.practice_date, { month: "long", day: "numeric", weekday: "short" })} ${timeRange(p.start_time, p.end_time)}에 모여요` }),
+        text: () => pracMsg(p) });
+    }));
     $("#pToggle")?.addEventListener("click", async () => {
       if (!mi.poll_open && !pollDays(mi).length) return toast("먼저 '수정'에서 후보 날짜를 정해 주세요");
       if (mi.poll_open) {
@@ -3418,10 +3819,10 @@
           close(); toast(`취합을 열었어요. 안내 문구를 복사했어요${t}`, 4000); renderMinistry(id);
         } });
     });
-    $("#pNudge")?.addEventListener("click", async () => {
-      const msg = `[찬양팀] ${pollMissing.map((m) => m.name + "님").join(", ")}\n${mi.name} 연습 가능 시간을 아직 안 칠하셨어요.${mi.poll_deadline ? " " + fmtDate(mi.poll_deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지" : ""} 부탁드려요!\n\n${location.origin}/me.html#respond`;
-      toast((await copyText(msg)) ? "독촉 문구를 복사했어요" : "복사하지 못했어요");
-    });
+    $("#pNudge")?.addEventListener("click", () => openSend({ title: "연습 시간 독촉 보내기", ctx: `nudge-poll:${id}`, label: `${mi.name} 연습 시간 독촉`, url: "/me.html#respond",
+      groups: [{ id: "poll", label: "안 낸 사람", people: pollMissing }],
+      push: () => ({ title: `${mi.name} 연습 시간을 아직 안 고르셨어요`, body: `${dlText(mi.poll_deadline)} 되는 칸을 눌러 주세요`.trim() }),
+      text: (sel, names) => `[찬양팀] ${namesNim(names)}\n${mi.name} 연습 가능 시간을 아직 안 칠하셨어요.${mi.poll_deadline ? " " + dlText(mi.poll_deadline) : ""} 부탁드려요!\n\n${location.origin}/me.html#respond` }));
   }
 
   // 연습 출석: 이 사역에 배치된 사람
@@ -3661,7 +4062,10 @@
           <select id="scHour" aria-label="시각">${hours(sc.hour)}</select><span>에 그 주차 기록이 비어 있으면</span></div>`;
     } else whenHTML = `<span class="small" style="font-weight:400">${esc(info.when)}에 바로 보내요.</span>`;
 
-    $("#nBody").innerHTML = `<div class="nset">
+    $("#nBody").innerHTML = `<section class="card bordered warnset"><div><b>다시 보내기 경고</b><span class="small muted">'보내기' 창에서 같은 안내를 이 시간 안에 받은 사람에게 다시 보내려고 하면 경고해요. 0이면 경고하지 않아요.</span></div>
+        <label class="row" style="gap:6px;font-weight:700"><input type="number" id="warnH" min="0" max="168" step="1" value="${warnHours()}" class="input" style="width:88px;min-height:40px"> 시간</label>
+        <button type="button" class="btn btn-ghost btn-sm" id="warnSave">저장</button></section>
+      <div class="nset">
       <nav class="nlist" aria-label="알림 종류">${NKINDS.map((x) => { const r = x === k ? d : cur(x); return `<button type="button" data-nk="${x}" aria-current="${x === k}">
         <span><b>${NOTIFY_NAME[x]}</b><small>${esc(whenOf(x, r))}</small></span><span class="onoff ${r.enabled ? "" : "off"}">${r.enabled ? "켬" : "끔"}</span></button>`; }).join("")}</nav>
       <section class="panel">
@@ -3683,6 +4087,14 @@
           <button type="button" class="btn btn-primary" id="nsSave">저장</button></div>
       </section></div>`;
 
+    $("#warnSave").addEventListener("click", async () => {
+      const h = Math.round(+$("#warnH").value);
+      if (!(h >= 0 && h <= 168)) return toast("0~168 사이로 적어 주세요");
+      const { error } = await sb.from("team_settings").update({ resend_warn_hours: h }).eq("id", 1);
+      if (error) return toast("저장하지 못했어요: " + error.message, 4000);
+      S.settings = await loadSettings(true);
+      toast(h ? `같은 안내를 ${h}시간 안에 다시 보내면 경고해요` : "다시 보내기 경고를 껐어요");
+    });
     const pv = () => {
       const v = k === "remind" ? { ...NSAMPLE, "마감일": "내일" } : NSAMPLE;
       $("#nsPT").textContent = nfill(d.title, v) || " "; $("#nsPB").textContent = nfill(d.body, v);
@@ -3794,6 +4206,18 @@
           <button type="button" class="btn btn-danger" id="demoClear" ${has ? "" : "disabled"}>테스트 데이터 모두 지우기</button>
         </div>
         <p class="small muted" style="margin:0">실제 운영을 시작하기 전에 꼭 지워 주세요. 테스트 중 리더십이 직접 만든 지원서·계정은 @pole2.test 이메일을 쓰면 함께 지워져요.</p>
+      </section>
+      <section class="card bordered danger-zone">
+        <h2 style="font-size:17px;font-weight:800">초기화</h2>
+        <p style="margin:0">정식 운영을 시작하기 전에 지금까지 쌓인 데이터를 한 번에 비워요. 되돌릴 수 없어요.</p>
+        <div class="grid2" style="font-size:14px">
+          <div class="card" style="background:var(--bad-bg)"><b>지워요</b><ul style="margin:6px 0 0;padding-left:18px;line-height:1.8">
+            <li>관리자가 아닌 멤버 전원 (계정 포함)</li><li>섬김 일정 · 사역 · 응답 · 배치표 · 출석</li><li>객원 · 탈퇴 기록</li>
+            <li>지원 · 면접 · 수습 기록</li><li>보낸 알림 · 공지 기록</li></ul></div>
+          <div class="card" style="background:var(--ok-bg)"><b>남겨요</b><ul style="margin:6px 0 0;padding-left:18px;line-height:1.8">
+            <li>관리자(리더십) 계정과 정보 · 관리자 본인 지원서</li><li>기본 시간 · 추천 기준 · 알림 설정</li><li>안내 문구 · 서약서</li></ul></div>
+        </div>
+        <button type="button" class="btn btn-bad" id="resetAll" style="align-self:flex-start">초기화</button>
       </section>`;
     $("#sTimeSave").onclick = async () => {
       const v = { sat_practice_start: $("#sA").value, sat_practice_end: $("#sB").value, sunday_start: $("#sC").value, sunday_end: $("#sD").value };
@@ -3814,6 +4238,18 @@
       if (error) return toast("저장하지 못했습니다");
       S.settings = await loadSettings(true); V.basis = S.settings.rec_basis; toast("추천 기준을 저장했어요");
     };
+    $("#resetAll").addEventListener("click", () => modal({
+      title: "초기화", danger: true, confirmLabel: "초기화",
+      body: `<p class="notice warn" style="margin:0">관리자 ${admins().length}명(${admins().map((m) => esc(m.name)).join(", ")})만 남기고 멤버 ${S.members.filter((m) => m.role !== "admin").length}명과 일정·응답·배치·출석·지원 기록을 모두 지워요. 되돌릴 수 없어요.</p>
+        <label class="field">확인을 위해 <b>초기화</b>라고 적어 주세요<input type="text" id="rsConfirm" autocomplete="off"></label>`,
+      onInput: () => { const ok = $("#mOk"); if (ok) ok.disabled = $("#rsConfirm").value.trim() !== "초기화"; },
+      onConfirm: async (close) => {
+        if ($("#rsConfirm").value.trim() !== "초기화") throw new Error("'초기화'라고 적어 주세요");
+        $("#mOk").textContent = "비우는 중…";
+        const r = await api("/api/members-bulk", { action: "reset", confirm: "초기화" });
+        await loadAll(); close();
+        toast(`초기화했어요 · 멤버 ${r.removedMembers}명 삭제, 관리자 ${r.keptAdmins}명 남김${r.failed ? ` · 계정 ${r.failed}개 실패` : ""}`, 5000); renderSettings();
+      } }));
     $("#demoSeed").addEventListener("click", () => modal({
       title: "테스트 데이터 만들기", body: `<p style="margin:0">계정을 여러 개 만드느라 10~20초 걸려요. 실제 팀원 데이터는 바뀌지 않아요.</p>`,
       confirmLabel: "만들기",
@@ -3835,6 +4271,20 @@
     }));
   }
 
+  // ---------------------------------------------------------------- 새로고침해도 보던 탭 유지 (014)
+  const UI_KEY = "pole2.admin.ui";
+  const UI_FIELDS = [[S, ["memberFilter", "memberGroup"]], [V, ["month", "respView", "lineupMonth", "view", "part"]],
+    [A, ["tab", "month", "mfilter", "skind", "srange"]], [SC, ["month"]], [MS, ["tab", "id"]], [NV, ["tab", "sel"]]];
+  function restoreUI() {
+    try {
+      const u = JSON.parse(sessionStorage.getItem(UI_KEY) || "[]");
+      UI_FIELDS.forEach(([o, ks], i) => ks.forEach((k) => { if (u[i] && u[i][k] != null) o[k] = u[i][k]; }));
+    } catch {}
+  }
+  const saveUI = () => { try { sessionStorage.setItem(UI_KEY, JSON.stringify(UI_FIELDS.map(([o, ks]) => Object.fromEntries(ks.map((k) => [k, o[k] ?? null]))))); } catch {} };
+  window.addEventListener("pagehide", saveUI);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveUI(); });
+
   // ---------------------------------------------------------------- 시작
   (async function init() {
     const ctx = await requireMember({ admin: true });
@@ -3843,6 +4293,12 @@
     $("#whoName").textContent = `${S.me.name}님`;
     await loadAll();
     window.__allPositions = await loadPositions();
+    if (!(history.state && "lv" in history.state)) {   // 대시보드를 맨 아래에 깔아 둠
+      const first = location.hash && location.hash !== "#" ? location.hash : "#dashboard";
+      history.replaceState({ lv: 0 }, "", "#dashboard");
+      if (first !== "#dashboard") history.pushState({ lv: first.includes("/") ? 2 : 1 }, "", first);
+    } else if (history.state.modal) history.replaceState({ lv: lv() }, "");   // 창이 열린 채 새로고침한 경우
+    restoreUI();
     route();
 
     sb.channel("new-applications")

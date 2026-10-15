@@ -25,7 +25,7 @@ export default async function cron(req, res) {
       const deadlines = [];
       const [mo, sep, pol] = await Promise.all([
         db.from("availability_months").select("*").eq("is_open", true).not("deadline", "is", null),
-        db.from("ministries").select("*, services(id, service_date), ministry_practices(id, practice_date)").eq("response_mode", "separate").eq("response_open", true).not("response_deadline", "is", null),
+        db.from("ministries").select("*, services(id, service_date), ministry_practices(id, practice_date, service_id)").eq("response_mode", "separate").eq("response_open", true).not("response_deadline", "is", null),
         db.from("ministries").select("*, services(id, service_date)").eq("poll_open", true).not("poll_deadline", "is", null),
       ]);
       (mo.data || []).forEach((x) => deadlines.push({ type: "month", id: x.month, dl: x.deadline, what: `${monthLabel(x.month)} 섬김 응답`, x }));

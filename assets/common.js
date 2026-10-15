@@ -255,7 +255,7 @@
       try { await sub.unsubscribe(); } catch {}
     },
   };
-  window.NOTIFY_KIND = { open: "응답", minopen: "응답", poll: "연습", remind: "마감", lineup: "배치", practice: "연습", apply: "지원", trainee: "수습", notice: "공지" };
+  window.NOTIFY_KIND = { open: "응답", minopen: "응답", poll: "연습", remind: "마감", lineup: "배치", practice: "연습", apply: "지원", trainee: "수습", notice: "공지", message: "안내" };
 
   // ---------- 013: 배치표 표 (보기 · 이미지 저장) ----------
   //  row = { date: "9월 6일", sub: "ONE STEP" | "", green: 사역 줄, cells: { leader: [{ n, b, me }], singer: [...], key_main, ... } }

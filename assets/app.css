@@ -867,3 +867,72 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .pushrow input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--violet); flex: none; }
 .pushrow b { font-size: 14px; display: block; }
 .pushrow small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* ---------- 014: 가로로 넘기는 줄 — 스크롤바 숨김 (PC 세로 스크롤바 포함) ---------- */
+.tabs, .sat-tabs, .resp-pick, .side nav { overflow-y: hidden; scrollbar-width: none; -ms-overflow-style: none; }
+.tabs::-webkit-scrollbar, .sat-tabs::-webkit-scrollbar, .resp-pick::-webkit-scrollbar, .side nav::-webkit-scrollbar { display: none; }
+.tabs { border-bottom: 0; box-shadow: inset 0 -1px 0 #E4DAF2; }
+.tabs button { margin-bottom: 0; }
+
+/* ---------- 014: 관리자 ↔ 팀원 화면 전환 ---------- */
+.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.side-top img { height: 30px; display: block; margin-left: 8px; }
+.switch-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--violet-soft); background: var(--tint); color: var(--violet); font-size: 13px; font-weight: 800; text-decoration: none; white-space: nowrap; flex: none; }
+.side-top .switch-btn { display: none; }
+.side nav > a.nav-switch { margin-top: 12px; border: 1px solid var(--line-2); }
+.topbar .switch-btn { min-height: 30px; padding: 0 10px; font-size: 12px; }
+@media (max-width: 760px) {
+  .side-top .switch-btn { display: inline-flex; }
+  .side nav > a.nav-switch { display: none; }
+  .side nav { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); padding-right: 24px; }
+}
+
+/* ---------- 014: 보내기 창 ---------- */
+.pillchk { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
+.pillchk:has(input:checked) { background: var(--tint); border-color: var(--violet-soft); color: var(--violet); }
+.pillchk input { accent-color: var(--violet); width: 16px; height: 16px; margin: 0; }
+.sendwho { display: flex; flex-direction: column; gap: 4px; background: var(--bg); border-radius: 12px; padding: 12px 14px; }
+.sendwho > span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.sendwho .ppl span { background: #fff; color: var(--faint); border: 1px dashed var(--line-2); }
+.sendwho .ppl span.on { color: var(--violet); border: 1px solid var(--violet-soft); background: var(--tint); }
+.sendbox { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.sendhd { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sendhd b { font-size: 15px; }
+.sendbox textarea.input { padding: 12px 14px; line-height: 1.6; resize: vertical; font-size: 14px; }
+.sendlog summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--muted); }
+.sendlog ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); line-height: 1.8; }
+.ktag.message { background: #E7F0FA; color: #1F5C99; }
+.warnset { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 18px; }
+.warnset > div { flex: 1 1 320px; display: flex; flex-direction: column; gap: 2px; }
+
+/* ---------- 014: 섬김 응답 표 · 사역 연습 칸 ---------- */
+.resp-table th.th-prac { background: #F9F5FE; box-shadow: inset 0 3px 0 var(--violet-soft); }
+.resp-table td.a-auto .a-btn { box-shadow: inset 0 0 0 1px var(--violet-soft); outline: 1px dashed currentColor; outline-offset: -5px; }
+.resp-table .a-txt { display: block; min-height: 36px; line-height: 36px; font-weight: 700; font-size: 13px; }
+.resp-table td.a-off { color: var(--faint); }
+
+/* ---------- 014: 팀원 섬김 응답 · 연습이 바로 펼쳐짐 ---------- */
+.prac-in { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin: 0 -6px; border-radius: 12px; background: var(--bg); }
+.poll-in { display: flex; flex-direction: column; gap: 10px; padding: 12px 6px 0; border-top: 1px dashed var(--violet-soft); }
+.poll-in:empty { display: none; }
+.poll-in-hd { display: flex; flex-direction: column; gap: 2px; }
+.poll-in-hd b { font-size: 16px; }
+.prac-in.just, .poll-in.just { animation: pracIn .5s ease-out; }
+@keyframes pracIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- 014: 멤버 여러 명 고르기 · 일괄 등록 · 초기화 ---------- */
+.mrow.pickrow { cursor: pointer; }
+.mrow.pickrow.on { background: var(--tint); }
+.mrow.pickrow input { width: 18px; height: 18px; accent-color: var(--violet); margin: 0 4px 0 0; flex: none; }
+.selbar { position: sticky; bottom: 12px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: #fff;
+  border: 1px solid var(--violet-soft); border-radius: 14px; padding: 10px 14px; box-shadow: 0 8px 24px -12px rgba(23, 9, 46, .35); }
+.bk-steps { margin: 0; padding-left: 20px; font-size: 14px; line-height: 2; color: var(--ink-2); }
+.bk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bk-table th { text-align: left; font-size: 12px; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; }
+.bk-table td { padding: 7px 10px; border-top: 1px solid var(--tint); white-space: nowrap; }
+.bk-table tr.bad td { background: var(--bad-bg); }
+.bk-err { color: var(--bad); font-weight: 700; white-space: normal; }
+.bk-ok { color: var(--ok); font-weight: 800; }
+.danger-zone { display: flex; flex-direction: column; gap: 12px; border-color: #EBC3BF; }
+.bk-table td:last-child { white-space: normal; min-width: 180px; }
