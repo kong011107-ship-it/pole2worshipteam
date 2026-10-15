@@ -5,23 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=12" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=12" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=12" sizes="16x16">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=12">
-  <link rel="stylesheet" href="assets/app.css?v=12">
+  <link rel="icon" href="assets/favicon.svg?v=13" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=13" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=13" sizes="16x16">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=13">
+  <link rel="stylesheet" href="assets/app.css?v=13">
 </head>
 <body>
 <div class="m-wrap">
   <header class="topbar">
     <img src="assets/logo-violet.png" alt="Pole2">
-    <span class="who"><span id="whoName"></span><span id="whoBadge"></span></span>
+    <span class="who"><span id="whoName"></span><span id="whoBadge"></span><a href="#alerts" class="bell" id="bell" aria-label="알림"></a></span>
   </header>
 
   <main class="m-main" id="view-home"></main>
 
   <main class="m-main hidden" id="view-respond"></main>
   <main class="m-main hidden" id="view-lineup"></main>
+  <main class="m-main hidden" id="view-alerts"></main>
+  <main class="m-main hidden" id="view-install"></main>
 
   <main class="m-main hidden" id="view-info">
     <section class="card">
@@ -37,15 +44,16 @@
         <p class="muted small" id="pledgedAt" style="margin: 8px 0 0"></p>
       </details>
     </section>
+    <section class="card" id="devCard"></section>
     <button type="button" class="btn btn-ghost" onclick="logout()">로그아웃</button>
   </main>
 </div>
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=12"></script>
+<script src="assets/config.js?v=13"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=12"></script>
+<script src="assets/common.js?v=13"></script>
 <script>
   let ctx, me, app, extras = [], ST;
 
@@ -65,13 +73,16 @@
     ]);
     app = a.data; extras = x.data || [];
 
+    PWA.register();
     renderTabbar();
     renderInfo();
+    refreshBell();
     if (me.status === "trainee") {
       const { data: pps } = await sb.rpc("my_trainee_postpones");
       renderTraineeHome(pps || []);
       $("#view-home").insertAdjacentHTML("beforeend", await meetingCard());
     } else await renderMemberHome();
+    await appBanner();
     showView();
   })();
 
@@ -89,13 +100,17 @@
   }
   function showView() {
     if (!me) return;   // 아직 불러오는 중이면 init이 끝난 뒤 다시 호출됨
-    const allowed = me.status === "trainee" ? ["home", "info"] : ["home", "respond", "lineup", "info"];
+    const allowed = me.status === "trainee" ? ["home", "info", "alerts", "install"] : ["home", "respond", "lineup", "info", "alerts", "install"];
     const h = location.hash.slice(1);
     const v = allowed.includes(h) ? h : "home";
-    ["home", "respond", "lineup", "info"].forEach((k) => $(`#view-${k}`).classList.toggle("hidden", v !== k));
+    ["home", "respond", "lineup", "info", "alerts", "install"].forEach((k) => $(`#view-${k}`).classList.toggle("hidden", v !== k));
     $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === v));
+    $("#bell").classList.toggle("on", v === "alerts");
     if (v === "respond") renderRespond();
     if (v === "lineup") renderLineup();
+    if (v === "alerts") renderAlerts();
+    if (v === "install") renderInstall();
+    if (v === "info") renderDevCard($("#devCard"));
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", showView);
@@ -570,7 +585,36 @@
   }
 
   // ---------- 배치표 ----------
-  let lineupMonth = null;
+  let lineupMonth = null, lineupMode = "list", lineupTab = "month";
+  // 전체 표: 한 달(주일 + 예배 1개 사역) / 예배 2개 이상 사역은 따로 탭
+  function drawLineupTable(v, groups, multi, head) {
+    const multis = [...new Map(groups.filter((g) => multi(g[0])).map((g) => [g[0].ministry_id, g[0].ministry_name])).entries()];
+    if (lineupTab !== "month" && !multis.some(([id]) => id === lineupTab)) lineupTab = "month";
+    const shown = groups.filter((g) => lineupTab === "month" ? !multi(g[0]) : g[0].ministry_id === lineupTab);
+    const multiTab = lineupTab !== "month";
+    const nameOf = (r) => String(r.member_name).replace(/ \(객원\)$/, "(G)");
+    const rows = shown.map((list) => {
+      const h = list[0];
+      const cell = (code) => list.filter((r) => r.position_code === code).sort((a, b) => a.slot - b.slot).map((r) => ({ n: nameOf(r), b: !!(r.is_singer_leader || r.is_band_master), me: r.member_id === me.id }));
+      return { date: LTABLE.korDate(h.service_date), sub: h.ministry_id ? (multiTab ? (h.label || h.ministry_name) : h.ministry_name) : "", green: !!h.ministry_id && !multiTab,
+        cells: Object.fromEntries(LTABLE.COLS.map(([k]) => [k, cell(k)])) };
+    });
+    const title = multiTab ? `${multis.find(([id]) => id === lineupTab)[1]} 배치표` : `${monthLabel(lineupMonth)} 배치표`;
+    v.innerHTML = `${head}
+      ${multis.length ? `<div class="chips2"><button type="button" data-lt="month" aria-pressed="${!multiTab}">${monthLabel(lineupMonth)}</button>${multis.map(([id, nm]) => `<button type="button" data-lt="${id}" aria-pressed="${lineupTab === id}">${esc(nm)}</button>`).join("")}</div>` : ""}
+      ${rows.length ? `<div class="card m-lt" style="padding:0;overflow:hidden">${LTABLE.html(rows)}</div>
+        <span class="muted small">옆으로 밀어 보세요. 굵은 이름 = 싱어 리더·밴드 마스터, 보라 바탕 = 나</span>
+        <button type="button" class="btn btn-primary btn-block" id="ltSave">${ICON.share}이미지로 저장 · 공유</button>`
+        : `<div class="empty">${monthLabel(lineupMonth)} 확정된 배치표가 아직 없어요.</div>`}`;
+    $$("[data-lt]", v).forEach((b) => b.addEventListener("click", () => { lineupTab = b.dataset.lt; renderLineup(); }));
+    $("#ltSave")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try { const r = await LTABLE.save(await LTABLE.png(rows, title), `${title}.png`); if (r === "saved") toast(`${title}.png를 저장했어요`); }
+      catch { toast("이미지를 만들지 못했어요"); }
+      b.disabled = false;
+    });
+  }
+
   async function renderLineup() {
     const v = $("#view-lineup");
     if (!lineupMonth) lineupMonth = monthOf(todayISO());
@@ -582,12 +626,20 @@
     const sats = await satRows([...new Set(rows.filter((r) => !r.ministry_id).map((r) => r.service_date))]);
     const multi = (r) => groups.filter((g) => g[0].ministry_id && g[0].ministry_id === r.ministry_id).length > 1;
     const role = (r) => r.is_singer_leader ? "싱어 리더" : r.is_band_master ? "밴드 마스터" : "";
-    v.innerHTML = `
+    const head = `
       <div style="display:flex;align-items:center;justify-content:space-between">
         <button type="button" class="btn btn-ghost btn-sm" id="prevM" aria-label="이전 달">이전 달</button>
         <h1 style="font-size:22px;font-weight:800">${monthLabel(lineupMonth)} 배치표</h1>
         <button type="button" class="btn btn-ghost btn-sm" id="nextM" aria-label="다음 달">다음 달</button>
       </div>
+      <div class="segbar" role="group" aria-label="보기 방식" style="align-self:center"><button type="button" data-lm="list" aria-pressed="${lineupMode === "list"}">예배별</button><button type="button" data-lm="table" aria-pressed="${lineupMode === "table"}">전체 표</button></div>`;
+    const bindNav = () => {
+      $("#prevM").onclick = () => { lineupMonth = addMonths(lineupMonth, -1); renderLineup(); };
+      $("#nextM").onclick = () => { lineupMonth = addMonths(lineupMonth, 1); renderLineup(); };
+      $$("[data-lm]", v).forEach((b) => b.addEventListener("click", () => { lineupMode = b.dataset.lm; renderLineup(); }));
+    };
+    if (lineupMode === "table") { drawLineupTable(v, groups, multi, head); return bindNav(); }
+    v.innerHTML = `${head}
       ${groups.length ? groups.map((list) => {
         const h = list[0], d = h.service_date;
         const mine = list.some((r) => r.member_id === me.id);
@@ -602,9 +654,141 @@
             ${role(r) ? `<span class="chip chip-violet">${role(r)}</span>` : "<span></span>"}</div>`).join("")}
         </section>`;
       }).join("") : `<div class="empty">${monthLabel(lineupMonth)} 확정된 배치표가 아직 없어요.</div>`}`;
-    $("#prevM").onclick = () => { lineupMonth = addMonths(lineupMonth, -1); renderLineup(); };
-    $("#nextM").onclick = () => { lineupMonth = addMonths(lineupMonth, 1); renderLineup(); };
+    bindNav();
   }
+
+  // ---------- 013: 알림 (벨 · 알림함 · 이 기기 알림) ----------
+  async function refreshBell() {
+    const b = $("#bell"); if (!b || !me) return;
+    const { count } = await sb.from("notification_inbox").select("notification_id", { count: "exact", head: true }).eq("member_id", me.id).is("read_at", null);
+    b.innerHTML = `${ICON.bell}${count ? `<span class="n">${count > 99 ? "99+" : count}</span>` : ""}`;
+    b.setAttribute("aria-label", count ? `알림 ${count}개 안 읽음` : "알림");
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshBell(); });
+
+  // 이 기기 알림 켜기/끄기 카드 (알림함 · 내 정보 · 설치 안내 3단계에서 같이 씀)
+  const DEV_TEXT = {
+    on: ["켜짐", "이 휴대폰으로 알림이 와요"],
+    off: ["꺼짐", "알림함에는 계속 쌓여요. 켜면 휴대폰으로 바로 와요"],
+    denied: ["차단됨", "휴대폰 설정 › 알림에서 이 앱(또는 브라우저)의 알림을 허용해 주세요"],
+    install: ["홈 화면 앱에서 켤 수 있어요", "아이폰은 홈 화면에 추가한 앱에서만 알림을 받아요"],
+    inapp: ["카카오톡 안에서는 켤 수 없어요", "사파리나 크롬으로 열어 주세요"],
+    unsupported: ["이 브라우저는 알림을 못 받아요", "휴대폰의 사파리(아이폰) 또는 크롬(안드로이드)으로 열어 주세요"],
+  };
+  async function renderDevCard(el, { compact = false } = {}) {
+    if (!el) return;
+    const st = await PWA.state();
+    const [t, sub] = DEV_TEXT[st] || DEV_TEXT.unsupported;
+    const can = st === "on" || st === "off";
+    el.innerHTML = `<div class="devrow"><span><b style="font-size:15px">이 기기 알림 · ${t}</b><span class="muted small">${sub}</span></span>
+        ${can ? `<button type="button" class="switch" role="switch" aria-checked="${st === "on"}" aria-label="이 기기 알림" data-dev></button>`
+          : st === "denied" ? "" : `<a class="btn btn-soft btn-sm" href="#install">방법 보기</a>`}</div>
+      ${!compact && can ? `<p class="muted small" style="margin:10px 0 0">알림은 기기마다 켜요. 응답 요청 · 배치표 · 연습 · 공지가 와요.</p>` : ""}`;
+    el.querySelector("[data-dev]")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try {
+        if (st === "on") { await PWA.disable(); toast("이 기기 알림을 껐어요"); }
+        else { await PWA.enable(); toast("이 기기로 알림이 와요"); }
+      } catch (err) { toast(err.message, 4500); }
+      renderDevCard(el, { compact });
+    });
+  }
+
+  let alertFilter = "all";
+  async function renderAlerts() {
+    const v = $("#view-alerts");
+    const { data } = await sb.from("notification_inbox").select("notification_id, title, body, read_at, notifications(kind, url, created_at)")
+      .eq("member_id", me.id).order("notification_id", { ascending: false }).limit(80);
+    const all = (data || []).filter((x) => x.notifications);
+    const list = all.filter((x) => alertFilter === "all" || x.notifications.kind === "notice");
+    const unread = all.filter((x) => !x.read_at).length;
+    v.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><h1 style="font-size:22px;font-weight:800">알림</h1>
+        ${unread ? `<button type="button" class="btn btn-ghost btn-sm" id="readAll">모두 읽음</button>` : ""}</div>
+      <section class="card" id="alertDev" style="padding:14px 16px"></section>
+      <div class="chips2"><button type="button" data-f="all" aria-pressed="${alertFilter === "all"}">전체</button><button type="button" data-f="notice" aria-pressed="${alertFilter === "notice"}">공지만</button></div>
+      <div class="alist">${list.map((x) => {
+        const n = x.notifications;
+        return `<a class="aitem ${x.read_at ? "" : "unread"}" href="${esc(n.url || "#alerts")}" data-id="${x.notification_id}">
+          <span class="top"><span class="ktag ${n.kind}">${NOTIFY_KIND[n.kind] || "알림"}</span><b>${esc(x.title)}</b>${x.read_at ? "" : `<span class="dot" aria-label="안 읽음"></span>`}</span>
+          ${x.body ? `<span class="bd">${esc(x.body)}</span>` : ""}<span class="when">${fmtDateTime(n.created_at)}</span></a>`;
+      }).join("") || `<div class="empty">${alertFilter === "notice" ? "받은 공지가 없어요." : "아직 받은 알림이 없어요."}</div>`}</div>`;
+    renderDevCard($("#alertDev"), { compact: true });
+    $$("[data-f]", v).forEach((b) => b.addEventListener("click", () => { alertFilter = b.dataset.f; renderAlerts(); }));
+    $("#readAll")?.addEventListener("click", async () => { await sb.rpc("mark_notifications_read", { p_ids: null }); renderAlerts(); refreshBell(); });
+    $$(".aitem", v).forEach((a) => a.addEventListener("click", async (e) => {
+      const id = +a.dataset.id, href = a.getAttribute("href");
+      e.preventDefault();
+      await sb.rpc("mark_notifications_read", { p_ids: [id] });
+      refreshBell();
+      if (href === "#alerts" || href === "/me.html#alerts") return renderAlerts();
+      location.href = href;
+    }));
+  }
+
+  // ---------- 013: 앱 설치 안내 ----------
+  let installOS = null, deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferredPrompt = e; if (location.hash === "#install") renderInstall(); });
+  async function renderInstall() {
+    const v = $("#view-install");
+    if (!installOS) installOS = PWA.platform() === "ios" ? "ios" : "android";
+    const ios = installOS === "ios", inApp = PWA.inApp(), standalone = PWA.isStandalone();
+    const st = await PWA.state();
+    const url = `${location.origin}/me.html`;
+    const steps = [
+      { done: !inApp, title: ios ? "사파리로 열기" : "크롬으로 열기",
+        text: inApp ? "지금 카카오톡 안에서 열려 있어요. 카톡 안에서는 앱 설치와 알림이 안 돼요." : `${ios ? "사파리" : "크롬"}에서 열려 있어요.`,
+        lines: ios ? ["오른쪽 아래 공유(또는 ···) 버튼 누르기", "'Safari로 열기' 고르기"] : ["오른쪽 위 점 세 개(⋮) 누르기", "'다른 브라우저로 열기' → Chrome"],
+        btn: inApp ? `<button type="button" class="btn btn-primary btn-block" id="iOpen">${ios ? "사파리로 열기" : "크롬으로 열기"}</button>
+          <button type="button" class="btn btn-ghost btn-block" id="iCopy">링크 복사</button>` : "" },
+      { done: standalone, title: "홈 화면에 추가",
+        text: standalone ? "홈 화면 앱으로 열려 있어요." : ios ? "사파리 아래쪽 공유 버튼을 눌러 주세요." : "크롬 오른쪽 위 점 세 개(⋮)를 눌러 주세요.",
+        lines: ios ? ["공유 버튼 → '홈 화면에 추가' → 추가", "홈 화면의 Pole2 아이콘으로 다시 열기"] : ["'홈 화면에 추가' 또는 '앱 설치'", "홈 화면의 Pole2 아이콘으로 다시 열기"],
+        btn: !standalone && deferredPrompt ? `<button type="button" class="btn btn-primary btn-block" id="iInstall">앱 설치</button>` : "" },
+      { done: st === "on", title: "알림 켜기",
+        text: st === "on" ? "이 기기로 알림이 와요." : "버튼을 누르면 '알림 허용' 창이 떠요. '허용'을 눌러 주세요.",
+        lines: ios ? ["아이폰은 홈 화면 아이콘으로 열었을 때만 켤 수 있어요 (iOS 16.4 이상)"] : [],
+        btn: st === "off" ? `<button type="button" class="btn btn-primary btn-block" id="iPush">알림 켜기</button>`
+          : st === "denied" ? `<p class="notice warn" style="margin:0">알림이 차단돼 있어요. 휴대폰 설정 › 알림에서 허용해 주세요.</p>` : "" },
+    ];
+    const cur = steps.findIndex((x) => !x.done);
+    v.innerHTML = `<div style="display:flex;flex-direction:column;gap:4px"><h1 style="font-size:22px;font-weight:800">홈 화면에 추가하고 알림 받기</h1>
+        <span class="muted" style="font-size:14px">응답 요청 · 배치표 · 공지를 알림으로 받아요. 1분이면 끝나요.</span></div>
+      <div class="segbar" role="group" aria-label="휴대폰 종류" style="align-self:flex-start"><button type="button" data-os="ios" aria-pressed="${ios}">아이폰</button><button type="button" data-os="android" aria-pressed="${!ios}">안드로이드</button></div>
+      ${steps.map((x, i) => `<section class="istep ${x.done ? "done" : i === cur ? "now" : ""}">
+        <div class="hd"><span class="num">${x.done ? "✓" : i + 1}</span><b style="font-size:16px;flex:1">${x.title}</b><span class="small" style="font-weight:800;color:${x.done ? "var(--ok)" : "var(--violet)"}">${x.done ? "완료" : i === cur ? "지금" : ""}</span></div>
+        ${i === cur || (!x.done && cur === -1) ? `<span style="font-size:14px;color:var(--ink-2);line-height:1.6">${x.text}</span>
+          ${x.lines.length ? `<ol>${x.lines.map((l) => `<li>${l}</li>`).join("")}</ol>` : ""}${x.btn}` : ""}</section>`).join("")}
+      ${cur === -1 ? `<div class="notice ok">다 됐어요. 끄고 싶으면 내 정보 › 이 기기 알림에서 끌 수 있어요.</div>` : ""}
+      ${PWA.platform() === "desktop" ? `<p class="muted small" style="margin:0">PC에서 보고 있어요. 휴대폰으로 ${esc(url)} 를 열어 주세요.</p>` : ""}`;
+    $$("[data-os]", v).forEach((b) => b.addEventListener("click", () => { installOS = b.dataset.os; renderInstall(); }));
+    $("#iCopy")?.addEventListener("click", async () => toast((await copyText(url)) ? "링크를 복사했어요. 브라우저 주소창에 붙여 넣어 주세요" : "복사하지 못했어요", 3500));
+    $("#iOpen")?.addEventListener("click", () => {
+      // 카카오톡: 아이폰은 외부 브라우저 열기, 안드로이드는 크롬 인텐트
+      if (ios) location.href = `kakaotalk://web/openExternal?url=${encodeURIComponent(url + "#install")}`;
+      else location.href = `intent://${location.host}/me.html#Intent;scheme=https;package=com.android.chrome;end`;
+    });
+    $("#iInstall")?.addEventListener("click", async () => { deferredPrompt.prompt(); await deferredPrompt.userChoice.catch(() => {}); deferredPrompt = null; renderInstall(); });
+    $("#iPush")?.addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      try { await PWA.enable(); toast("이 기기로 알림이 와요"); } catch (err) { toast(err.message, 4500); }
+      renderInstall();
+    });
+  }
+
+  // 홈 위 '앱으로 쓰기' 안내 (알림이 꺼져 있으면, 닫으면 2주 동안 안 보임)
+  async function appBanner() {
+    let hide = 0; try { hide = +localStorage.getItem("pole2.appBanner") || 0; } catch {}
+    if (Date.now() < hide) return;
+    const st = await PWA.state();
+    if (st === "on" || st === "unsupported" || st === "denied" || PWA.platform() === "desktop") return;
+    const title = st === "off" && PWA.isStandalone() ? "알림을 켜 주세요" : "앱으로 쓰고 알림 받기";
+    $("#view-home").insertAdjacentHTML("afterbegin", `<div class="app-banner" id="appBanner"><img src="assets/icon-192.png" alt="">
+      <span><b>${title}</b><span class="muted small">응답 요청 · 배치표 · 공지를 휴대폰 알림으로 받아요</span></span>
+      <a class="btn btn-primary btn-sm" href="#install">${st === "off" && PWA.isStandalone() ? "켜기" : "방법 보기"}</a>
+      <button type="button" class="x" id="appBannerX" aria-label="닫기">${XSVG}</button></div>`);
+    $("#appBannerX").addEventListener("click", () => { try { localStorage.setItem("pole2.appBanner", String(Date.now() + 14 * 864e5)); } catch {} $("#appBanner").remove(); });
+  }
+  const XSVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
 
   // ---------- 내 정보 ----------
   function renderInfo() {

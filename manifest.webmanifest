@@ -1,0 +1,17 @@
+{
+  "name": "Pole2 찬양팀",
+  "short_name": "Pole2 찬양팀",
+  "description": "폴투공동체 찬양팀 섬김 응답 · 배치표 · 알림",
+  "lang": "ko",
+  "id": "/me.html",
+  "start_url": "/me.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F3FC",
+  "theme_color": "#410A85",
+  "icons": [
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

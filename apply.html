@@ -5,11 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>지원서 · Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=12" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=12" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=12" sizes="16x16">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=12">
-  <link rel="stylesheet" href="assets/app.css?v=12">
+  <link rel="icon" href="assets/favicon.svg?v=13" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=13" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=13" sizes="16x16">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=13">
+  <link rel="stylesheet" href="assets/app.css?v=13">
 </head>
 <body>
 <div class="m-wrap">
@@ -98,9 +103,9 @@
   </main>
 </div>
 
-<script src="assets/config.js?v=12"></script>
+<script src="assets/config.js?v=13"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=12"></script>
+<script src="assets/common.js?v=13"></script>
 <script>
   const el = (id) => document.getElementById(id);
   const quals = ["qPractice", "qSunday", "qGroup"];
@@ -164,9 +169,12 @@
     if (!el("privacyAgree").checked) return showError("개인정보 수집·이용에 동의해 주세요.");
 
     el("submit").disabled = true; el("submit").textContent = "보내는 중…";
+    const appId = crypto.randomUUID ? crypto.randomUUID() : undefined;
     const { error } = await sb.from("applications").insert({
-      ...v, privacy_agreed: true, q_practice: true, q_sunday: true, q_group: true,
+      ...(appId ? { id: appId } : {}), ...v, privacy_agreed: true, q_practice: true, q_sunday: true, q_group: true,
     });
+    // 리더십에게 새 지원서 알림 (실패해도 지원은 완료)
+    if (!error && appId) fetch("/api/apply-notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: appId }) }).catch(() => {});
     if (error) {
       updateButton();
       return showError(/모집/.test(error.message) ? "방금 모집이 마감된 포지션이에요. 새로고침 후 다시 골라 주세요."

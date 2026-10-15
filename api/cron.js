@@ -1,0 +1,81 @@
+// 예약 알림 — Supabase pg_cron이 매시 정각에 부름 (cron_012.sql)
+//  · 마감 임박: 월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 — 아직 안 끝낸 사람에게
+//  · 수습 기록 차례: 그 주차 기록이 비어 있으면 나눔 리더(없으면 리더십)에게
+//  보낼지는 '공지 · 알림 › 알림 설정'의 시간을 보고 정함. 같은 알림은 한 번만.
+import { adminClient } from "./_lib.js";
+import { settingOf, fill, deliver, wasSent, markSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins,
+  pendingForMonth, pendingForMinistry, pollPeople, traineeWeekOn } from "./_notify.js";
+
+export default async function cron(req, res) {
+  try {
+    const secret = process.env.CRON_SECRET;
+    const key = req.headers?.["x-cron-key"] || req.query?.key || "";
+    if (!secret) return res.status(500).json({ error: "CRON_SECRET 환경변수가 없어요." });
+    if (key !== secret) return res.status(401).json({ error: "unauthorized" });
+    // 로컬 테스트에서만 시간을 바꿔 볼 수 있음
+    const override = process.env.PUSH_SINK ? (req.query?.now || req.body?.now) : null;
+    const now = kstNow(override);
+    const db = adminClient();
+    const out = { at: `${now.date} ${now.hour}:00 KST`, sent: [] };
+
+    // ---------- 마감 임박
+    const rm = await settingOf(db, "remind");
+    const plan = rm.enabled ? [].concat(rm.schedule || []).slice(0, 2).filter((x) => Number.isInteger(x?.days) && Number.isInteger(x?.hour) && x.hour === now.hour) : [];
+    if (plan.length) {
+      const deadlines = [];
+      const [mo, sep, pol] = await Promise.all([
+        db.from("availability_months").select("*").eq("is_open", true).not("deadline", "is", null),
+        db.from("ministries").select("*, services(id, service_date), ministry_practices(id, practice_date)").eq("response_mode", "separate").eq("response_open", true).not("response_deadline", "is", null),
+        db.from("ministries").select("*, services(id, service_date)").eq("poll_open", true).not("poll_deadline", "is", null),
+      ]);
+      (mo.data || []).forEach((x) => deadlines.push({ type: "month", id: x.month, dl: x.deadline, what: `${monthLabel(x.month)} 섬김 응답`, x }));
+      (sep.data || []).forEach((x) => deadlines.push({ type: "min", id: x.id, dl: x.response_deadline, what: `${x.name} 섬김 응답`, x }));
+      (pol.data || []).forEach((x) => deadlines.push({ type: "poll", id: x.id, dl: x.poll_deadline, what: `${x.name} 연습 시간`, x }));
+      for (const d of deadlines) for (const p of plan) {
+        if (addDays(d.dl, -p.days) !== now.date) continue;
+        const sentKey = `remind:${d.type}:${d.id}:${d.dl}:${p.days}`;
+        if (await wasSent(db, sentKey)) continue;
+        let list;
+        if (d.type === "month") list = (await pendingForMonth(db, d.id, now.date)).map(({ m, left }) => ({ m, left: `${left}개 남았어요` }));
+        else if (d.type === "min") list = (await pendingForMinistry(db, d.x, now.date)).map(({ m, left }) => ({ m, left: `${left}개 남았어요` }));
+        else list = (await pollPeople(db, d.x)).pending.map((m) => ({ m, left: "연습 시간을 아직 안 골랐어요" }));
+        const vars = { "마감일": RELDAY[p.days] || mdw(d.dl), "무엇": d.what };
+        const r = await deliver(db, { kind: "remind", sentKey,
+          items: list.map(({ m, left }) => { const v = { ...vars, "남은 것": left, "이름": m.name }; return { member_id: m.id, title: fill(rm.title, v), body: fill(rm.body, v) }; }),
+          url: "/me.html#respond", label: `${d.what} 마감 ${p.days ? p.days + "일 전" : "당일"} · 미완료 ${list.length}명` });
+        if (!list.length) await markSent(db, sentKey);
+        out.sent.push({ kind: "remind", what: d.what, days: p.days, recipients: r.recipients, pushed: r.pushed });
+      }
+    }
+
+    // ---------- 수습 기록 차례
+    const tr = await settingOf(db, "trainee");
+    const ts = tr.schedule || {};
+    if (tr.enabled && ts.hour === now.hour && ts.dow === now.dow) {
+      const [apps, pps, weeks, lead] = await Promise.all([
+        db.from("applications").select("id, name, trainee_start").eq("stage", "trainee"),
+        db.from("trainee_postpones").select("application_id, from_week, weeks"),
+        db.from("trainee_weeks").select("application_id, week, leader_id, note"),
+        admins(db),
+      ]);
+      for (const a of apps.data || []) {
+        const w = traineeWeekOn(a.trainee_start, (pps.data || []).filter((p) => p.application_id === a.id), now.date);
+        if (!w) continue;
+        const row = (weeks.data || []).find((x) => x.application_id === a.id && x.week === w);
+        if (row?.note && row.note.trim()) continue;
+        const sentKey = `trainee:${a.id}:${w}`;
+        if (await wasSent(db, sentKey)) continue;
+        const to = row?.leader_id ? lead.filter((m) => m.id === row.leader_id) : lead;
+        const vars = { "수습생": a.name, "주차": String(w) };
+        const r = await deliver(db, { kind: "trainee", sentKey,
+          items: to.map((m) => ({ member_id: m.id, title: fill(tr.title, { ...vars, "이름": m.name }), body: fill(tr.body, { ...vars, "이름": m.name }) })),
+          url: `/admin.html#app/${a.id}`, label: `${a.name} ${w}주차 · ${row?.leader_id ? "나눔 리더" : "리더십"}` });
+        out.sent.push({ kind: "trainee", who: a.name, week: w, recipients: r.recipients, pushed: r.pushed });
+      }
+    }
+    res.status(200).json(out);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "서버 오류가 발생했습니다." });
+  }
+}

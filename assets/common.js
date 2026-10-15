@@ -195,6 +195,151 @@
     check: `<svg viewBox="0 0 24 24" ${P}><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 9h18M8.5 14.5l2.5 2.5 4.5-5"/></svg>`,
     table: `<svg viewBox="0 0 24 24" ${P}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/></svg>`,
     user: `<svg viewBox="0 0 24 24" ${P}><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>`,
+    bell: `<svg viewBox="0 0 24 24" ${P}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>`,
+    download: `<svg viewBox="0 0 24 24" ${P}><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg>`,
+    share: `<svg viewBox="0 0 24 24" ${P}><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>`,
+  };
+
+  // ---------- 013: 앱(홈 화면에 추가) · 푸시 알림 ----------
+  const UA = navigator.userAgent || "";
+  const b64ToBytes = (s) => {
+    const pad = "=".repeat((4 - (s.length % 4)) % 4);
+    const raw = atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  };
+  window.PWA = {
+    isStandalone: () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
+    platform: () => (/iphone|ipad|ipod/i.test(UA) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) ? "ios" : /android/i.test(UA) ? "android" : "desktop",
+    // 카카오톡 등 앱 안 브라우저: 설치·알림이 안 됨
+    inApp: () => /KAKAOTALK|NAVER\(|Instagram|FBAN|FBAV|Line\/|DaumApps/i.test(UA),
+    pushSupported: () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window,
+    async register() {
+      if (!("serviceWorker" in navigator)) return null;
+      try { return await navigator.serviceWorker.register("/sw.js"); } catch { return null; }
+    },
+    async subscription() {
+      if (!PWA.pushSupported()) return null;
+      const reg = await navigator.serviceWorker.getRegistration("/");
+      return reg ? reg.pushManager.getSubscription() : null;
+    },
+    // on · off · denied · install(아이폰: 홈 화면 앱에서만) · inapp · unsupported
+    async state() {
+      if (PWA.inApp()) return "inapp";
+      if (PWA.platform() === "ios" && !PWA.isStandalone()) return "install";
+      if (!PWA.pushSupported()) return "unsupported";
+      if (Notification.permission === "denied") return "denied";
+      const sub = await PWA.subscription();
+      if (!sub) return "off";
+      // 이 기기 구독이 지금 계정으로 저장돼 있는지 (다른 계정에서 켰던 기기일 수 있음)
+      const { data } = await sb.from("push_subscriptions").select("endpoint").eq("endpoint", sub.endpoint).maybeSingle();
+      return data ? "on" : "off";
+    },
+    async enable() {
+      const reg = (await PWA.register()) || (await navigator.serviceWorker.ready);
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error(perm === "denied" ? "알림이 차단돼 있어요. 휴대폰 설정에서 이 앱의 알림을 허용해 주세요." : "알림을 허용해야 받을 수 있어요.");
+      const r = await fetch("/api/push-key");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.key) throw new Error(j.error || "알림 키를 불러오지 못했어요. 리더에게 알려 주세요.");
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(j.key) });
+      const k = sub.toJSON().keys || {};
+      const { error } = await sb.rpc("save_push_subscription", { p_endpoint: sub.endpoint, p_p256dh: k.p256dh, p_auth: k.auth, p_ua: UA.slice(0, 300) });
+      if (error) throw new Error("알림을 켜지 못했어요. 다시 시도해 주세요.");
+      return true;
+    },
+    async disable() {
+      const sub = await PWA.subscription();
+      if (!sub) return;
+      await sb.rpc("remove_push_subscription", { p_endpoint: sub.endpoint });
+      try { await sub.unsubscribe(); } catch {}
+    },
+  };
+  window.NOTIFY_KIND = { open: "응답", minopen: "응답", poll: "연습", remind: "마감", lineup: "배치", practice: "연습", apply: "지원", trainee: "수습", notice: "공지" };
+
+  // ---------- 013: 배치표 표 (보기 · 이미지 저장) ----------
+  //  row = { date: "9월 6일", sub: "ONE STEP" | "", green: 사역 줄, cells: { leader: [{ n, b, me }], singer: [...], key_main, ... } }
+  //  b = 싱어 리더·밴드 마스터(굵게), 칸이 비면 X
+  const LCOLS = [["leader", "인도"], ["singer", "싱어"], ["key_main", "메인"], ["key_second", "세컨"], ["e_guitar", "일렉"], ["bass", "베이스"], ["drum", "드럼"]];
+  const korDate = (iso) => `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일`;
+  window.LTABLE = {
+    COLS: LCOLS,
+    korDate,
+    html(rows) {
+      const cell = (list) => list.length ? list.map((x) => `<span class="${x.b ? "b" : ""} ${x.me ? "me" : ""}">${esc(x.n)}</span>`).join(" ") : `<span>X</span>`;
+      return `<div class="lt-wrap"><table class="lt"><thead><tr><th class="lt-d"></th>${LCOLS.map(([, l]) => `<th>${l}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((r) => `<tr class="${r.green ? "g" : ""}"><th class="lt-d" scope="row">${esc(r.date)}${r.sub ? `<br><span>${esc(r.sub)}</span>` : ""}</th>
+          ${LCOLS.map(([k]) => `<td>${cell(r.cells[k] || [])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    },
+    // 보내 준 표 모양 그대로 PNG로 (2배 해상도)
+    async png(rows, title) {
+      const FONT = '"Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+      const allText = (title || "") + rows.map((r) => r.date + r.sub + Object.values(r.cells).flat().map((x) => x.n).join("")).join("") + "인도싱어메인세컨일렉베이스드럼XPole2 찬양팀";
+      try { await Promise.all([500, 700, 800].map((w) => document.fonts.load(`${w} 19px "Pretendard Variable"`, allText))); } catch {}
+      const S = 2, FS = 19, PX = 18, PY = 16, LH = 26, GAP = 9, M = 22;
+      const cv = document.createElement("canvas"), g = cv.getContext("2d");
+      const font = (w, size = FS) => `${w} ${size}px ${FONT}`;
+      const tw = (t, w) => { g.font = font(w); return g.measureText(t).width; };
+      const cellW = (list) => list.length ? list.reduce((s, x, i) => s + tw(x.n, x.b ? 800 : 500) + (i ? GAP : 0), 0) : tw("X", 500);
+      const widths = [Math.max(120, ...rows.map((r) => Math.max(tw(r.date, 800), r.sub ? tw(r.sub, 800) : 0) + PX * 2)),
+        ...LCOLS.map(([k, l]) => Math.max(tw(l, 700), ...rows.map((r) => cellW(r.cells[k] || []))) + PX * 2)];
+      const rowH = rows.map((r) => (r.sub ? LH * 2 : LH) + PY * 2), headH = LH + PY * 2;
+      const titleH = title ? 44 : 0;
+      const W = Math.ceil(widths.reduce((a, b) => a + b, 0) + M * 2), H = Math.ceil(M * 2 + titleH + headH + rowH.reduce((a, b) => a + b, 0));
+      cv.width = W * S; cv.height = H * S; g.scale(S, S);
+      g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, W, H);
+      g.textBaseline = "middle";
+      if (title) {
+        g.fillStyle = "#17092E"; g.font = font(800, 22); g.fillText(title, M + 2, M + 14);
+        const tx = M + 2 + g.measureText(title).width + 10;
+        g.fillStyle = "#6B7684"; g.font = font(500, 15); g.fillText("Pole2 찬양팀", tx, M + 16);
+      }
+      const x0 = M, y0 = M + titleH;
+      const xs = widths.reduce((acc, w) => acc.concat(acc[acc.length - 1] + w), [x0]);
+      // 배경: 헤더 줄 + 날짜 열
+      g.fillStyle = "#EAF2FB";
+      g.fillRect(x0, y0, xs[xs.length - 1] - x0, headH);
+      g.fillRect(x0, y0, widths[0], headH + rowH.reduce((a, b) => a + b, 0));
+      // 글자
+      g.fillStyle = "#17092E"; g.font = font(700);
+      LCOLS.forEach(([, l], i) => g.fillText(l, xs[i + 1] + PX, y0 + headH / 2));
+      let y = y0 + headH;
+      rows.forEach((r, ri) => {
+        const h = rowH[ri], color = r.green ? "#4E9A6A" : "#17092E";
+        g.fillStyle = color; g.font = font(800);
+        if (r.sub) { g.fillText(r.date, x0 + PX, y + PY + LH / 2); g.fillText(r.sub, x0 + PX, y + PY + LH * 1.5); }
+        else g.fillText(r.date, x0 + PX, y + h / 2);
+        LCOLS.forEach(([k], i) => {
+          let x = xs[i + 1] + PX; const list = r.cells[k] || [];
+          const cy = y + PY + LH / 2;
+          if (!list.length) { g.font = font(500); g.fillText("X", x, cy); return; }
+          list.forEach((nm) => { g.font = font(nm.b ? 800 : 500); g.fillText(nm.n, x, cy); x += g.measureText(nm.n).width + GAP; });
+        });
+        y += h;
+      });
+      // 선
+      g.strokeStyle = "#DCE5EF"; g.lineWidth = 1;
+      const yEnd = y0 + headH + rowH.reduce((a, b) => a + b, 0);
+      const hline = (py) => { g.beginPath(); g.moveTo(x0, py); g.lineTo(xs[xs.length - 1], py); g.stroke(); };
+      let yy = y0;
+      [0, headH, ...rowH].forEach((h) => { yy += h; hline(yy >= yEnd ? yEnd - 0.5 : yy + 0.5); });
+      xs.forEach((x, i) => { const px = i === xs.length - 1 ? x - 0.5 : x + 0.5; g.beginPath(); g.moveTo(px, y0); g.lineTo(px, yEnd); g.stroke(); });
+      return new Promise((ok) => cv.toBlob((b) => ok(b), "image/png"));
+    },
+    // 폰: 공유 창(카톡으로 바로) · PC: 다운로드
+    async save(blob, name) {
+      const file = new File([blob], name, { type: "image/png" });
+      const touch = matchMedia("(pointer: coarse)").matches;
+      if (touch && navigator.canShare?.({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); return "shared"; }
+        catch (e) { if (e.name === "AbortError") return "cancel"; }
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      return "saved";
+    },
   };
 
   document.querySelectorAll("[data-team-name]").forEach((el) => (el.textContent = cfg.TEAM_NAME));
