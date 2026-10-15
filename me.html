@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png" sizes="32x32">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="assets/app.css?v=11">
+  <link rel="icon" href="assets/favicon.svg?v=12" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=12" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=12" sizes="16x16">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=12">
+  <link rel="stylesheet" href="assets/app.css?v=12">
 </head>
 <body>
 <div class="m-wrap">
@@ -42,9 +43,9 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=11"></script>
+<script src="assets/config.js?v=12"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=11"></script>
+<script src="assets/common.js?v=12"></script>
 <script>
   let ctx, me, app, extras = [], ST;
 
@@ -211,7 +212,7 @@
       sb.from("published_lineups").select("*").gte("service_date", monthStart).order("service_date"),
       meetingCard(),
       respondBanners(),
-      sb.from("ministry_practices").select("ministry_id, practice_date, start_time, end_time").gte("practice_date", today).order("practice_date"),
+      sb.from("ministry_practices").select("ministry_id, service_id, practice_date, start_time, end_time").gte("practice_date", today).order("practice_date"),
     ]);
     const rows = lu.data || [];
     const mine = rows.filter((r) => r.member_id === me.id);
@@ -229,7 +230,8 @@
       const role = roleChip(next);
       const pills = [];
       if (next.ministry_id) {
-        const p = (prs.data || []).find((x) => x.ministry_id === next.ministry_id);
+        const p = (prs.data || []).find((x) => x.ministry_id === next.ministry_id && x.service_id === next.service_id)
+          || (prs.data || []).find((x) => x.ministry_id === next.ministry_id && !x.service_id);
         if (p) pills.push(`연습 ${mdw(p.practice_date)} ${hm(p.start_time)}`);
       } else {
         const sat = addDays(next.service_date, -1), sr = sats.find((x) => x.meeting_date === sat);
@@ -316,8 +318,11 @@
       const c = minCount(D, x);
       if (c.done < c.total) out.push(banner(`${x.name} 섬김 응답`, `${x.response_deadline ? fmtDate(x.response_deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}${x.svs.length > 1 ? `예배 ${x.svs.length}개` : mdw(x.svs[0].service_date)}`, x.response_deadline, `min:${x.id}`));
     });
-    D.list.filter((x) => pollable(D, x) && !D.po.some((p) => p.ministry_id === x.id)).forEach((x) =>
-      out.push(banner(`${x.name} 연습 시간을 골라 주세요`, `${x.poll_deadline ? fmtDate(x.poll_deadline, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}가능한 칸만 칠하기`, x.poll_deadline, `poll:${x.id}`)));
+    const todoPoll = D.list.filter((x) => pollable(D, x) && !D.po.some((p) => p.ministry_id === x.id));
+    if (todoPoll.length) {
+      const dl = todoPoll.map((x) => x.poll_deadline).filter(Boolean).sort()[0];
+      out.push(banner(`${todoPoll.map((x) => x.name).join(" · ")} 연습 시간을 골라 주세요`, `${dl ? fmtDate(dl, { month: "long", day: "numeric", weekday: "short" }) + "까지 · " : ""}되는 칸을 눌러 고르기`, dl, "poll:all"));
+    }
     return out.join("");
     function banner(t, sub, dl, key) {
       return `<a class="notice-link" href="#respond" onclick="respondKey='${key}'">
@@ -335,7 +340,7 @@
     const items = [
       ...months.map((m) => ({ key: `month:${m.month}`, title: `${monthLabel(m.month)} 섬김`, sub: m.deadline ? `${md(m.deadline)}까지` : "응답 받는 중" })),
       ...D.list.filter((x) => x.response_mode === "separate" && x.response_open).map((x) => ({ key: `min:${x.id}`, title: x.name, sub: x.response_deadline ? `${md(x.response_deadline)}까지` : "섬김 응답" })),
-      ...D.list.filter((x) => pollable(D, x)).map((x) => ({ key: `poll:${x.id}`, title: `${x.name} 연습`, sub: "가능 시간" })),
+      ...(D.list.some((x) => pollable(D, x)) ? [{ key: "poll:all", title: "연습 시간", sub: `${D.list.filter((x) => pollable(D, x)).length}개 사역` }] : []),
     ];
     if (!items.length) {
       v.innerHTML = `<h1 style="font-size:22px;font-weight:800">섬김 응답</h1>
@@ -347,7 +352,7 @@
     const [kind, id] = respondKey.split(":");
     if (kind === "month") await drawMonth(v, months.find((m) => m.month === id), D, pick);
     if (kind === "min") drawMinistry(v, D.list.find((x) => x.id === id), D, pick);
-    if (kind === "poll") drawPoll(v, D.list.find((x) => x.id === id), D, pick);
+    if (kind === "poll") drawPoll(v, D, pick);
     $("#respPick")?.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { respondKey = b.dataset.key; renderRespond(); } });
   }
 
@@ -451,74 +456,116 @@
     bindAnswers(v, c.total, null);
   }
 
-  // 연습 가능 시간 칠하기 (30분 칸)
-  function drawPoll(v, m, D, pick) {
-    const days = []; for (let d = m.poll_from; d && d <= m.poll_to; d = addDays(d, 1)) days.push(d);
-    const t0 = toMin(m.poll_day_start), t1 = toMin(m.poll_day_end);
-    const times = []; for (let t = t0; t < t1; t += 30) times.push(fromMin(t));
-    if (!paint || paint.id !== m.id) paint = { id: m.id, mode: "on", set: new Set(D.po.find((p) => p.ministry_id === m.id)?.slots || []), dirty: false };
-    const mySvc = m.svs.filter((s) => myAvail(D, s.id) === true);
-    const narrow = days.length > 7;
-    const summary = () => {
-      const byDay = days.map((d) => { const ts = times.filter((t) => paint.set.has(`${d} ${t}`)); if (!ts.length) return null;
-        // 이어진 칸끼리 묶기
-        const parts = []; let s = null, prev = null;
-        ts.forEach((t) => { if (s && toMin(t) === toMin(prev) + 30) prev = t; else { if (s) parts.push([s, prev]); s = t; prev = t; } });
-        parts.push([s, prev]);
-        return `${md(d)} ${parts.map(([a, b]) => `${a}–${fromMin(toMin(b) + 30)}`).join(", ")}`; }).filter(Boolean);
-      return byDay.length ? byDay.join(" · ") : "아직 칠한 시간이 없어요";
-    };
-    v.innerHTML = `${pick}
-      <h1 style="font-size:22px;font-weight:800">${esc(m.name)} 연습 시간</h1>
-      <div class="card" style="display:flex;flex-direction:column;gap:6px;padding:14px 18px">
-        <span class="small"><b>본 섬김</b> ${mySvc.map((s) => `${mdw(s.service_date)} ${hm(s.start_time)}`).join(", ")} <span class="chip chip-ok">가능으로 응답</span></span>
-        <span class="muted small">연습은 ${m.practice_minutes % 60 ? `${Math.floor(m.practice_minutes / 60)}시간 ${m.practice_minutes % 60}분` : `${m.practice_minutes / 60}시간`}이에요. 되는 시간을 손가락으로 쓸어서 칠해 주세요.${m.poll_deadline ? ` ${fmtDate(m.poll_deadline, { month: "long", day: "numeric", weekday: "short" })}까지.` : ""}</span>
-      </div>
-      <div class="seg" id="pMode"><button type="button" data-v="on" aria-pressed="${paint.mode === "on"}">칠하기</button><button type="button" data-v="off" aria-pressed="${paint.mode === "off"}">지우기</button>
-        <button type="button" id="pCopy">같은 시간 매일 복사</button><button type="button" id="pClear">모두 지우기</button></div>
-      <section class="card" style="padding:14px 10px;overflow-x:auto">
-        <div class="pick" id="pGrid" style="grid-template-columns:40px repeat(${days.length}, minmax(${narrow ? 30 : 0}px,1fr));${narrow ? `min-width:${40 + days.length * 33}px` : ""}">
-          <span></span>${days.map((d) => `<span class="h">${+d.slice(8)}\n${["주일", "월", "화", "수", "목", "금", "토"][dowOf(d)]}</span>`).join("")}
-          ${times.map((t) => `<span class="t">${t.endsWith(":00") ? t : ""}</span>${days.map((d) => `<span class="c ${paint.set.has(`${d} ${t}`) ? "on" : ""}" data-k="${d} ${t}"></span>`).join("")}`).join("")}
-        </div>
-        <div class="row small muted" style="justify-content:center;margin-top:10px"><span><i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--violet-mid);vertical-align:-1px"></i> 가능</span>
-          <span><i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#fff;border:1px solid #E7DFF3;vertical-align:-1px"></i> 안 됨</span></div>
-      </section>
-      <div class="note-box small" id="pSum">칠한 시간: ${esc(summary())}</div>
-      <button type="button" class="btn btn-primary btn-block" id="pSave">저장</button>`;
+  // 연습 가능 시간 고르기 (30분 칸) — 취합 중인 사역이 여러 개면 한 화면에서 같이 받음
+  //  한 번 누르면 선택, 다시 누르면 해제. 날짜를 누르면 그날 전체, 시간을 누르면 그 줄 전체. 누르는 즉시 저장
+  //  고른 칸은 사역마다 그 사역의 후보 날짜·시간대에 들어가는 것만 나눠서 저장
+  const PCOLORS = ["#8654CB", "#C0612B", "#1F7A8C", "#A3366E"];
+  function drawPoll(v, D, pick) {
+    const mins = D.list.filter((x) => pollable(D, x));
+    const info = mins.map((mi, i) => ({ mi, color: PCOLORS[i % PCOLORS.length], days: new Set(pollDays(mi)), t0: toMin(mi.poll_day_start), t1: toMin(mi.poll_day_end) }));
+    const covers = (x, d, t) => x.days.has(d) && toMin(t) >= x.t0 && toMin(t) < x.t1;
+    const valid = (d, t) => info.some((x) => covers(x, d, t));
+    const days = [...new Set(info.flatMap((x) => [...x.days]))].sort();
+    const T0 = Math.min(...info.map((x) => x.t0)), T1 = Math.max(...info.map((x) => x.t1));
+    const times = []; for (let t = T0; t < T1; t += 30) times.push(fromMin(t));
+    const key = mins.map((m) => m.id).join(",");
+    if (!paint || paint.key !== key) {
+      const mine = (mi) => (D.po.find((p) => p.ministry_id === mi.id)?.slots || []).slice().sort();
+      paint = { key, page: 0, sel: new Set(mins.flatMap(mine)), saved: Object.fromEntries(mins.map((mi) => [mi.id, JSON.stringify(mine(mi))])), at: "" };
+    }
+    // 7일이 넘으면 주(주일~토) 단위로 넘김
+    const wk = (d) => addDays(d, -dowOf(d));
+    const pages = days.length > 7 ? [...new Set(days.map(wk))].map((w) => days.filter((d) => wk(d) === w)) : [days];
+    if (paint.page >= pages.length) paint.page = 0;
+    const pd = pages[paint.page] || [];
+    const DOW = ["주일", "월", "화", "수", "목", "금", "토"];
+    const cols = `grid-template-columns:46px repeat(${pd.length}, minmax(0,1fr))`;
+    const lenText = (n) => n % 60 ? `${Math.floor(n / 60)}시간 ${n % 60}분` : `${n / 60}시간`;
+    const dls = mins.map((x) => x.poll_deadline).filter(Boolean).sort();
+    // 사역별 요약: 고른 시간 + 연습 길이만큼 이어진 곳
+    const summary = info.map((x) => {
+      const L = Math.ceil((x.mi.practice_minutes || 120) / 30), parts = []; let long = 0;
+      [...x.days].sort().forEach((d) => {
+        let run = null;
+        for (let t = x.t0; t <= x.t1; t += 30) {
+          const on = t < x.t1 && paint.sel.has(`${d} ${fromMin(t)}`);
+          if (on && run === null) run = t;
+          if (!on && run !== null) { parts.push(`${md(d)} ${fromMin(run)}–${fromMin(t)}`); long += Math.max(0, Math.floor((t - run) / 30) - L + 1) > 0 ? 1 : 0; run = null; }
+        }
+      });
+      return `<div><span style="display:flex;align-items:center;gap:6px"><span class="mtag2" style="background:${x.color}">${esc(x.mi.name)}</span>
+        <b class="small" style="color:${!parts.length || !long ? "var(--warn)" : "var(--ok)"}">${!parts.length ? "아직 안 골랐어요" : long ? `${lenText(x.mi.practice_minutes)} 이어진 시간 ${long}곳` : `${lenText(x.mi.practice_minutes)} 이어진 시간이 없어요`}</b></span>
+        <span class="small muted" style="line-height:1.5">${parts.join(" · ") || "날짜 아래 표시를 보고 이 사역 날짜에서 골라 주세요"}</span></div>`;
+    }).join("");
 
-    const grid = $("#pGrid");
-    let dragging = false;
-    const apply = (cell) => {
-      if (!cell?.dataset?.k) return;
-      const on = paint.mode === "on";
-      if (paint.set.has(cell.dataset.k) === on) return;
-      on ? paint.set.add(cell.dataset.k) : paint.set.delete(cell.dataset.k);
-      cell.classList.toggle("on", on); paint.dirty = true;
-      $("#pSum").textContent = "칠한 시간: " + summary();
+    v.innerHTML = `${pick}
+      <h1 style="font-size:22px;font-weight:800">연습 시간 고르기</h1>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px;padding:14px 18px">
+        <span class="muted small">${mins.length > 1 ? `'가능'으로 답한 사역 ${mins.length}개의 연습 시간을 한 번에 받아요. ` : ""}되는 칸을 누르면 바로 저장돼요.</span>
+        ${info.map((x) => `<span class="small" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="mtag2" style="background:${x.color}">${esc(x.mi.name)}</span>
+          ${x.mi.svs.filter((s) => myAvail(D, s.id) === true).map((s) => `${mdw(s.service_date)}${x.mi.svs.length > 1 && s.label ? " " + esc(s.label) : ""}`).join(", ")} · 연습 ${lenText(x.mi.practice_minutes)} · ${hm(x.mi.poll_day_start)}–${hm(x.mi.poll_day_end)}</span>`).join("")}
+        ${dls.length ? `<b class="small" style="color:var(--warn)">${fmtDate(dls[0], { month: "long", day: "numeric", weekday: "short" })}까지</b>` : ""}
+      </div>
+      <div class="wkpager">${pages.length > 1 ? pages.map((p, i) => `<button type="button" class="btn btn-ghost btn-sm" data-page="${i}" aria-pressed="${i === paint.page}">${md(p[0])} 주</button>`).join("") : ""}
+        <span style="flex:1"></span><button type="button" class="btn btn-ghost btn-sm" id="pClear">모두 지우기</button></div>
+      <span class="small muted" style="margin-top:-8px">날짜를 누르면 그날 전체, 시간을 누르면 그 줄 전체가 켜지고 꺼져요.</span>
+      <div class="pick2-wrap" id="pWrap">
+        <div class="pick2-head"><div class="pick2" style="${cols};padding:0">
+          <span class="small muted" style="align-self:end;text-align:center;font-size:10px">시간</span>
+          ${pd.map((d) => {
+            const mine = info.filter((x) => x.days.has(d)), any = times.some((t) => paint.sel.has(`${d} ${t}`)), dw = dowOf(d);
+            return `<button type="button" class="dh ${dw === 0 || dw === 6 ? "we" : ""} ${any ? "any" : ""}" data-day="${d}" aria-label="${mdw(d)} 전체">
+              <b>${+d.slice(8)}</b><span>${DOW[dw]}</span>${mine.map((x) => `<i style="background:${x.color}">${esc(x.mi.name)}</i>`).join("")}</button>`;
+          }).join("")}</div></div>
+        <div class="pick2" style="${cols}">
+          ${times.map((t) => `<button type="button" class="th" data-time="${t}" aria-label="${t} 줄 전체">${t.endsWith(":00") ? t : ""}</button>${pd.map((d) => {
+            const k = `${d} ${t}`, ok = valid(d, t);
+            return `<button type="button" class="c" data-k="${k}" aria-pressed="${ok && paint.sel.has(k)}" ${ok ? "" : "disabled"} aria-label="${mdw(d)} ${t}${ok ? "" : " 받지 않는 시간"}"></button>`;
+          }).join("")}`).join("")}
+        </div>
+      </div>
+      <div class="psum">${summary}</div>
+      <p class="small" style="margin:0;text-align:center;font-weight:700;color:var(--ok)" id="pSaved">${paint.at || "누르는 즉시 저장돼요"}</p>`;
+
+    const redraw = () => { drawPoll(v, D, pick); };
+    const save = () => {
+      clearTimeout(paint.timer);
+      paint.timer = setTimeout(async () => {
+        let fail = false;
+        for (const x of info) {
+          const slots = [...paint.sel].filter((k) => { const [d, t] = k.split(" "); return covers(x, d, t); }).sort();
+          const js = JSON.stringify(slots);
+          if (js === paint.saved[x.mi.id]) continue;
+          const { error } = await sb.from("ministry_poll").upsert({ ministry_id: x.mi.id, member_id: me.id, slots });
+          if (error) { fail = true; continue; }
+          paint.saved[x.mi.id] = js;
+          if (!D.po.some((p) => p.ministry_id === x.mi.id)) D.po.push({ ministry_id: x.mi.id, slots });
+        }
+        const n = new Date();
+        paint.at = fail ? "" : `저장됨 · ${n.getHours()}:${String(n.getMinutes()).padStart(2, "0")}`;
+        if (fail) toast("저장하지 못했어요. 취합이 마감됐는지 확인해 주세요");
+        const el = $("#pSaved"); if (el) el.textContent = paint.at || "저장하지 못했어요";
+      }, 400);
     };
-    grid.addEventListener("pointerdown", (e) => {
-      const c = e.target.closest(".c"); if (!c) return;
-      e.preventDefault(); dragging = true; grid.setPointerCapture?.(e.pointerId); apply(c);
-    });
-    grid.addEventListener("pointermove", (e) => { if (dragging) apply(document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".c")); });
-    const stop = () => { dragging = false; };
-    grid.addEventListener("pointerup", stop); grid.addEventListener("pointercancel", stop);
-    $("#pMode").addEventListener("click", (e) => {
-      const b = e.target.closest("button[data-v]"); if (!b) return;
-      paint.mode = b.dataset.v; $$("#pMode button[data-v]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    });
-    $("#pCopy").onclick = () => {
-      const best = days.map((d) => ({ d, ts: times.filter((t) => paint.set.has(`${d} ${t}`)) })).sort((a, b) => b.ts.length - a.ts.length)[0];
-      if (!best?.ts.length) return toast("먼저 하루를 칠해 주세요");
-      days.forEach((d) => best.ts.forEach((t) => paint.set.add(`${d} ${t}`)));
-      paint.dirty = true; drawPoll(v, m, D, pick); toast(`${md(best.d)}에 칠한 시간을 모든 날에 복사했어요`);
+    const setMany = (keys) => {
+      if (!keys.length) return;
+      const all = keys.every((k) => paint.sel.has(k));
+      keys.forEach((k) => (all ? paint.sel.delete(k) : paint.sel.add(k)));
+      save(); redraw();
     };
-    $("#pClear").onclick = () => { paint.set.clear(); paint.dirty = true; drawPoll(v, m, D, pick); };
-    $("#pSave").onclick = async () => {
-      const { error } = await sb.from("ministry_poll").upsert({ ministry_id: m.id, member_id: me.id, slots: [...paint.set].sort() });
-      if (error) return toast("저장하지 못했어요. 취합이 마감됐는지 확인해 주세요");
-      paint.dirty = false; toast("연습 가능 시간을 저장했어요");
+    $("#pWrap").addEventListener("click", (e) => {
+      const c = e.target.closest(".c");
+      if (c && !c.disabled) { paint.sel.has(c.dataset.k) ? paint.sel.delete(c.dataset.k) : paint.sel.add(c.dataset.k); save(); return redraw(); }
+      const dh = e.target.closest("[data-day]");
+      if (dh) return setMany(times.filter((t) => valid(dh.dataset.day, t)).map((t) => `${dh.dataset.day} ${t}`));
+      const th = e.target.closest("[data-time]");
+      if (th) return setMany(pd.filter((d) => valid(d, th.dataset.time)).map((d) => `${d} ${th.dataset.time}`));
+    });
+    $$("[data-page]", v).forEach((b) => b.addEventListener("click", () => { paint.page = +b.dataset.page; redraw(); }));
+    $("#pClear").onclick = () => {
+      if (!paint.sel.size) return;
+      if (!confirm("고른 시간을 모두 지울까요?")) return;
+      paint.sel.clear(); save(); redraw();
     };
   }
 

@@ -81,12 +81,29 @@
   window.loadSettings = async (force = false) => {
     if (settingsCache && !force) return settingsCache;
     const { data } = await sb.from("team_settings").select("*").eq("id", 1).maybeSingle();
-    settingsCache = { ...DEFAULT_TIMES, rec_order: ["skill", "balance", "consecutive"], rec_basis: "month", ...(data || {}) };
+    settingsCache = { ...DEFAULT_TIMES, rec_order: ["skill", "balance", "consecutive", "gender"], rec_basis: "month", ...(data || {}) };
+    if (!settingsCache.rec_order.includes("gender")) settingsCache.rec_order = [...settingsCache.rec_order, "gender"];
     return settingsCache;
   };
   // 토요 연습 / 주일 시간: 그날 바꾼 시간이 있으면 그것, 없으면 기본 시간
   window.satTime = (row, st) => [row?.practice_start || st.sat_practice_start, row?.practice_end || st.sat_practice_end];
   window.sunTime = (svc, st) => [svc?.start_time || st.sunday_start, svc?.end_time || st.sunday_end];
+
+  // ---------- 사역 연습 가능 시간 ----------
+  // 후보 날짜: 골라 둔 날짜(poll_dates)가 있으면 그것, 없으면 poll_from ~ poll_to
+  window.pollDays = (mi) => {
+    if (mi?.poll_dates?.length) return [...mi.poll_dates].sort();
+    const out = [];
+    for (let d = mi?.poll_from; d && mi.poll_to && d <= mi.poll_to; d = addDays(d, 1)) out.push(d);
+    return out;
+  };
+  // 하루 안의 30분 칸 시작 시각
+  window.pollTimes = (mi) => {
+    const out = [];
+    for (let t = toMin(mi.poll_day_start); t < toMin(mi.poll_day_end); t += 30) out.push(fromMin(t));
+    return out;
+  };
+  window.GENDER = { m: "남", f: "여" };
 
   // ---------- 출석 ----------
   window.ATT = { present: "출석", late: "지각", absent: "결석" };

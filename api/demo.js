@@ -19,18 +19,18 @@ const sundaysOf = (mon) => { const out = []; let d = mon; while (dow(d) !== 0) d
 const monthsAgo = (n) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString(); };
 
 const MEMBERS = [
-  // 이름, 주 포지션, 추가 포지션, 다음 달 응답 패턴(토·주 × 주차: y 가능 / n 불가 / - 미응답), 숙련도(주 포지션 3 상 · 2 중 · 1 하)
-  ["정사랑(T)", "leader", ["singer"], "yyyyyyyyyy", 3],
-  ["김하늘(T)", "singer", [], "yyyyyynyyy", 3],
-  ["이소망(T)", "singer", [], "yyyyyyyyyy", 2],
-  ["박은혜(T)", "singer", [], "nnyyyyyyyy", 1],
-  ["최다윗(T)", "singer", ["key_second"], "yyyynyyyyy", 2],
-  ["한믿음(T)", "key_main", [], "yyyyyyyynn", 3],
-  ["윤기쁨(T)", "key_second", ["key_main"], "yyyyyyyyyy", 2],
-  ["오평강(T)", "e_guitar", [], "----------", 2],
-  ["강온유(T)", "bass", [], "yyyyyyyyyy", 3],
-  ["서충성(T)", "drum", [], "yy--------", 1],
-  ["임소금(T)", "drum", [], "yyyyyyyyyy", 3],
+  // 이름, 주 포지션, 추가 포지션, 다음 달 응답 패턴(토·주 × 주차: y 가능 / n 불가 / - 미응답), 숙련도(주 포지션 3 상 · 2 중 · 1 하), 성별
+  ["정사랑(T)", "leader", ["singer"], "yyyyyyyyyy", 3, "m"],
+  ["김하늘(T)", "singer", [], "yyyyyynyyy", 3, "f"],
+  ["이소망(T)", "singer", [], "yyyyyyyyyy", 2, "f"],
+  ["박은혜(T)", "singer", [], "nnyyyyyyyy", 1, "f"],
+  ["최다윗(T)", "singer", ["key_second"], "yyyynyyyyy", 2, "m"],
+  ["한믿음(T)", "key_main", [], "yyyyyyyynn", 3, "m"],
+  ["윤기쁨(T)", "key_second", ["key_main"], "yyyyyyyyyy", 2, "f"],
+  ["오평강(T)", "e_guitar", [], "----------", 2, "m"],
+  ["강온유(T)", "bass", [], "yyyyyyyyyy", 3, "f"],
+  ["서충성(T)", "drum", [], "yy--------", 1, "m"],
+  ["임소금(T)", "drum", [], "yyyyyyyyyy", 3, "f"],
 ];
 
 // 지난 토요일 팀모임 출석 패턴 (최근 주가 맨 오른쪽). p 출석 / l 지각 / a 결석 / - 미기록
@@ -110,12 +110,12 @@ async function seed(db, me) {
   // ---------- 1. 정식 팀원 11명 + 휴면 1명 ----------
   const ids = {};
   let n = 0;
-  for (const [name, pos, extra, , level] of MEMBERS) {
+  for (const [name, pos, extra, , level, gender] of MEMBERS) {
     const email = `demo${String(++n).padStart(2, "0")}${DOMAIN}`;
     const id = await createUser(db, email, name);
     ids[name] = id;
     const { error } = await db.from("members").insert({
-      id, name, email, phone: "010-0000-00" + String(n).padStart(2, "0"), main_position: pos,
+      id, name, email, phone: "010-0000-00" + String(n).padStart(2, "0"), main_position: pos, gender,
       status: "active", must_change_password: false, joined_at: addDays(t, -200 + n * 7),
       small_group: `${(n % 5) + 1}순`, served_since: addDays(t, -900 + n * 60),
     });
@@ -124,7 +124,7 @@ async function seed(db, me) {
     await db.from("member_skills").insert([{ member_id: id, position_code: pos, level }, ...extra.map((e) => ({ member_id: id, position_code: e, level: Math.max(1, level - 1) }))]);
   }
   const restId = await createUser(db, `demo12${DOMAIN}`, "조인내(T)");
-  await db.from("members").insert({ id: restId, name: "조인내(T)", email: `demo12${DOMAIN}`, main_position: "singer", status: "active", is_active: false, must_change_password: false });
+  await db.from("members").insert({ id: restId, name: "조인내(T)", email: `demo12${DOMAIN}`, main_position: "singer", gender: "f", status: "active", is_active: false, must_change_password: false });
   await db.from("guests").insert({ name: "홍객원(T)", positions: ["drum", "bass"], note: "다른 공동체 드러머" });
 
   // ---------- 2. 지원자 (모집 중인 포지션으로) ----------
@@ -138,7 +138,7 @@ async function seed(db, me) {
     const mk = async (key, name, pos, motivation) => {
       const email = `${key}${DOMAIN}`;
       const { data, error } = await db.from("applications").insert({
-        name, phone: "010-1111-2222", email, applied_position: pick(pos), small_group: "3순",
+        name, phone: "010-1111-2222", email, applied_position: pick(pos), small_group: "3순", gender: key.length % 2 ? "m" : "f",
         motivation, goal: "팀과 함께 예배를 세워가고 싶어요", privacy_agreed: true, q_practice: true, q_sunday: true, q_group: true,
       }).select("id").single();
       if (error) throw new HttpError(500, "테스트 지원서를 만들지 못했습니다: " + error.message);
@@ -218,6 +218,42 @@ async function seed(db, me) {
       "임소금(T)": [...evening(d(3), 20, 22.5)],
     };
     await db.from("ministry_poll").insert(Object.entries(polls).map(([nmx, sl]) => ({ ministry_id: mi.id, member_id: ids[nmx], slots: sl })));
+  }
+
+  // ---------- 3-2. 다음 달 사역: 수련회(T) — 예배 3개, 따로 받기, 연습 후보 날짜를 골라서 취합 ----------
+  const rs = addDays(sundaysOf(nm)[2], -2);   // 다음 달 셋째 주 금요일
+  const pd = [addDays(rs, -11), addDays(rs, -9), addDays(rs, -6), addDays(rs, -4)];   // 앞 주 월·수 + 그 주 토·월
+  const { data: rt } = await db.from("ministries").insert({
+    name: "수련회(T)", response_mode: "separate", response_open: true, response_deadline: addDays(rs, -14), target_mode: "all", required_positions: ["leader", "drum"],
+    practice_mode: "poll", poll_dates: pd, poll_from: pd[0], poll_to: pd[pd.length - 1], poll_day_start: "10:00", poll_day_end: "23:00",
+    practice_minutes: 120, poll_deadline: addDays(rs, -12), poll_open: true, created_by: me.id,
+  }).select("id").single();
+  if (rt) {
+    const { data: rsv } = await db.from("services").insert([
+      { ministry_id: rt.id, service_date: rs, label: "예배 1", start_time: "19:30", end_time: "21:30", sort_order: 0 },
+      { ministry_id: rt.id, service_date: addDays(rs, 1), label: "예배 2", start_time: "10:00", end_time: "12:00", sort_order: 1 },
+      { ministry_id: rt.id, service_date: addDays(rs, 1), label: "예배 3", start_time: "19:30", end_time: "21:30", sort_order: 2 },
+    ]).select("id, label");
+    const sv = Object.fromEntries((rsv || []).map((x) => [x.label, x.id]));
+    // 예배별 가능 여부: y 가능 / n 불가 (예배 1·2·3)
+    const ans = { "정사랑(T)": "yyy", "김하늘(T)": "yyn", "이소망(T)": "yyy", "박은혜(T)": "nyy", "최다윗(T)": "yyy", "한믿음(T)": "yyy",
+      "윤기쁨(T)": "yny", "강온유(T)": "yyy", "서충성(T)": "yyy", "임소금(T)": "nyy" };
+    const rows = [];
+    Object.entries(ans).forEach(([nmx, pat]) => ["예배 1", "예배 2", "예배 3"].forEach((lb, i) => rows.push({ service_id: sv[lb], member_id: ids[nmx], available: pat[i] === "y" })));
+    await db.from("ministry_availability").insert(rows);
+    const span = (d, from, to) => { const out = []; for (let h = from; h < to; h += 0.5) out.push(`${d} ${String(Math.floor(h)).padStart(2, "0")}:${h % 1 ? "30" : "00"}`); return out; };
+    // 평일은 저녁, 토요일은 낮
+    const P = {
+      "정사랑(T)": [...span(pd[0], 19, 23), ...span(pd[2], 13, 18)],
+      "김하늘(T)": [...span(pd[0], 20, 23), ...span(pd[1], 19, 22)],
+      "이소망(T)": [...span(pd[1], 19, 23), ...span(pd[2], 10, 17)],
+      "최다윗(T)": [...span(pd[0], 19, 22), ...span(pd[2], 14, 18)],
+      "한믿음(T)": [...span(pd[0], 19, 23), ...span(pd[2], 13, 17), ...span(pd[3], 20, 23)],
+      "강온유(T)": [...span(pd[0], 20, 23), ...span(pd[2], 12, 18)],
+      "서충성(T)": [...span(pd[2], 13, 18), ...span(pd[3], 19, 23)],
+      "임소금(T)": [...span(pd[1], 19, 23), ...span(pd[3], 19, 22)],
+    };
+    await db.from("ministry_poll").insert(Object.entries(P).map(([nmx, sl]) => ({ ministry_id: rt.id, member_id: ids[nmx], slots: sl })));
   }
 
   // ---------- 4. 배치표: 지난 4주 + 이번 달 남은 주일 (공개) ----------

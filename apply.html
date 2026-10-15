@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>지원서 · Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png" sizes="32x32">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-  <link rel="stylesheet" href="assets/app.css?v=11">
+  <link rel="icon" href="assets/favicon.svg?v=12" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=12" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=12" sizes="16x16">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=12">
+  <link rel="stylesheet" href="assets/app.css?v=12">
 </head>
 <body>
 <div class="m-wrap">
@@ -56,6 +57,9 @@
         <label class="field">연락처<input type="tel" id="phone" inputmode="numeric" placeholder="010-0000-0000" autocomplete="tel"></label>
         <label class="field">이메일<span class="hint">수습을 시작하면 이 이메일로 로그인해요</span><input type="email" id="email" autocomplete="email" placeholder="name@example.com"></label>
         <label class="field">소속 순모임<input type="text" id="group" maxlength="30" placeholder="예: OOO순"></label>
+        <div class="field"><span>성별</span>
+          <div class="choice-grid" role="radiogroup" aria-label="성별" style="grid-template-columns: repeat(2, minmax(0, 1fr))">
+            <label><input type="radio" name="gender" value="m">남</label><label><input type="radio" name="gender" value="f">여</label></div></div>
       </section>
 
       <section class="card" style="display: flex; flex-direction: column; gap: 12px">
@@ -94,9 +98,9 @@
   </main>
 </div>
 
-<script src="assets/config.js?v=11"></script>
+<script src="assets/config.js?v=12"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=11"></script>
+<script src="assets/common.js?v=12"></script>
 <script>
   const el = (id) => document.getElementById(id);
   const quals = ["qPractice", "qSunday", "qGroup"];
@@ -145,6 +149,7 @@
       phone: el("phone").value.trim(),
       email: el("email").value.trim().toLowerCase(),
       small_group: el("group").value.trim() || null,
+      gender: document.querySelector("input[name=gender]:checked")?.value || null,
       applied_position: document.querySelector("input[name=pos]:checked")?.value,
       motivation: el("motivation").value.trim() || null,
       goal: el("goal").value.trim() || null,
@@ -153,6 +158,7 @@
     if (!/^[0-9\-]{9,13}$/.test(v.phone)) return showError("연락처를 010-0000-0000 형식으로 입력해 주세요.");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) return showError("이메일 주소를 다시 확인해 주세요.");
     if (!v.small_group) return showError("소속 순모임을 입력해 주세요.");
+    if (!v.gender) return showError("성별을 골라 주세요.");
     if (!v.applied_position) return showError("지원 포지션을 골라 주세요.");
     if (!el("pledgeAgree").checked) return showError("서약서에 서약해 주세요.");
     if (!el("privacyAgree").checked) return showError("개인정보 수집·이용에 동의해 주세요.");
