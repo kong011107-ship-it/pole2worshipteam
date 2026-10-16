@@ -151,12 +151,16 @@
   window.POS_SHORT = { leader: "인도", singer: "싱어", key_main: "메인", key_second: "세컨", e_guitar: "일렉", bass: "베이스", drum: "드럼" };
 
   // ---------- 로그인 ----------
+  // 로그인 뒤 돌아올 곳 (015: 알림을 눌렀는데 로그인이 풀려 있던 경우 그 화면으로)
+  const here = () => encodeURIComponent(location.pathname.replace(/^.*\//, "/") + location.hash);
+  window.safeNext = (v) => { v = String(v || ""); return /^\/(me|admin)\.html(#[A-Za-z0-9:_.\/-]{0,120})?$/.test(v) ? v : null; };
   window.requireMember = async ({ admin = false } = {}) => {
+    const back = here();   // 화면이 주소를 정리하기 전에 기억 (알림 주소의 항목 부분까지)
     const { data: { session } } = await sb.auth.getSession();
-    if (!session) { location.replace("login.html"); return null; }
+    if (!session) { location.replace(`login.html?next=${back}`); return null; }
     const { data: me } = await sb.from("members").select("*").eq("id", session.user.id).maybeSingle();
     if (!me || !me.is_active) { await sb.auth.signOut(); location.replace("login.html?denied=1"); return null; }
-    if (me.must_change_password) { location.replace("login.html?change=1"); return null; }
+    if (me.must_change_password) { location.replace(`login.html?change=1&next=${back}`); return null; }
     if (admin && me.role !== "admin") { location.replace("me.html"); return null; }
     return { session, me };
   };
@@ -195,6 +199,7 @@
     check: `<svg viewBox="0 0 24 24" ${P}><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 9h18M8.5 14.5l2.5 2.5 4.5-5"/></svg>`,
     table: `<svg viewBox="0 0 24 24" ${P}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12"/></svg>`,
     user: `<svg viewBox="0 0 24 24" ${P}><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>`,
+    pray: `<svg viewBox="0 0 24 24" ${P}><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.1 4.1 0 0 1 12 7.6a4.1 4.1 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>`,
     bell: `<svg viewBox="0 0 24 24" ${P}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>`,
     download: `<svg viewBox="0 0 24 24" ${P}><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg>`,
     share: `<svg viewBox="0 0 24 24" ${P}><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>`,
@@ -255,7 +260,7 @@
       try { await sub.unsubscribe(); } catch {}
     },
   };
-  window.NOTIFY_KIND = { open: "응답", minopen: "응답", poll: "연습", remind: "마감", lineup: "배치", practice: "연습", apply: "지원", trainee: "수습", notice: "공지", message: "안내" };
+  window.NOTIFY_KIND = { open: "응답", minopen: "응답", poll: "연습", remind: "마감", lineup: "배치", practice: "연습", apply: "지원", trainee: "수습", notice: "공지", message: "안내", prayer: "기도" };
 
   // ---------- 013: 배치표 표 (보기 · 이미지 저장) ----------
   //  row = { date: "9월 6일", sub: "ONE STEP" | "", green: 사역 줄, cells: { leader: [{ n, b, me }], singer: [...], key_main, ... } }

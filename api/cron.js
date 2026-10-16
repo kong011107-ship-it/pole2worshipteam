@@ -3,7 +3,7 @@
 //  · 수습 기록 차례: 그 주차 기록이 비어 있으면 나눔 리더(없으면 리더십)에게
 //  보낼지는 '공지 · 알림 › 알림 설정'의 시간을 보고 정함. 같은 알림은 한 번만.
 import { adminClient } from "./_lib.js";
-import { settingOf, fill, deliver, wasSent, markSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins,
+import { settingOf, fill, deliver, wasSent, markSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf,
   pendingForMonth, pendingForMinistry, pollPeople, traineeWeekOn } from "./_notify.js";
 
 export default async function cron(req, res) {
@@ -42,7 +42,7 @@ export default async function cron(req, res) {
         const vars = { "마감일": RELDAY[p.days] || mdw(d.dl), "무엇": d.what };
         const r = await deliver(db, { kind: "remind", sentKey,
           items: list.map(({ m, left }) => { const v = { ...vars, "남은 것": left, "이름": m.name }; return { member_id: m.id, title: fill(rm.title, v), body: fill(rm.body, v) }; }),
-          url: "/me.html#respond", label: `${d.what} 마감 ${p.days ? p.days + "일 전" : "당일"} · 미완료 ${list.length}명` });
+          url: `/me.html#respond/${d.type === "poll" ? "poll:all" : d.type + ":" + d.id}`, label: `${d.what} 마감 ${p.days ? p.days + "일 전" : "당일"} · 미완료 ${list.length}명` });
         if (!list.length) await markSent(db, sentKey);
         out.sent.push({ kind: "remind", what: d.what, days: p.days, recipients: r.recipients, pushed: r.pushed });
       }
@@ -69,8 +69,40 @@ export default async function cron(req, res) {
         const vars = { "수습생": a.name, "주차": String(w) };
         const r = await deliver(db, { kind: "trainee", sentKey,
           items: to.map((m) => ({ member_id: m.id, title: fill(tr.title, { ...vars, "이름": m.name }), body: fill(tr.body, { ...vars, "이름": m.name }) })),
-          url: `/admin.html#app/${a.id}`, label: `${a.name} ${w}주차 · ${row?.leader_id ? "나눔 리더" : "리더십"}` });
+          url: `/admin.html#app/${a.id}/week${w}`, label: `${a.name} ${w}주차 · ${row?.leader_id ? "나눔 리더" : "리더십"}` });
         out.sent.push({ kind: "trainee", who: a.name, week: w, recipients: r.recipients, pushed: r.pushed });
+      }
+    }
+    // ---------- 기도 (015)
+    const week = prayerWeekOf(now.date);
+    let prayers = null;
+    const weekPrayers = async () => prayers || (prayers = (await db.from("prayers").select("member_id").eq("week_of", week)).data || []);
+    //  · 이번 주 기도제목이 올라왔어요: 정한 요일·시각부터 하루 안에, 기도제목이 있으면 한 번
+    const pn = await settingOf(db, "prayer_new");
+    const ps = pn.schedule || { dow: 6, hour: 21 };
+    if (pn.enabled && Number.isInteger(ps.dow) && Number.isInteger(ps.hour)) {
+      const day = addDays(week, (ps.dow - 6 + 7) % 7);
+      const due = (now.date === day && now.hour >= ps.hour) || (now.date === addDays(day, 1) && now.hour < ps.hour);
+      const key = `prayer_new:${week}`;
+      if (due && (await weekPrayers()).length && !(await wasSent(db, key))) {
+        const vars = { "인원": String(new Set(prayers.map((p) => p.member_id)).size), "개수": String(prayers.length) };
+        const people = await activeMembers(db, { trainees: true });
+        const r = await deliver(db, { kind: "prayer", sentKey: key, url: "/me.html#pray", label: `이번 주 기도제목 ${vars["개수"]}개 · 팀원 전체`,
+          items: people.map((m) => ({ member_id: m.id, title: fill(pn.title, { ...vars, "이름": m.name }), body: fill(pn.body, { ...vars, "이름": m.name }) })) });
+        out.sent.push({ kind: "prayer_new", recipients: r.recipients, pushed: r.pushed });
+      }
+    }
+    //  · 주중 함께 기도: 정한 요일·시각에 이번 주 기도제목이 있으면
+    const pr = await settingOf(db, "prayer_remind");
+    const rs = pr.schedule || { days: [2, 4], hour: 20 };
+    if (pr.enabled && [].concat(rs.days || []).includes(now.dow) && rs.hour === now.hour) {
+      const key = `prayer_remind:${now.date}`;
+      if ((await weekPrayers()).length && !(await wasSent(db, key))) {
+        const vars = { "인원": String(new Set(prayers.map((p) => p.member_id)).size), "개수": String(prayers.length) };
+        const people = await activeMembers(db, { trainees: true });
+        const r = await deliver(db, { kind: "prayer", sentKey: key, url: "/me.html#pray", label: `함께 기도 · 기도제목 ${vars["개수"]}개 · 팀원 전체`,
+          items: people.map((m) => ({ member_id: m.id, title: fill(pr.title, { ...vars, "이름": m.name }), body: fill(pr.body, { ...vars, "이름": m.name }) })) });
+        out.sent.push({ kind: "prayer_remind", recipients: r.recipients, pushed: r.pushed });
       }
     }
     res.status(200).json(out);

@@ -34,7 +34,12 @@ export const DEFAULTS = {
   apply: { title: "새 지원서가 들어왔어요", body: "{지원자} · {포지션} · 모집에서 확인하세요" },
   trainee: { title: "{수습생}님 수습 {주차}주차 기록을 남겨 주세요", body: "오늘 나눔 내용을 적어 주세요", schedule: { dow: 6, hour: 18 } },
   notice: { title: "[공지] {제목}", body: "{내용}" },
+  prayer_new: { title: "이번 주 기도제목이 올라왔어요", body: "{인원}명의 기도제목을 함께 품어요", schedule: { dow: 6, hour: 21 } },
+  prayer_remind: { title: "오늘 저녁, 함께 기도해요", body: "이번 주 기도제목 {개수}개를 함께 기도해요", schedule: { days: [2, 4], hour: 20 } },
+  prayer_urgent: { title: "급한 기도제목이 올라왔어요", body: "{대상}님을 위해 함께 기도해 주세요" },
 };
+// 기도 주간: 그 주 토요일(팀모임) — 토요일은 그날, 주중은 지난 토요일 (DB prayer_week와 같음)
+export const prayerWeekOf = (iso) => addDays(iso, -((dowOf(iso) + 1) % 7));
 export async function settingOf(db, kind) {
   const { data } = await db.from("notify_settings").select("*").eq("kind", kind).maybeSingle();
   const d = DEFAULTS[kind];
@@ -78,6 +83,7 @@ function setupVapid() {
 }
 
 // items: [{ member_id, title, body }] — 사람마다 문구가 다를 수 있음
+// url 안의 {id}는 저장한 알림 번호로 바뀜 (예: 공지 → /me.html#alerts/{id})
 // 반환: { id, recipients, pushed }
 export async function deliver(db, { kind, items, url, label, by = null, sentKey = null, push = true, ctxKey = null }) {
   const uniq = [];
@@ -90,6 +96,7 @@ export async function deliver(db, { kind, items, url, label, by = null, sentKey 
     recipients: uniq.length, created_by: by, ...(ctxKey ? { ctx_key: String(ctxKey).slice(0, 200) } : {}),
   }).select("id").single();
   if (error) throw new Error("알림을 저장하지 못했습니다: " + error.message);
+  if (url && url.includes("{id}")) { url = url.replace("{id}", n.id); await db.from("notifications").update({ url }).eq("id", n.id); }
   await db.from("notification_inbox").insert(uniq.map((it) => ({ notification_id: n.id, member_id: it.member_id, title: it.title.slice(0, 120), body: (it.body || "").slice(0, 600) })));
 
   const { data: subs } = await db.from("push_subscriptions").select("*").in("member_id", uniq.map((x) => x.member_id));

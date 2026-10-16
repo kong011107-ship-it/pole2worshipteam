@@ -1,17 +1,22 @@
 // 리더십이 보내는 알림: 응답 열림 · 사역 응답 열림 · 연습 시간 요청 · 배치표 공개 · 연습 확정 · 공지 · 테스트
-import { adminClient, requireAdmin, handler, HttpError } from "./_lib.js";
-import { settingOf, fill, deliver, activeMembers, targetsOf, pollPeople, md, mdw, hm, monthLabel } from "./_notify.js";
+import { adminClient, requireAdmin, requireMember, handler, HttpError } from "./_lib.js";
+import { settingOf, fill, deliver, activeMembers, targetsOf, pollPeople, wasSent, md, mdw, hm, monthLabel } from "./_notify.js";
+
+// 알림을 누르면 열리는 곳 (015: 그 항목을 바로 처리할 수 있는 화면)
+export const ME_URL = /^\/me\.html(#[a-z]+(\/[A-Za-z0-9:_.-]{1,80})?)?$/;
 
 const SAMPLE = {
   "월": "11월", "마감일": "10/31(토)", "사역": "원스텝", "무엇": "11월 섬김 응답", "남은 것": "3개 남았어요", "이름": "",
   "내 섬김": "11/8 싱어 리더 · 11/15 섬겨요", "연습 일시": "11/10(화) 19:00–21:00", "지원자": "이도현", "포지션": "싱어",
   "수습생": "이도현", "주차": "3", "제목": "공지 제목", "내용": "공지 내용",
+  "인원": "12", "개수": "12", "대상": "김하늘",
 };
 
 export default handler(async (req, body) => {
   const db = adminClient();
-  const user = await requireAdmin(req, db);
   const kind = body.kind;
+  if (kind === "prayer_urgent") return prayerUrgent(req, db, body);
+  const user = await requireAdmin(req, db);
 
   // ---------- 리더십이 직접 보내는 안내 · 독촉 (보내기 창, 014)
   //  { kind: "message", title, body, member_ids, url, ctx_key, label }
@@ -22,7 +27,7 @@ export default handler(async (req, body) => {
     const ids = new Set([].concat(body.member_ids || []));
     const people = (await activeMembers(db, { trainees: true })).filter((m) => ids.has(m.id));
     if (!people.length) throw new HttpError(400, "받는 사람이 없어요.");
-    const url = /^\/me\.html(#[a-z]+)?$/.test(body.url || "") ? body.url : "/me.html#respond";
+    const url = ME_URL.test(body.url || "") ? body.url : "/me.html#respond";
     const items = people.map((m) => ({ member_id: m.id, title: fill(title, { "이름": m.name }), body: fill(text, { "이름": m.name }) }));
     return deliver(db, { kind, items, url, label: `${String(body.label || "안내").slice(0, 80)} · ${people.length}명`, by: user.id, ctxKey: body.ctx_key || null });
   }
@@ -35,7 +40,7 @@ export default handler(async (req, body) => {
   if (kind === "test") {
     const vars = { ...SAMPLE, "이름": user.email };
     const t = fill(body.title ?? st.title, vars), b = fill(body.body ?? st.body, vars);
-    return deliver(db, { kind: body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
+    return deliver(db, { kind: String(body.test_kind).startsWith("prayer") ? "prayer" : body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
   }
 
   // ---------- 월말 응답 열림
@@ -45,7 +50,7 @@ export default handler(async (req, body) => {
     const vars = { "월": monthLabel(body.month), "마감일": mo.deadline ? mdw(mo.deadline) : "" };
     const people = await activeMembers(db);
     return deliver(db, { kind, items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
-      url: "/me.html#respond", label: `${monthLabel(body.month)} 응답 · 팀원 전체`, by: user.id, sentKey: `open:${body.month}` });
+      url: `/me.html#respond/month:${body.month}`, label: `${monthLabel(body.month)} 응답 · 팀원 전체`, by: user.id, sentKey: `open:${body.month}` });
   }
 
   // ---------- 사역 응답 열림 · 연습 시간 요청
@@ -62,7 +67,7 @@ export default handler(async (req, body) => {
     }
     const vars = { "사역": mi.name, "마감일": dl ? mdw(dl) : "" };
     return deliver(db, { kind, items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
-      url: "/me.html#respond", label: `${mi.name} · ${kind === "poll" ? "'가능' 응답자" : "응답 대상"} ${people.length}명`, by: user.id, sentKey: `${kind}:${mi.id}` });
+      url: kind === "poll" ? "/me.html#respond/poll:all" : `/me.html#respond/min:${mi.id}`, label: `${mi.name} · ${kind === "poll" ? "'가능' 응답자" : "응답 대상"} ${people.length}명`, by: user.id, sentKey: `${kind}:${mi.id}` });
   }
 
   // ---------- 배치표 공개: 팀원 전체, 배치된 사람은 내 섬김 포함
@@ -89,7 +94,7 @@ export default handler(async (req, body) => {
       const vars = { "월": label, "이름": m.name, "내 섬김": list ? `${list.join(" · ")} 섬겨요` : "배치표를 확인해 보세요" };
       return { member_id: m.id, title: fill(st.title, vars), body: fill(st.body, vars) };
     });
-    return deliver(db, { kind, items, url: "/me.html#lineup", label: `${label} 배치표 · 팀원 전체 (배치 ${mine.size}명)`, by: user.id, sentKey: pub.map((s) => `lineup:${s.id}`) });
+    return deliver(db, { kind, items, url: `/me.html#lineup/${month}`, label: `${label} 배치표 · 팀원 전체 (배치 ${mine.size}명)`, by: user.id, sentKey: pub.map((s) => `lineup:${s.id}`) });
   }
 
   // ---------- 연습 확정: 그 예배에 배치된 사람
@@ -104,7 +109,7 @@ export default handler(async (req, body) => {
     const svc = svs.find((s) => s.id === p.service_id);
     const vars = { "사역": `${p.ministries.name}${svs.length > 1 && svc?.label ? " " + svc.label : ""}`, "연습 일시": `${mdw(p.practice_date)} ${hm(p.start_time)}–${hm(p.end_time)}` };
     return deliver(db, { kind, items: ids.map((id) => ({ member_id: id, title: fill(st.title, vars), body: fill(st.body, vars) })),
-      url: "/me.html#home", label: `${vars["사역"]} 연습 · ${who} ${ids.length}명`, by: user.id, sentKey: `practice:${p.id}` });
+      url: `/me.html#practice/${p.id}`, label: `${vars["사역"]} 연습 · ${who} ${ids.length}명`, by: user.id, sentKey: `practice:${p.id}` });
   }
 
   // ---------- 공지
@@ -130,8 +135,34 @@ export default handler(async (req, body) => {
     const vars = { "제목": title, "내용": text };
     // 공지는 알림 설정에서 꺼도 알림함에는 남기고, 푸시는 보내지 않음
     const items = people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) }));
-    return deliver(db, { kind, items, url: "/me.html#alerts", label: `${label} ${people.length}명`, by: user.id, push: st.enabled });
+    return deliver(db, { kind, items, url: "/me.html#alerts/{id}", label: `${label} ${people.length}명`, by: user.id, push: st.enabled });
   }
 
   throw new HttpError(400, "알 수 없는 알림이에요.");
 });
+
+// ---------- 급한 기도 (015): 올린 사람이 바로 부름. 올린 지 30분 안, 한 번만, 하루 3번까지
+async function prayerUrgent(req, db, body) {
+  const { me } = await requireMember(req, db);
+  const ids = [...new Set([].concat(body.prayer_ids || []).map(Number))].filter(Boolean).slice(0, 20);
+  if (!ids.length) throw new HttpError(400, "기도제목을 찾을 수 없어요.");
+  const { data: ps } = await db.from("prayers").select("id, member_id, author_id, urgent, created_at").in("id", ids);
+  const mine = (ps || []).filter((p) => p.author_id === me.id && p.urgent && Date.now() - new Date(p.created_at).getTime() < 30 * 60 * 1000);
+  const fresh = [];
+  for (const p of mine) if (!(await wasSent(db, `prayer_urgent:${p.id}`))) fresh.push(p);
+  if (!fresh.length) return { skipped: true, recipients: 0, pushed: 0 };
+  const st = await settingOf(db, "prayer_urgent");
+  if (!st.enabled) return { skipped: true, recipients: 0, pushed: 0 };
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const { count } = await db.from("notifications").select("id", { count: "exact", head: true })
+    .eq("kind", "prayer").eq("created_by", me.id).like("ctx_key", "urgent:%").gte("created_at", since);
+  if ((count || 0) >= 3) throw new HttpError(429, "급한 기도 알림은 하루 3번까지 보낼 수 있어요. 기도제목은 올라갔어요.");
+  const { data: who } = await db.from("members").select("id, name").in("id", fresh.map((p) => p.member_id));
+  const names = [...new Set(fresh.map((p) => (who || []).find((m) => m.id === p.member_id)?.name).filter(Boolean))];
+  const target = names.length > 2 ? `${names.slice(0, 2).join("·")} 외 ${names.length - 2}명` : names.join("·");
+  const people = (await activeMembers(db, { trainees: true })).filter((m) => m.id !== me.id);
+  const vars = { "대상": target };
+  return deliver(db, { kind: "prayer", by: me.id, ctxKey: `urgent:${fresh[0].id}`, sentKey: fresh.map((p) => `prayer_urgent:${p.id}`),
+    url: `/me.html#pray/${fresh[0].id}`, label: `급한 기도 · ${target} · ${people.length}명`,
+    items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })) });
+}

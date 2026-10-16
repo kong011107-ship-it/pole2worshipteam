@@ -927,7 +927,11 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .mrow.pickrow input { width: 18px; height: 18px; accent-color: var(--violet); margin: 0 4px 0 0; flex: none; }
 .selbar { position: sticky; bottom: 12px; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: #fff;
   border: 1px solid var(--violet-soft); border-radius: 14px; padding: 10px 14px; box-shadow: 0 8px 24px -12px rgba(23, 9, 46, .35); }
-.bk-steps { margin: 0; padding-left: 20px; font-size: 14px; line-height: 2; color: var(--ink-2); }
+.bk-steps { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6; color: var(--ink-2); display: flex; flex-direction: column; gap: 14px; }
+.bk-steps li { padding-left: 2px; }
+.bk-steps li > .btn { margin-left: 8px; vertical-align: middle; }
+.bk-steps #bkName { margin-left: 8px; }
+#bkPrev:empty { display: none !important; }
 .bk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .bk-table th { text-align: left; font-size: 12px; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; }
 .bk-table td { padding: 7px 10px; border-top: 1px solid var(--tint); white-space: nowrap; }
@@ -936,3 +940,54 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .bk-ok { color: var(--ok); font-weight: 800; }
 .danger-zone { display: flex; flex-direction: column; gap: 12px; border-color: #EBC3BF; }
 .bk-table td:last-child { white-space: normal; min-width: 180px; }
+
+/* ---------- 015: 일괄 등록 · 같은 임시 비밀번호 ---------- */
+.bk-pw { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.bk-pw .radio1 { padding: 10px 12px; }
+.bk-pw-in { display: flex; flex-direction: column; gap: 6px; padding: 0 2px 4px 30px; }
+.bk-pw-in .input { min-height: 44px; font-size: 16px; max-width: 320px; letter-spacing: .02em; }
+.bk-shared { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px; background: var(--tint); border: 1px solid var(--violet-soft); }
+.chip-first { color: #1F5C99; background: #E7F0FA; }
+
+/* ---------- 015: 최상위 리더십 ---------- */
+.chip-owner { color: #fff; background: linear-gradient(140deg, var(--violet-hi), var(--violet)); }
+.owner-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border-radius: 12px; background: var(--bg); }
+.owner-row b { font-size: 16px; }
+.lockline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 8px 12px; border-radius: 10px; background: var(--bg); }
+
+/* ---------- 015: 알림으로 들어온 항목 강조 ---------- */
+.deep-hit { animation: deepHit 2.4s ease-out; border-radius: 12px; }
+@keyframes deepHit { 0%, 35% { box-shadow: 0 0 0 3px var(--violet-mid), 0 0 0 9px rgba(134, 84, 203, .18); } 100% { box-shadow: 0 0 0 0 rgba(134, 84, 203, 0); } }
+.deep-note { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* ---------- 015: 기도 ---------- */
+.plist2 { display: flex; flex-direction: column; gap: 10px; }
+.pcard { background: #fff; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); }
+.pcard.urgent { border-color: #E9B98F; }
+.pc-hd { display: flex; align-items: center; gap: 8px; }
+.pc-hd b { font-size: 16px; font-weight: 800; }
+.pc-body { margin: 0; font-size: 15px; line-height: 1.65; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+.pc-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted-2); }
+.pcard textarea.input { min-height: 96px; font-size: 15px; }
+.linkbtn { background: none; border: 0; padding: 6px 8px; margin: -6px 0; font: inherit; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; border-radius: 6px; }
+.linkbtn:hover { background: var(--tint); color: var(--violet); }
+.pform { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--violet-soft); }
+.prow2 { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
+.prow2:first-of-type { border-top: 0; padding-top: 0; }
+.prow2 .select { min-height: 44px; font-size: 15px; flex: 1; }
+.prow2 textarea.input { min-height: 84px; font-size: 15px; }
+.praybar { position: sticky; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #fff; border: 1px solid var(--violet-soft); border-radius: 16px; padding: 12px 12px 12px 18px; box-shadow: 0 10px 28px -14px rgba(23, 9, 46, .35); }
+.praybar > span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 4px; font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.praybar > span b { font-size: 26px; font-weight: 800; color: var(--violet); line-height: 1.1; }
+.praybar > span small { flex-basis: 100%; font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.praybar .btn { min-height: 48px; padding: 0 18px; border-radius: 12px; }
+.praybar .btn[disabled] { background: var(--tint); color: var(--violet-mid); }
+.pweek { background: #fff; border-radius: 14px; border: 1px solid var(--line); padding: 4px 14px; }
+.pweek > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 10px 0; }
+.pweek > summary::-webkit-details-marker { display: none; }
+.pweek[open] > summary { border-bottom: 1px solid var(--tint); margin-bottom: 10px; }
+.pweek .plist2 { padding-bottom: 12px; }
+.pweek .pcard { border-color: var(--tint-2); background: #FDFBFF; }
+.ktag.prayer { background: #FBEAF3; color: #A3366E; }
+.m-main > *, .m-main .ans-row, .m-main .pcard, .m-main .aitem, .m-main [data-pwrap] { scroll-margin-top: 72px; }

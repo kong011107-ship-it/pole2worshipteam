@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=14" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=14" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=14" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=15" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=15" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=15" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=14">
-  <link rel="stylesheet" href="assets/app.css?v=14">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=15">
+  <link rel="stylesheet" href="assets/app.css?v=15">
 </head>
 <body>
 <div class="m-wrap">
@@ -29,6 +29,7 @@
   <main class="m-main hidden" id="view-lineup"></main>
   <main class="m-main hidden" id="view-alerts"></main>
   <main class="m-main hidden" id="view-install"></main>
+  <main class="m-main hidden" id="view-pray"></main>
 
   <main class="m-main hidden" id="view-info">
     <section class="card">
@@ -51,9 +52,9 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=14"></script>
+<script src="assets/config.js?v=15"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=14"></script>
+<script src="assets/common.js?v=15"></script>
 <script>
   let ctx, me, app, extras = [], ST;
 
@@ -80,7 +81,7 @@
     if (me.status === "trainee") {
       const { data: pps } = await sb.rpc("my_trainee_postpones");
       renderTraineeHome(pps || []);
-      $("#view-home").insertAdjacentHTML("beforeend", await meetingCard());
+      $("#view-home").insertAdjacentHTML("beforeend", (await homePrayLink()) + await meetingCard());
     } else await renderMemberHome();
     await appBanner();
     showView();
@@ -89,8 +90,8 @@
   // ---------- 탭 ----------
   function renderTabbar() {
     const tabs = me.status === "trainee"
-      ? [["home", "홈", ICON.home], ["info", "내 정보", ICON.user]]
-      : [["home", "홈", ICON.home], ["respond", "섬김 응답", ICON.check], ["lineup", "배치표", ICON.table], ["info", "내 정보", ICON.user]];
+      ? [["home", "홈", ICON.home], ["pray", "기도", ICON.pray], ["info", "내 정보", ICON.user]]
+      : [["home", "홈", ICON.home], ["respond", "섬김 응답", ICON.check], ["lineup", "배치표", ICON.table], ["pray", "기도", ICON.pray], ["info", "내 정보", ICON.user]];
     $("#tabbar").innerHTML = tabs.map(([id, label, icon]) =>
       `<button type="button" data-tab="${id}">${icon}${label}</button>`).join("");
     $("#tabbar").addEventListener("click", (e) => {
@@ -102,8 +103,20 @@
   // ---------- 014: 뒤로가기 ----------
   //  메인 화면끼리 옮겨 다닐 때는 기록을 쌓지 않음: 기록은 늘 [홈] 또는 [홈, 지금 화면] 두 칸
   //  → 어느 화면에서든 뒤로가기 = 홈, 홈에서 뒤로가기 = 앱 종료
-  const VIEWS = ["home", "respond", "lineup", "info", "alerts", "install"];
+  const VIEWS = ["home", "respond", "lineup", "info", "alerts", "install", "pray"];
   const curView = () => { const h = location.hash.slice(1); return VIEWS.includes(h) ? h : "home"; };
+  // ---------- 015: 알림으로 바로 가기 (#respond/min:… · #lineup/2026-11-01 · #practice/… · #alerts/12 · #pray/3)
+  //  주소 뒤쪽(항목)은 한 번만 쓰고, 기록에는 화면 이름만 남김 → 뒤로가기 규칙(014)은 그대로
+  let deep = null;
+  const DEEP_VIEWS = [...VIEWS, "practice"];
+  function takeDeep() {
+    const [v, ...rest] = location.hash.slice(1).split("/");
+    if (!rest.length || !DEEP_VIEWS.includes(v)) return null;
+    return { v, arg: decodeURIComponent(rest.join("/")) };
+  }
+  const deepBase = (d) => (d.v === "practice" ? "home" : d.v);
+  const hit = (el, block = "center") => { if (!el) return; el.scrollIntoView({ block }); el.classList.remove("deep-hit"); void el.offsetWidth; el.classList.add("deep-hit"); };
+  const deepNote = (v, text) => v.insertAdjacentHTML("afterbegin", `<div class="notice ok deep-note">${text}</div>`);
   function go(v) {
     if (!VIEWS.includes(v)) v = "home";
     const cur = curView();
@@ -117,11 +130,12 @@
     showView();
   }
   // 처음 열 때(알림을 눌러 바로 응답 화면으로 온 경우 등) 홈을 아래에 깔아 둠
+  deep = takeDeep();
   if (!(history.state && "lv" in history.state)) {
-    const first = curView();
+    const first = deep ? deepBase(deep) : curView();
     history.replaceState({ lv: 0 }, "", "#home");
     if (first !== "home") history.pushState({ lv: 1 }, "", "#" + first);
-  }
+  } else if (deep) history.replaceState({ lv: deepBase(deep) === "home" ? 0 : 1 }, "", "#" + deepBase(deep));
   // 화면 안 링크(#respond, #install, 종 …)도 같은 규칙으로
   document.addEventListener("click", (e) => {
     const a = e.target.closest('a[href^="#"]');
@@ -131,20 +145,54 @@
   });
   function showView() {
     if (!me) return;   // 아직 불러오는 중이면 init이 끝난 뒤 다시 호출됨
-    const allowed = me.status === "trainee" ? ["home", "info", "alerts", "install"] : ["home", "respond", "lineup", "info", "alerts", "install"];
+    const allowed = me.status === "trainee" ? ["home", "info", "alerts", "install", "pray"] : ["home", "respond", "lineup", "info", "alerts", "install", "pray"];
     const h = location.hash.slice(1);
     const v = allowed.includes(h) ? h : "home";
-    ["home", "respond", "lineup", "info", "alerts", "install"].forEach((k) => $(`#view-${k}`).classList.toggle("hidden", v !== k));
+    if (deep?.v === "practice") return void resolvePractice();
+    VIEWS.forEach((k) => $(`#view-${k}`).classList.toggle("hidden", v !== k));
     $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === v));
     $("#bell").classList.toggle("on", v === "alerts");
     if (v === "respond") renderRespond();
     if (v === "lineup") renderLineup();
     if (v === "alerts") renderAlerts();
     if (v === "install") renderInstall();
+    if (v === "pray") renderPray();
     if (v === "info") renderDevCard($("#devCard"));
+    if (v === "home" && deep?.v === "home") deep = null;
     window.scrollTo(0, 0);
   }
-  window.addEventListener("hashchange", showView);
+  window.addEventListener("hashchange", () => {
+    const d = takeDeep();   // 앱이 열려 있을 때 알림을 누른 경우
+    if (d) { deep = d; history.replaceState({ lv: deepBase(d) === "home" ? 0 : 1 }, "", "#" + deepBase(d)); }
+    showView();
+  });
+
+  // 연습 확정 알림: 정해진 연습이고 아직 답할 수 있으면 그 칸으로, 아니면 홈 맨 위에 연습 카드
+  async function resolvePractice() {
+    const id = deep.arg; deep = null;
+    const [D, pr] = await Promise.all([loadMinistries(), sb.from("ministry_practices").select("*, ministries(name, practice_mode, response_mode), services(label)").eq("id", id).maybeSingle()]);
+    const p = pr.data;
+    const mi = p && D.list.find((x) => x.id === p.ministry_id);
+    if (mi && fixedAsk(D, mi).some((x) => x.id === id)) {
+      const months = await openMonths();
+      const key = mi.response_mode === "separate" ? (mi.response_open ? `min:${mi.id}` : null)
+        : (months.find((m) => mi.svs.some((s) => monthOf(s.service_date) === m.month))?.month ? `month:${months.find((m) => mi.svs.some((s) => monthOf(s.service_date) === m.month)).month}` : null);
+      if (key) { deep = { v: "respond", arg: key, pid: id }; return go("respond"); }
+    }
+    if (location.hash !== "#home") { go("home"); }
+    VIEWS.forEach((k) => $(`#view-${k}`).classList.toggle("hidden", k !== "home"));
+    $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === "home"));
+    $("#practiceCard")?.remove();
+    if (!p) { toast("연습 일정을 찾을 수 없어요. 바뀌었을 수 있어요", 3500); return; }
+    const ans = D.pa.find((a) => a.practice_id === id)?.available;
+    $("#view-home").insertAdjacentHTML("afterbegin", `<section class="card bordered" id="practiceCard" style="display:flex;flex-direction:column;gap:6px;border-color:var(--violet-soft)">
+      <span class="muted small">확정된 연습</span>
+      <b style="font-size:18px">${esc(p.ministries?.name || "사역")}${p.services?.label ? " · " + esc(p.services.label) : ""}</b>
+      <span style="font-weight:600">${fmtDate(p.practice_date, { month: "long", day: "numeric", weekday: "short" })} ${timeRange(p.start_time, p.end_time)}</span>
+      ${ans === undefined ? "" : `<span class="chip ${ans ? "chip-ok" : "chip-gray"}" style="align-self:flex-start">내 답 · ${ans ? "가능" : "불가"}</span>`}</section>`);
+    window.scrollTo(0, 0);
+    hit($("#practiceCard"), "start");
+  }
 
   // ---------- 이번 주 팀모임 + 최근 출석 ----------
   async function meetingCard() {
@@ -302,7 +350,7 @@
           ${roleChip(r) ? `<span class="chip chip-violet">${roleChip(r)}</span>` : "<span></span>"}</div>`; }).join("")
         : `<p class="muted small" style="margin:0">이번 달 확정된 배치가 아직 없어요.</p>`}</section>`;
 
-    $("#view-home").innerHTML = banners + hero + meet + monthCard;
+    $("#view-home").innerHTML = banners + hero + (await homePrayLink()) + meet + monthCard;
   }
 
   // ---------- 섬김 응답: 데이터 ----------
@@ -385,6 +433,8 @@
   const paints = {};   // 연습 시간 칠하기 상태 (사역 묶음별)
   async function renderRespond() {
     const v = $("#view-respond");
+    const dp = deep?.v === "respond" ? deep : null;
+    if (dp) { deep = null; respondKey = dp.arg.startsWith("poll:") ? "poll:all" : dp.arg; }
     const [months, D] = await Promise.all([openMonths(), loadMinistries()]);
     const items = [
       ...months.map((m) => ({ key: `month:${m.month}`, title: `${monthLabel(m.month)} 섬김`, sub: m.deadline ? `${md(m.deadline)}까지` : "응답 받는 중" })),
@@ -394,8 +444,10 @@
     if (!items.length) {
       v.innerHTML = `<h1 style="font-size:22px;font-weight:800">섬김 응답</h1>
         <div class="empty">지금은 응답 받는 일정이 없어요.<br>리더가 응답을 열면 여기에 보여요.</div>`;
+      if (dp) deepNote(v, "알림의 응답은 이미 마감됐어요.");
       return;
     }
+    const gone = dp && !items.some((i) => i.key === respondKey);
     if (!items.some((i) => i.key === respondKey)) respondKey = items[0].key;
     const pick = items.length > 1 ? `<div class="resp-pick" id="respPick">${items.map((i) => `<button type="button" data-key="${i.key}" aria-pressed="${i.key === respondKey}"><b>${esc(i.title)}</b><span>${esc(i.sub)}</span></button>`).join("")}</div>` : "";
     const [kind, id] = respondKey.split(":");
@@ -403,6 +455,24 @@
     if (kind === "min") drawMinistry(v, D.list.find((x) => x.id === id), D, pick);
     if (kind === "poll") drawPoll(v, D, pick);
     $("#respPick")?.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { respondKey = b.dataset.key; renderRespond(); } });
+    if (dp) focusRespond(v, dp, gone);
+  }
+  // 알림으로 들어왔을 때: 아직 안 한 첫 칸으로. 다 했으면 '이미 응답했어요'
+  function focusRespond(v, dp, gone) {
+    if (gone) return deepNote(v, "알림의 응답은 마감됐거나 대상이 아니에요. 지금 받는 응답을 보여 드려요.");
+    if (dp.pid) { const r = v.querySelector(`[data-pid="${dp.pid}"]`); if (r) return hit(r); }
+    if (respondKey === "poll:all") {
+      const anyPicked = !!v.querySelector('.c[aria-pressed="true"]');
+      if (anyPicked) { deepNote(v, "이미 연습 시간을 골랐어요. 바꾸고 싶으면 칸을 다시 눌러 주세요."); return window.scrollTo(0, 0); }
+      return hit(v.querySelector("[data-pwrap]"), "start");
+    }
+    const rows = $$(".ans-row", v).filter((r) => r.offsetParent);
+    const todo = rows.find((r) => !r.querySelector('[aria-pressed="true"]'));
+    if (todo) return hit(todo);
+    const poll = v.querySelector("[data-poll-inline] [data-pwrap]");
+    if (poll && !poll.querySelector('.c[aria-pressed="true"]')) return hit(poll, "start");
+    deepNote(v, "이미 모두 응답했어요. 바꾸고 싶으면 다시 눌러 주세요.");
+    window.scrollTo(0, 0);
   }
 
   // 가능/불가 한 줄
@@ -687,6 +757,8 @@
 
   async function renderLineup() {
     const v = $("#view-lineup");
+    const dp = deep?.v === "lineup" ? deep : null;
+    if (dp) { deep = null; if (/^\d{4}-\d{2}-01$/.test(dp.arg)) lineupMonth = dp.arg; lineupMode = "list"; }
     if (!lineupMonth) lineupMonth = monthOf(todayISO());
     const { data } = await sb.from("published_lineups").select("*")
       .gte("service_date", lineupMonth).lt("service_date", addMonths(lineupMonth, 1))
@@ -714,7 +786,7 @@
         const h = list[0], d = h.service_date;
         const mine = list.some((r) => r.member_id === me.id);
         const sub = h.ministry_id ? `${mdw(d)} · ${svcTime(h)}` : `${svcTime(h).split("–")[0]} · 토요 연습 ${md(addDays(d, -1))} ${hm(satTime(sats.find((x) => x.meeting_date === addDays(d, -1)), ST)[0])}`;
-        return `<section class="card ${mine ? "bordered" : ""}" style="display:flex;flex-direction:column;gap:6px;${mine ? "border-color:var(--violet-soft)" : ""}">
+        return `<section class="card ${mine ? "bordered" : ""}" data-date="${d}" style="display:flex;flex-direction:column;gap:6px;${mine ? "border-color:var(--violet-soft)" : ""}">
           <div class="card-head" style="margin-bottom:4px;flex-wrap:wrap"><h2 class="card-title">${h.ministry_id ? `${esc(svcTitle(h, multi(h)))} <span class="chip chip-violet">사역</span>` : `${fmtDate(d, { month: "long", day: "numeric" })} 주일`}</h2>
             <span class="muted small">${sub}</span></div>
           ${h.note ? `<p class="muted small" style="margin:0 0 4px">${esc(h.note)}</p>` : ""}
@@ -725,6 +797,10 @@
         </section>`;
       }).join("") : `<div class="empty">${monthLabel(lineupMonth)} 확정된 배치표가 아직 없어요.</div>`}`;
     bindNav();
+    if (dp) {   // 배치표 공개 알림: 내가 섬기는 첫 예배로
+      const mine = $$("section.card.bordered[data-date]", v);
+      hit(mine.find((x) => x.dataset.date >= todayISO()) || mine[0], "start");
+    }
   }
 
   // ---------- 013: 알림 (벨 · 알림함 · 이 기기 알림) ----------
@@ -767,6 +843,8 @@
   let alertFilter = "all";
   async function renderAlerts() {
     const v = $("#view-alerts");
+    const dp = deep?.v === "alerts" ? deep : null;
+    if (dp) { deep = null; alertFilter = "all"; }
     const { data } = await sb.from("notification_inbox").select("notification_id, title, body, read_at, notifications(kind, url, created_at)")
       .eq("member_id", me.id).order("notification_id", { ascending: false }).limit(80);
     const all = (data || []).filter((x) => x.notifications);
@@ -790,11 +868,15 @@
       e.preventDefault();
       await sb.rpc("mark_notifications_read", { p_ids: [id] });
       refreshBell();
-      if (href === "#alerts" || href === "/me.html#alerts") return renderAlerts();
-      const m = href.match(/^(?:\/me\.html)?#([a-z]+)$/);
-      if (m) return go(m[1]);
+      const m = href.match(/^(?:\/me\.html)?#([a-z]+)(?:\/(.+))?$/);
+      if (m && m[1] === "alerts") return renderAlerts();
+      if (m) { if (m[2]) deep = { v: m[1], arg: decodeURIComponent(m[2]) }; return m[1] === "practice" ? (location.hash === "#home" ? showView() : go("home")) : go(m[1]); }
       location.href = href;
     }));
+    if (dp) {   // 공지 알림: 그 공지를 읽음으로 하고 강조
+      const el = v.querySelector(`.aitem[data-id="${+dp.arg}"]`);
+      if (el) { hit(el); if (el.classList.contains("unread")) { await sb.rpc("mark_notifications_read", { p_ids: [+dp.arg] }); el.classList.remove("unread"); el.querySelector(".dot")?.remove(); refreshBell(); } }
+    }
   }
 
   // ---------- 013: 앱 설치 안내 ----------
@@ -861,6 +943,140 @@
     $("#appBannerX").addEventListener("click", () => { try { localStorage.setItem("pole2.appBanner", String(Date.now() + 14 * 864e5)); } catch {} $("#appBanner").remove(); });
   }
   const XSVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+
+
+  // ---------- 015: 기도 (이번 주 기도제목 · 기도했습니다 · 지난 기도제목) ----------
+  //  기도 주간 = 토요일(팀모임)부터 다음 금요일까지. 누구나 올리고, 소그룹 나눔 리더는 여러 명을 한 번에 올려요
+  let roster = null, prayForm = null, prayEditing = null, prayOpen = new Set();
+  const prayWeek = (iso = todayISO()) => lastSaturday(iso);
+  async function loadRoster() {
+    if (!roster) { const { data } = await sb.rpc("team_roster"); roster = data || []; }
+    return roster;
+  }
+  const nameOf = (id) => roster?.find((m) => m.id === id)?.name || "";
+  async function meApi(path, payload) {
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(payload) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "보내지 못했어요");
+    return j;
+  }
+  async function homePrayLink() {   // 홈에 '이번 주 기도제목' 바로가기
+    const { count } = await sb.from("prayers").select("id", { count: "exact", head: true }).eq("week_of", prayWeek());
+    if (!count) return "";
+    return `<a class="notice-link" href="#pray"><span style="display:flex;flex-direction:column;gap:2px"><b>이번 주 기도제목 ${count}개</b><span class="muted small">함께 기도해요</span></span>
+      <span class="chip chip-violet" style="border-radius:999px;padding:6px 12px">기도</span></a>`;
+  }
+  const pcardHTML = (p, editable) => prayEditing === p.id
+    ? `<article class="pcard" data-pid="${p.id}"><div class="pc-hd"><b>${esc(nameOf(p.member_id) || "팀원")}</b></div>
+        <textarea class="input" data-pedit maxlength="500">${esc(p.body)}</textarea>
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm" data-pcancel>취소</button><button type="button" class="btn btn-primary btn-sm" data-psave="${p.id}">저장</button></div></article>`
+    : `<article class="pcard ${p.urgent ? "urgent" : ""}" data-pid="${p.id}"><div class="pc-hd"><b>${esc(nameOf(p.member_id) || "팀원")}</b>${p.urgent ? `<span class="chip chip-warn">급한 기도</span>` : ""}</div>
+        <p class="pc-body">${esc(p.body)}</p>
+        <div class="pc-meta"><span>${p.author_id && p.author_id !== p.member_id ? esc(nameOf(p.author_id) || "팀원") + " 올림 · " : ""}${mdw(fmtISO(p.created_at))}</span>
+          ${editable ? `<span class="row" style="gap:2px"><button type="button" class="linkbtn" data-pe="${p.id}">수정</button><button type="button" class="linkbtn" data-pd="${p.id}">지우기</button></span>` : ""}</div></article>`;
+  const fmtISO = (ts) => new Date(ts).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+
+  async function renderPray() {
+    const v = $("#view-pray");
+    const dp = deep?.v === "pray" ? deep : null; if (dp) deep = null;
+    const week = prayWeek(), from = addDays(week, -56);
+    const [ps, st] = await Promise.all([
+      sb.from("prayers").select("*").gte("week_of", from).order("created_at", { ascending: true }),
+      sb.rpc("prayer_status", { p_from: from }), loadRoster(),
+    ]);
+    const all = ps.data || [], S2 = st.data || { weeks: [] };
+    const totalOf = (w) => S2.weeks?.find((x) => x.week_of === w)?.total || 0;
+    const cur = all.filter((p) => p.week_of === week);
+    const past = [...new Set(all.filter((p) => p.week_of < week).map((p) => p.week_of))].sort().reverse();
+    const can = (p) => p.author_id === me.id || me.role === "admin";
+    const next = S2.next_at && new Date(S2.next_at) > new Date() ? new Date(S2.next_at) : null;
+    const people = new Set(cur.map((p) => p.member_id)).size;
+    v.innerHTML = `<div style="display:flex;flex-direction:column;gap:2px"><h1 style="font-size:22px;font-weight:800">이번 주 기도제목</h1>
+        <span class="muted small">${fmtDate(week, { month: "long", day: "numeric", weekday: "short" })} 팀모임 주간${cur.length ? ` · ${people}명 · ${cur.length}개` : ""}</span></div>
+      ${prayForm ? prayFormHTML() : `<button type="button" class="btn btn-primary" id="pNew">+ 기도제목 올리기</button>`}
+      <div class="plist2">${cur.map((p) => pcardHTML(p, can(p))).join("") || `<div class="empty">아직 이번 주 기도제목이 없어요.<br>팀모임 나눔 뒤 나눔 리더가 올려 줘요. 급한 기도제목은 누구나 올려도 돼요.</div>`}</div>
+      ${cur.length ? `<section class="praybar"><span><small>이번 주 함께 기도한 횟수</small><b id="pTotal">${totalOf(week)}</b>번</span>
+        <button type="button" class="btn ${next ? "btn-ghost" : "btn-primary"}" id="pPray" ${next ? "disabled" : ""}>${next ? `고마워요 · ${next.getHours()}:${String(next.getMinutes()).padStart(2, "0")}부터 다시` : "🙏 기도했습니다"}</button></section>` : ""}
+      ${past.length ? `<h2 style="font-size:16px;font-weight:800;margin-top:6px">지난 기도제목</h2>
+        ${past.map((w) => { const list = all.filter((p) => p.week_of === w); return `<details class="pweek" data-week="${w}" ${prayOpen.has(w) ? "open" : ""}><summary><b>${md(w)} 주간</b><span class="muted small">기도제목 ${list.length}개 · 함께 기도 ${totalOf(w)}번</span></summary>
+          <div class="plist2">${list.map((p) => pcardHTML(p, can(p))).join("")}</div></details>`; }).join("")}` : ""}`;
+    bindPray(v);
+    if (dp) {
+      const el = v.querySelector(`.pcard[data-pid="${+dp.arg}"]`);
+      if (el) { el.closest("details")?.setAttribute("open", ""); hit(el); }
+      else if (dp.arg) deepNote(v, "그 기도제목은 지워졌어요.");
+    }
+  }
+
+  function prayFormHTML() {
+    const opts = (sel) => `<option value="">이름 고르기</option>${roster.map((m) => `<option value="${m.id}" ${m.id === sel ? "selected" : ""}>${esc(m.name)}${m.status === "trainee" ? " (수습)" : ""}</option>`).join("")}`;
+    return `<section class="card pform" id="pForm">
+      <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:16px">기도제목 올리기</b>
+        <span class="muted small">나눔 리더는 '한 명 더'로 여러 명을 한 번에 올릴 수 있어요.</span></div>
+      ${prayForm.rows.map((r, i) => `<div class="prow2" data-i="${i}">
+        <div class="row" style="flex-wrap:nowrap"><select class="select" data-who aria-label="누구의 기도제목">${opts(r.who)}</select>
+          ${prayForm.rows.length > 1 ? `<button type="button" class="linkbtn" data-rm="${i}" aria-label="이 줄 빼기">빼기</button>` : ""}</div>
+        <textarea class="input" data-body maxlength="500" placeholder="기도제목을 적어 주세요">${esc(r.body)}</textarea></div>`).join("")}
+      <button type="button" class="btn btn-ghost btn-sm" id="pAdd" style="align-self:flex-start">+ 한 명 더</button>
+      <label class="checkrow"><input type="checkbox" id="pUrgent" ${prayForm.urgent ? "checked" : ""}><span><b>급한 기도</b><small>올리면 바로 팀원 전체에게 알림이 가요</small></span></label>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" id="pCancel">취소</button><button type="button" class="btn btn-primary" id="pSubmit">올리기</button></div>
+    </section>`;
+  }
+
+  function bindPray(v) {
+    const keep = () => {   // 폼 입력값 보존
+      if (!prayForm) return;
+      $$(".prow2", v).forEach((row) => { const r = prayForm.rows[+row.dataset.i]; r.who = row.querySelector("[data-who]").value; r.body = row.querySelector("[data-body]").value; });
+      prayForm.urgent = !!$("#pUrgent")?.checked;
+    };
+    $("#pNew")?.addEventListener("click", () => { prayForm = { rows: [{ who: me.id, body: "" }], urgent: false }; renderPray().then(() => $("#pForm [data-body]")?.focus()); });
+    $("#pCancel")?.addEventListener("click", () => { prayForm = null; renderPray(); });
+    $("#pAdd")?.addEventListener("click", () => { keep(); prayForm.rows.push({ who: "", body: "" }); renderPray().then(() => { const b = $$("#pForm [data-body]"); b[b.length - 1]?.closest(".prow2").querySelector("[data-who]").focus(); }); });
+    $$("[data-rm]", v).forEach((b) => b.addEventListener("click", () => { keep(); prayForm.rows.splice(+b.dataset.rm, 1); renderPray(); }));
+    $("#pSubmit")?.addEventListener("click", async (e) => {
+      keep();
+      const rows = prayForm.rows.map((r) => ({ who: r.who, body: r.body.trim() })).filter((r) => r.who || r.body);
+      if (!rows.length) return toast("기도제목을 적어 주세요");
+      if (rows.some((r) => !r.who)) return toast("이름을 골라 주세요");
+      if (rows.some((r) => !r.body)) return toast("기도제목을 적어 주세요");
+      e.currentTarget.disabled = true;
+      const { data, error } = await sb.from("prayers").insert(rows.map((r) => ({ member_id: r.who, body: r.body, urgent: prayForm.urgent, author_id: me.id }))).select("id");
+      if (error) { e.currentTarget.disabled = false; return toast("올리지 못했어요. 다시 시도해 주세요", 3500); }
+      const urgent = prayForm.urgent;
+      prayForm = null;
+      let msg = `기도제목 ${rows.length}개를 올렸어요`;
+      if (urgent) {
+        try { const r = await meApi("/api/notify", { kind: "prayer_urgent", prayer_ids: (data || []).map((x) => x.id) }); if (!r.skipped) msg += ` · ${r.recipients}명에게 알렸어요`; }
+        catch (err) { msg += ` · ${err.message}`; }
+      }
+      toast(msg, 4000); renderPray();
+    });
+    $$("[data-pe]", v).forEach((b) => b.addEventListener("click", () => { prayEditing = +b.dataset.pe; renderPray().then(() => $("[data-pedit]")?.focus()); }));
+    $$("[data-pcancel]", v).forEach((b) => b.addEventListener("click", () => { prayEditing = null; renderPray(); }));
+    $$("[data-psave]", v).forEach((b) => b.addEventListener("click", async () => {
+      const body = b.closest(".pcard").querySelector("[data-pedit]").value.trim();
+      if (!body) return toast("기도제목을 적어 주세요");
+      const { error } = await sb.from("prayers").update({ body }).eq("id", +b.dataset.psave);
+      if (error) return toast("저장하지 못했어요");
+      prayEditing = null; toast("고쳤어요"); renderPray();
+    }));
+    $$("[data-pd]", v).forEach((b) => b.addEventListener("click", async () => {
+      if (!confirm("이 기도제목을 지울까요?")) return;
+      const { error } = await sb.from("prayers").delete().eq("id", +b.dataset.pd);
+      toast(error ? "지우지 못했어요" : "지웠어요"); renderPray();
+    }));
+    $$("details.pweek", v).forEach((d) => d.addEventListener("toggle", () => { d.open ? prayOpen.add(d.dataset.week) : prayOpen.delete(d.dataset.week); }));
+    $("#pPray")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      const { data, error } = await sb.rpc("pray");
+      if (error) { b.disabled = false; return toast("누르지 못했어요. 다시 시도해 주세요"); }
+      $("#pTotal").textContent = data.total;
+      const n = new Date(data.next_at);
+      b.className = "btn btn-ghost"; b.textContent = `고마워요 · ${n.getHours()}:${String(n.getMinutes()).padStart(2, "0")}부터 다시`;
+      if (data.ok) { toast("함께 기도해 주셔서 고마워요"); b.closest(".praybar").classList.add("deep-hit"); }
+    });
+  }
 
   // ---------- 014: 새로고침해도 보던 탭 유지 (이 브라우저 탭 안에서만) ----------
   const UI_KEY = "pole2.me.ui";

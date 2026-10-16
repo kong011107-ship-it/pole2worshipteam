@@ -1,12 +1,13 @@
 // POST /api/update-email  { memberId, email }
 // 멤버의 로그인 이메일(아이디)을 바꿈: 로그인 계정 + members.email 함께
-import { adminClient, requireAdmin, handler, HttpError } from "./_lib.js";
+import { adminClient, requireAdmin, handler, HttpError, guardOwner } from "./_lib.js";
 
 export default handler(async (req, body) => {
   const db = adminClient();
-  await requireAdmin(req, db);
+  const user = await requireAdmin(req, db);
   const email = String(body.email || "").trim().toLowerCase();
   if (!body.memberId) throw new HttpError(400, "멤버를 찾을 수 없습니다.");
+  await guardOwner(db, body.memberId, user.id, "로그인 이메일을 바꿀");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, "이메일 주소를 다시 확인해 주세요.");
 
   const { data: m } = await db.from("members").select("id, email").eq("id", body.memberId).maybeSingle();

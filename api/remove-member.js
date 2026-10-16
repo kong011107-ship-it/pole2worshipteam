@@ -2,7 +2,7 @@
 // 탈퇴 처리: 탈퇴 기록(이름·포지션·활동 기간·사유)만 남기고 계정과 개인정보를 삭제
 //   남김: alumni 1행, 지난 배치표 칸(이름만)
 //   삭제: 로그인 계정, 멤버 정보(연락처·이메일), 지원서·서약, 평가표, 수습 기록, 발송 기록, 섬김 응답, 출석
-import { adminClient, requireAdmin, handler, HttpError } from "./_lib.js";
+import { adminClient, requireAdmin, handler, HttpError, ownerId } from "./_lib.js";
 
 export default handler(async (req, body) => {
   const db = adminClient();
@@ -11,6 +11,7 @@ export default handler(async (req, body) => {
   const { memberId, reason, confirmName } = body;
   if (!memberId) throw new HttpError(400, "멤버가 지정되지 않았습니다.");
   if (memberId === me.id) throw new HttpError(400, "본인 계정은 탈퇴 처리할 수 없습니다.");
+  if (memberId === (await ownerId(db))) throw new HttpError(403, "최상위 리더십 계정은 탈퇴 처리할 수 없어요. 먼저 다른 사람에게 넘겨 주세요.");
 
   const { data: m } = await db.from("members").select("id, name, main_position, joined_at").eq("id", memberId).maybeSingle();
   if (!m) throw new HttpError(404, "멤버를 찾을 수 없습니다.");
