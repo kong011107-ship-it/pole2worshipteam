@@ -132,14 +132,53 @@ export default handler(async (req, body) => {
       people = all.filter((m) => ids.has(m.id)); label = "직접 고른";
     }
     if (!people.length) throw new HttpError(400, "받는 사람이 없어요.");
-    const vars = { "제목": title, "내용": text };
+    // 016: 투표 붙이기 — 투표를 먼저 만들고, 공지를 보낸 뒤 공지에 연결 (대상 = 공지를 받은 사람)
+    const poll = body.poll ? checkPoll(body.poll) : null;
+    let pollId = null;
+    if (poll) {
+      const { data: p, error } = await db.from("polls").insert({ question: title, multi: poll.multi, anonymous: poll.anonymous, deadline: poll.deadline, created_by: user.id }).select("id").single();
+      if (error) throw new HttpError(500, "투표를 만들지 못했어요: " + error.message);
+      pollId = p.id;
+      const { error: e2 } = await db.from("poll_options").insert(poll.options.map((label, i) => ({ poll_id: pollId, label, sort_order: i })));
+      if (e2) { await db.from("polls").delete().eq("id", pollId); throw new HttpError(500, "투표 선택지를 저장하지 못했어요: " + e2.message); }
+    }
+    const vars = { "제목": title, "내용": poll ? [text, `투표 · ${dlLabel(poll.deadline)} 마감`].filter(Boolean).join("\n") : text };
     // 공지는 알림 설정에서 꺼도 알림함에는 남기고, 푸시는 보내지 않음
-    const items = people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) }));
-    return deliver(db, { kind, items, url: "/me.html#alerts/{id}", label: `${label} ${people.length}명`, by: user.id, push: st.enabled });
+    const head = (t) => (poll ? t.replace(/^\[공지\]/, "[투표]") : t);
+    const items = people.map((m) => ({ member_id: m.id, title: head(fill(st.title, { ...vars, "이름": m.name })), body: fill(st.body, { ...vars, "이름": m.name }) }));
+    let r;
+    try {
+      r = await deliver(db, { kind, items, url: "/me.html#alerts/{id}", label: `${poll ? "투표 · " : ""}${label} ${people.length}명`, by: user.id, push: st.enabled });
+    } catch (e) {
+      if (pollId) await db.from("polls").delete().eq("id", pollId);
+      throw e;
+    }
+    if (pollId) await db.from("polls").update({ notification_id: r.id }).eq("id", pollId);
+    return { ...r, poll_id: pollId };
   }
 
   throw new HttpError(400, "알 수 없는 알림이에요.");
 });
+
+// ---------- 투표 (016): { options: [..2~10], multi, anonymous, deadline: ISO }
+const KDOW = ["일", "월", "화", "수", "목", "금", "토"];
+export function dlLabel(iso) {
+  const k = new Date(new Date(iso).getTime() + 9 * 3600e3);
+  const h = k.getUTCHours(), mi = k.getUTCMinutes();
+  return `${k.getUTCMonth() + 1}/${k.getUTCDate()}(${KDOW[k.getUTCDay()]}) ${h < 12 ? "오전" : "오후"} ${h % 12 || 12}시${mi ? " " + mi + "분" : ""}`;
+}
+function checkPoll(p) {
+  const options = [].concat(p.options || []).map((x) => String(x ?? "").trim()).filter(Boolean);
+  if (options.length < 2) throw new HttpError(400, "투표 선택지를 두 개 이상 적어 주세요.");
+  if (options.length > 10) throw new HttpError(400, "투표 선택지는 10개까지예요.");
+  if (options.some((x) => x.length > 40)) throw new HttpError(400, "선택지는 40자까지예요.");
+  if (new Set(options).size !== options.length) throw new HttpError(400, "같은 선택지가 두 번 있어요.");
+  const t = Date.parse(p.deadline || "");
+  if (!t) throw new HttpError(400, "투표 마감 일시를 골라 주세요.");
+  if (t < Date.now() + 10 * 60e3) throw new HttpError(400, "투표 마감은 지금부터 10분 뒤 이후로 골라 주세요.");
+  if (t > Date.now() + 60 * 864e5) throw new HttpError(400, "투표 마감은 60일 안으로 골라 주세요.");
+  return { options, multi: !!p.multi, anonymous: !!p.anonymous, deadline: new Date(t).toISOString() };
+}
 
 // ---------- 급한 기도 (015): 올린 사람이 바로 부름. 올린 지 30분 안, 한 번만, 하루 3번까지
 async function prayerUrgent(req, db, body) {

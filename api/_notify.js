@@ -200,6 +200,17 @@ export async function pollPeople(db, mi) {
   return { eligible, pending: eligible.filter((m) => !done.has(m.id)) };
 }
 
+// 투표 (016): 공지를 받았는데 아직 투표하지 않은 활동 중인 사람
+export async function votePending(db, poll) {
+  const [ib, vs] = await Promise.all([
+    db.from("notification_inbox").select("member_id").eq("notification_id", poll.notification_id),
+    db.from("poll_votes").select("member_id").eq("poll_id", poll.id),
+  ]);
+  const done = new Set((vs.data || []).map((v) => v.member_id));
+  const want = new Set((ib.data || []).map((i) => i.member_id).filter((id) => !done.has(id)));
+  return (await activeMembers(db, { trainees: true })).filter((m) => want.has(m.id));
+}
+
 // ---------------------------------------------------------------- 수습 주차 (common.js 와 같은 계산)
 export function traineeWeekSat(start, n, pps = []) {
   const shift = pps.filter((p) => p.from_week <= n).reduce((s, p) => s + p.weeks, 0);

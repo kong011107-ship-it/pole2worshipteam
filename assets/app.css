@@ -991,3 +991,60 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
 .pweek .pcard { border-color: var(--tint-2); background: #FDFBFF; }
 .ktag.prayer { background: #FBEAF3; color: #A3366E; }
 .m-main > *, .m-main .ans-row, .m-main .pcard, .m-main .aitem, .m-main [data-pwrap] { scroll-margin-top: 72px; }
+
+/* ---------- 016: 투표 (관리자 · 팀원) ---------- */
+.ktag.vtag { background: #FFF1D6; color: #8A5A0B; }
+.votebox { display: flex; flex-direction: column; gap: 12px; border: 1px dashed var(--line-2); border-radius: 14px; padding: 14px 16px; }
+.votebox.on { border: 1px solid var(--violet-soft); background: #FCFAFF; }
+.votebox .checkrow b { font-size: 15px; }
+.vopts { display: flex; flex-direction: column; gap: 8px; }
+.vopt { display: grid; grid-template-columns: 26px minmax(0, 1fr) 28px; gap: 8px; align-items: center; }
+.vopt .input { min-height: 42px; font-size: 15px; }
+.vnum { width: 24px; height: 24px; border-radius: 999px; background: var(--tint-2); color: var(--violet); font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 16px; align-items: start; }
+.vcard { gap: 12px; }
+.vcard.ended { background: #FDFBFF; }
+.vhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.vhead b { font-size: 16px; flex: 1 1 200px; }
+.vhead .small { flex-basis: 100%; }
+.vstat { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.vstat b { font-size: 22px; font-weight: 800; }
+.vstat .muted, .vstat > span:not(.reach) { color: var(--muted); font-weight: 600; }
+.vres { display: flex; flex-direction: column; gap: 8px; }
+.vrow { display: grid; grid-template-columns: minmax(80px, 1.1fr) minmax(0, 1.4fr) 28px; gap: 4px 10px; align-items: center; font-size: 14px; }
+.vrow .vl { font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.vrow b { text-align: right; }
+.vrow .vn { grid-column: 1 / -1; line-height: 1.5; margin-top: -2px; }
+.vbar { height: 10px; border-radius: 999px; background: var(--tint-2); overflow: hidden; }
+.vbar i { display: block; height: 100%; border-radius: 999px; background: var(--violet-mid); }
+.vrow.top .vbar i { background: var(--violet); }
+.vrow.mine .vl { color: var(--violet); }
+/* 팀원 투표 카드 */
+.vote { display: flex; flex-direction: column; gap: 10px; background: #fff; border: 1px solid var(--violet-soft); border-radius: 14px; padding: 14px 16px; margin: -4px 0 4px 14px; position: relative; }
+.vote::before { content: ""; position: absolute; left: -15px; top: -8px; width: 12px; height: 26px; border-left: 2px solid var(--violet-soft); border-bottom: 2px solid var(--violet-soft); border-bottom-left-radius: 10px; }
+.vote.ended { background: #FDFBFF; border-color: var(--line); }
+.vhd { display: flex; align-items: center; gap: 8px; }
+.vhd b { font-size: 15px; flex: 1; min-width: 0; }
+.vchoices { display: flex; flex-direction: column; gap: 8px; }
+.vchoice { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line-2); background: #fff; color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.vchoice i { flex: none; width: 20px; height: 20px; border-radius: 999px; border: 2px solid var(--violet-soft); display: flex; align-items: center; justify-content: center; }
+.vchoice.multi i { border-radius: 6px; }
+.vchoice[aria-pressed=true] { border-color: var(--violet); background: var(--tint); color: var(--violet); font-weight: 800; }
+.vchoice[aria-pressed=true] i { border-color: var(--violet); background: var(--violet); }
+.vchoice[aria-pressed=true] i::after { content: ""; width: 8px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+.vchoice:disabled { opacity: .6; cursor: progress; }
+.vsaved { color: var(--ok); font-weight: 700; }
+.vote-link { border-color: #E9C98F; background: #FFFBF2; }
+
+/* ---------- 016: 팀모임 불참 미리 알리기 ---------- */
+.prerep { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.prerep > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.prerep.on { background: var(--bad-bg); border-top: 0; border-radius: 12px; padding: 12px 14px; color: var(--bad); }
+.prerep.on .small { color: var(--ink-2); }
+.prerep-form { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.prerep-form .chips2 button { min-height: 38px; font-size: 13px; }
+.prerep-form .chips2 button[aria-pressed=true] { background: var(--violet); border-color: var(--violet); }
+.prerep-form .input { min-height: 46px; }
+.chip-pre { color: #1F5C99; background: #E7F0FA; }
+.prebox { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--bg); color: var(--ink); text-decoration: none; font-size: 14px; }
+.prebox:hover { box-shadow: inset 0 0 0 1px var(--violet-soft); }

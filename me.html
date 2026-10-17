@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=15" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=15" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=15" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=16" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=16" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=16" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=15">
-  <link rel="stylesheet" href="assets/app.css?v=15">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=16">
+  <link rel="stylesheet" href="assets/app.css?v=16">
 </head>
 <body>
 <div class="m-wrap">
@@ -52,9 +52,9 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=15"></script>
+<script src="assets/config.js?v=16"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=15"></script>
+<script src="assets/common.js?v=16"></script>
 <script>
   let ctx, me, app, extras = [], ST;
 
@@ -81,7 +81,7 @@
     if (me.status === "trainee") {
       const { data: pps } = await sb.rpc("my_trainee_postpones");
       renderTraineeHome(pps || []);
-      $("#view-home").insertAdjacentHTML("beforeend", (await homePrayLink()) + await meetingCard());
+      $("#view-home").insertAdjacentHTML("beforeend", (await voteBanners()) + (await homePrayLink()) + await meetingCard());
     } else await renderMemberHome();
     await appBanner();
     showView();
@@ -141,7 +141,9 @@
     const a = e.target.closest('a[href^="#"]');
     if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey) return;
     e.preventDefault();
-    go(a.getAttribute("href").slice(1));
+    const [v, ...rest] = a.getAttribute("href").slice(1).split("/");
+    if (rest.length && DEEP_VIEWS.includes(v)) deep = { v, arg: decodeURIComponent(rest.join("/")) };
+    go(v);
   });
   function showView() {
     if (!me) return;   // 아직 불러오는 중이면 init이 끝난 뒤 다시 호출됨
@@ -159,6 +161,7 @@
     if (v === "pray") renderPray();
     if (v === "info") renderDevCard($("#devCard"));
     if (v === "home" && deep?.v === "home") deep = null;
+    if (v === "home") refreshVoteBanners();
     window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", () => {
@@ -195,16 +198,36 @@
   }
 
   // ---------- 이번 주 팀모임 + 최근 출석 ----------
+  // 016: 팀모임 불참 미리 알리기 — 팀모임 '있음'인 토요일 낮 12시까지, 사유 필수
+  let preForm = null;   // { tag, text }
+  const preUntil = (sat) => new Date(`${sat}T12:00:00+09:00`);
   async function meetingCard() {
     const sat = upcomingSaturday();
     const [tm, at] = await Promise.all([
       sb.from("team_meetings").select("meeting_date, meeting_status").eq("meeting_date", sat).maybeSingle(),
-      sb.from("attendance").select("status, kind, team_meetings(meeting_date, meeting_status)").eq("member_id", me.id).eq("kind", "meeting"),
+      sb.from("attendance").select("status, kind, reason_tag, reason, self_reported_at, team_meetings(meeting_date, meeting_status)").eq("member_id", me.id).eq("kind", "meeting"),
     ]);
     const ms = tm.data?.meeting_status || "tbd";
     const chip = { yes: "chip-ok", no: "chip-gray", tbd: "chip-mid" }[ms];
     const sub = { yes: "토요 연습 후 함께 모여요", no: "이번 주는 팀모임이 없어요", tbd: "정해지면 여기에 보여요" }[ms];
-    const recs = (at.data || []).filter((r) => r.team_meetings && r.team_meetings.meeting_status === "yes")
+    const today = todayISO();
+    const mine = (at.data || []).find((r) => r.team_meetings?.meeting_date === sat);
+    const open = Date.now() < preUntil(sat).getTime();
+    const why = (r) => [r?.reason_tag, r?.reason].filter(Boolean).join(" · ");
+    let pre = "";
+    if (ms === "yes" && mine?.self_reported_at) {
+      pre = `<div class="prerep on"><span><b>불참으로 알렸어요</b><span class="small">${esc(why(mine))}${open ? ` · ${md(sat)} 낮 12시까지 바꿀 수 있어요` : ""}</span></span>
+        ${open ? `<button type="button" class="btn btn-ghost btn-sm" data-pre="cancel">참석으로 바꾸기</button>` : ""}</div>`;
+    } else if (ms === "yes" && !mine && open) {
+      pre = preForm ? `<div class="prerep-form" role="group" aria-label="팀모임 불참 알리기">
+          <b style="font-size:15px">못 오는 이유를 알려 주세요</b>
+          <div class="chips2" data-pre-tags>${REASON_TAGS.map((t) => `<button type="button" data-tag="${t}" aria-pressed="${preForm.tag === t}">${t}</button>`).join("")}</div>
+          <input type="text" class="input" data-pre-text maxlength="200" value="${esc(preForm.text)}" placeholder="직접 적기 (칩 없이 적어도 돼요)">
+          <span class="small muted">리더십에게만 보여요. 출석에는 결석(미리 알림)으로 들어가요.</span>
+          <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm" data-pre="close">취소</button><button type="button" class="btn btn-primary btn-sm" data-pre="send">불참 알리기</button></div></div>`
+        : `<div class="prerep"><span class="small muted">못 오게 되면 미리 알려 주세요 · ${md(sat)} 낮 12시까지</span><button type="button" class="btn btn-soft btn-sm" data-pre="open">불참 알리기</button></div>`;
+    }
+    const recs = (at.data || []).filter((r) => r.team_meetings && r.team_meetings.meeting_status === "yes" && !(r.self_reported_at && r.team_meetings.meeting_date >= today))
       .sort((a, b) => b.team_meetings.meeting_date.localeCompare(a.team_meetings.meeting_date)).slice(0, 5).reverse();
     const attended = recs.filter((r) => r.status === "present" || r.status === "late").length;
     const color = (s) => s === "present" ? "var(--violet)" : s === "late" ? "#D9A066" : s === "excused" ? "#C3BACF" : "#D8D2E3";
@@ -213,13 +236,88 @@
         <span style="display:flex;flex-direction:column;gap:2px"><span class="muted small">이번 주 팀모임 · ${fmtDate(sat, { month: "long", day: "numeric", weekday: "short" })}</span>
           <b style="font-size:17px">${sub}</b></span>
         <span class="chip ${chip}" style="font-size:14px;padding:6px 12px;border-radius:999px">${MEETING[ms]}</span>
-      </div>
+      </div>${pre}
       ${recs.length ? `<div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:12px">
         <span style="display:flex;flex-direction:column;gap:2px"><span class="muted small">최근 팀모임 출석</span><b>${recs.length}번 중 ${attended}번</b></span>
         <span style="display:flex;gap:6px" role="img" aria-label="최근 ${recs.length}번 중 ${attended}번 출석">${recs.map((r) =>
           `<span title="${fmtDate(r.team_meetings.meeting_date)} ${ATT[r.status]}" style="width:10px;height:10px;border-radius:999px;background:${color(r.status)}"></span>`).join("")}</span></div>` : ""}
     </section>`;
   }
+
+  async function redrawMeet() { const el = $("#meetCard"); if (el) el.outerHTML = await meetingCard(); }
+  document.addEventListener("click", async (e) => {
+    const card = e.target.closest("#meetCard"); if (!card) return;
+    const tag = e.target.closest("[data-pre-tags] [data-tag]");
+    if (tag && preForm) { preForm.text = card.querySelector("[data-pre-text]").value; preForm.tag = preForm.tag === tag.dataset.tag ? null : tag.dataset.tag;
+      card.querySelectorAll("[data-pre-tags] [data-tag]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tag === preForm.tag))); return; }
+    const b = e.target.closest("[data-pre]"); if (!b) return;
+    const sat = upcomingSaturday(), act = b.dataset.pre;
+    if (act === "open") { preForm = { tag: null, text: "" }; await redrawMeet(); return $("#meetCard [data-pre-tags] button")?.focus(); }
+    if (act === "close") { preForm = null; return redrawMeet(); }
+    if (act === "send") {
+      const text = card.querySelector("[data-pre-text]").value.trim();
+      if (!preForm.tag && !text) return toast("불참 사유를 고르거나 적어 주세요");
+      b.disabled = true;
+      const { error } = await sb.rpc("report_meeting_absence", { p_date: sat, p_tag: preForm.tag, p_reason: text || null });
+      if (error) { b.disabled = false; toast(error.message || "알리지 못했어요", 4000); return redrawMeet(); }
+      preForm = null; toast("리더십에게 불참을 알렸어요"); return redrawMeet();
+    }
+    if (act === "cancel") {
+      if (!confirm("불참 알림을 취소하고 참석으로 바꿀까요?")) return;
+      const { error } = await sb.rpc("cancel_meeting_absence", { p_date: sat });
+      toast(error ? error.message || "바꾸지 못했어요" : "참석으로 바꿨어요", 3500); return redrawMeet();
+    }
+  });
+  document.addEventListener("input", (e) => { if (preForm && e.target.matches("#meetCard [data-pre-text]")) preForm.text = e.target.value; });
+
+  // ---------- 016: 투표 (공지에 붙은 투표) ----------
+  const dlHour = (iso) => { const k = new Date(Date.parse(iso) + 9 * 3600e3), h = k.getUTCHours(), mi = k.getUTCMinutes();
+    return `${mdw(k.toISOString().slice(0, 10))} ${h < 12 ? "오전" : "오후"} ${h % 12 || 12}시${mi ? " " + mi + "분" : ""}`; };
+  const voteState = {};   // id → poll_view
+  async function voteBanners() {
+    const { data, error } = await sb.rpc("poll_views", { p_ids: null });
+    if (error) return "";
+    (data || []).forEach((p) => (voteState[p.id] = p));
+    const todo = (data || []).filter((p) => !p.ended && p.eligible && !p.my.length).sort((a, b) => a.deadline.localeCompare(b.deadline));
+    return `<div id="voteBanners" style="display:contents">${todo.map((p) => `<a class="notice-link vote-link" href="#alerts/${p.notification_id}">
+        <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span class="small" style="font-weight:800;color:var(--violet)">투표에 참여해 주세요</span><b>${esc(p.question)}</b><span class="muted small">${dlHour(p.deadline)} 마감 · ${p.voters}/${p.targets}명 참여</span></span>
+        <span class="chip chip-solid" style="border-radius:999px;padding:6px 12px">투표</span></a>`).join("")}</div>`;
+  }
+  // 홈으로 돌아오면 투표 배너를 다시 (다른 화면에서 투표했을 수 있음)
+  async function refreshVoteBanners() { const el = $("#voteBanners"); if (el) el.outerHTML = await voteBanners(); }
+  function voteCard(p) {
+    const mine = new Set(p.my);
+    if (p.ended) {
+      const max = Math.max(1, ...p.options.map((o) => o.count || 0));
+      return `<section class="vote ended" data-poll="${p.id}"><div class="vhd"><span class="ktag vtag">투표 결과</span><b>${esc(p.question)}</b></div>
+        <span class="small muted">${p.closed_at && Date.parse(p.closed_at) < Date.parse(p.deadline) ? "리더가 일찍 마감했어요" : dlHour(p.deadline) + " 마감"} · ${p.voters}/${p.targets}명 참여${p.anonymous ? " · 익명" : ""}</span>
+        <div class="vres">${p.options.map((o) => `<div class="vrow ${mine.has(o.id) ? "mine" : ""} ${o.count === max && o.count ? "top" : ""}"><span class="vl">${esc(o.label)}${mine.has(o.id) ? ` <span class="chip chip-violet">내 선택</span>` : ""}</span>
+          <span class="vbar"><i style="width:${o.count ? Math.max(4, Math.round(100 * o.count / max)) : 0}%"></i></span><b>${o.count ?? 0}</b>
+          ${!p.anonymous && o.names?.length ? `<span class="vn small muted">${o.names.map(esc).join(", ")}</span>` : ""}</div>`).join("")}</div>
+        ${!p.my.length ? `<span class="small muted">이 투표에는 참여하지 않았어요.</span>` : ""}</section>`;
+    }
+    return `<section class="vote" data-poll="${p.id}"><div class="vhd"><span class="ktag vtag">투표</span><b>${esc(p.question)}</b></div>
+      <span class="small muted">${p.multi ? "여러 개 고를 수 있어요" : "하나만 골라요"}${p.anonymous ? " · 익명" : ""} · ${dlHour(p.deadline)} 마감 · ${p.voters}/${p.targets}명 참여</span>
+      <div class="vchoices" role="group" aria-label="${esc(p.question)}">${p.options.map((o) => `<button type="button" class="vchoice ${p.multi ? "multi" : ""}" data-opt="${o.id}" aria-pressed="${mine.has(o.id)}"><i aria-hidden="true"></i><span>${esc(o.label)}</span></button>`).join("")}</div>
+      <span class="small ${p.my.length ? "vsaved" : "muted"}">${p.my.length ? "투표했어요 · 마감 전까지 바꿀 수 있어요" : "누르면 바로 저장돼요"} · 결과는 마감 뒤에 공개돼요</span></section>`;
+  }
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest(".vote .vchoice"); if (!b || b.disabled) return;
+    const box = b.closest(".vote"), id = +box.dataset.poll, p = voteState[id]; if (!p) return;
+    const opt = +b.dataset.opt, cur = new Set(p.my);
+    let next;
+    if (p.multi) { cur.has(opt) ? cur.delete(opt) : cur.add(opt); next = [...cur]; }
+    else next = cur.has(opt) && cur.size === 1 ? [] : [opt];
+    box.querySelectorAll(".vchoice").forEach((x) => (x.disabled = true));
+    const { data, error } = await sb.rpc("vote", { p_poll: id, p_options: next });
+    if (error) {
+      toast(error.message || "저장하지 못했어요", 3500);
+      const r = await sb.rpc("poll_view", { p_poll: id }); if (r.data) { voteState[id] = r.data; box.outerHTML = voteCard(r.data); }
+      return;
+    }
+    voteState[id] = data; box.outerHTML = voteCard(data);
+    toast(next.length ? "투표했어요" : "투표를 취소했어요");
+  });
 
   // ---------- 수습생 홈 ----------
   function renderTraineeHome(pps) {
@@ -350,7 +448,7 @@
           ${roleChip(r) ? `<span class="chip chip-violet">${roleChip(r)}</span>` : "<span></span>"}</div>`; }).join("")
         : `<p class="muted small" style="margin:0">이번 달 확정된 배치가 아직 없어요.</p>`}</section>`;
 
-    $("#view-home").innerHTML = banners + hero + (await homePrayLink()) + meet + monthCard;
+    $("#view-home").innerHTML = banners + (await voteBanners()) + hero + (await homePrayLink()) + meet + monthCard;
   }
 
   // ---------- 섬김 응답: 데이터 ----------
@@ -849,6 +947,15 @@
       .eq("member_id", me.id).order("notification_id", { ascending: false }).limit(80);
     const all = (data || []).filter((x) => x.notifications);
     const list = all.filter((x) => alertFilter === "all" || x.notifications.kind === "notice");
+    const nids = all.filter((x) => x.notifications.kind === "notice").map((x) => x.notification_id);
+    const votes = new Map();
+    if (nids.length) {
+      const { data: ps } = await sb.from("polls").select("id, notification_id").in("notification_id", nids);
+      if (ps?.length) {
+        const { data: vs } = await sb.rpc("poll_views", { p_ids: ps.map((x) => x.id) });
+        (vs || []).forEach((p) => { voteState[p.id] = p; votes.set(p.notification_id, p); });
+      }
+    }
     const unread = all.filter((x) => !x.read_at).length;
     v.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><h1 style="font-size:22px;font-weight:800">알림</h1>
         ${unread ? `<button type="button" class="btn btn-ghost btn-sm" id="readAll">모두 읽음</button>` : ""}</div>
@@ -857,8 +964,8 @@
       <div class="alist">${list.map((x) => {
         const n = x.notifications;
         return `<a class="aitem ${x.read_at ? "" : "unread"}" href="${esc(n.url || "#alerts")}" data-id="${x.notification_id}">
-          <span class="top"><span class="ktag ${n.kind}">${NOTIFY_KIND[n.kind] || "알림"}</span><b>${esc(x.title)}</b>${x.read_at ? "" : `<span class="dot" aria-label="안 읽음"></span>`}</span>
-          ${x.body ? `<span class="bd">${esc(x.body)}</span>` : ""}<span class="when">${fmtDateTime(n.created_at)}</span></a>`;
+          <span class="top">${votes.has(x.notification_id) ? `<span class="ktag vtag">투표</span>` : `<span class="ktag ${n.kind}">${NOTIFY_KIND[n.kind] || "알림"}</span>`}<b>${esc(x.title)}</b>${x.read_at ? "" : `<span class="dot" aria-label="안 읽음"></span>`}</span>
+          ${x.body ? `<span class="bd">${esc(x.body)}</span>` : ""}<span class="when">${fmtDateTime(n.created_at)}</span></a>${votes.has(x.notification_id) ? voteCard(votes.get(x.notification_id)) : ""}`;
       }).join("") || `<div class="empty">${alertFilter === "notice" ? "받은 공지가 없어요." : "아직 받은 알림이 없어요."}</div>`}</div>`;
     renderDevCard($("#alertDev"), { compact: true });
     $$("[data-f]", v).forEach((b) => b.addEventListener("click", () => { alertFilter = b.dataset.f; renderAlerts(); }));
@@ -873,9 +980,9 @@
       if (m) { if (m[2]) deep = { v: m[1], arg: decodeURIComponent(m[2]) }; return m[1] === "practice" ? (location.hash === "#home" ? showView() : go("home")) : go(m[1]); }
       location.href = href;
     }));
-    if (dp) {   // 공지 알림: 그 공지를 읽음으로 하고 강조
+    if (dp) {   // 공지 알림: 그 공지를 읽음으로 하고 강조 (투표가 붙어 있으면 투표 칸)
       const el = v.querySelector(`.aitem[data-id="${+dp.arg}"]`);
-      if (el) { hit(el); if (el.classList.contains("unread")) { await sb.rpc("mark_notifications_read", { p_ids: [+dp.arg] }); el.classList.remove("unread"); el.querySelector(".dot")?.remove(); refreshBell(); } }
+      if (el) { const vb = votes.get(+dp.arg) ? el.nextElementSibling : null; if (vb) { el.scrollIntoView({ block: "start" }); hit(vb, "center"); } else hit(el); if (el.classList.contains("unread")) { await sb.rpc("mark_notifications_read", { p_ids: [+dp.arg] }); el.classList.remove("unread"); el.querySelector(".dot")?.remove(); refreshBell(); } }
     }
   }
 

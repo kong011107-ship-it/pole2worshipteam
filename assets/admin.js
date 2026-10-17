@@ -2823,6 +2823,9 @@
   //  사역 연습 출석은 사역 화면 › 출석 탭에서
   const A = { tab: "week", month: null, sel: null, data: null, open: null, mfilter: "all", skind: "meeting", srange: 12 };
   const ATT_KEYS = ["present", "late", "absent"];
+  // 016: 팀원이 미리 알린 팀모임 불참 (결석으로 들어가 있음)
+  const preList = (row) => (row?.attendance || []).filter((r) => r.kind === "meeting" && r.status === "absent" && r.self_reported_at);
+  const preN = (row) => preList(row).length;
   const byPos = (a, b) => (posOrder()[a.main_position] ?? 99) - (posOrder()[b.main_position] ?? 99) || a.name.localeCompare(b.name, "ko");
   // 기존 팀원은 계정 등록일과 관계없이 대상 (지난 토요일도 뒤늦게 기록할 수 있게). 수습생만 시작 전 토요일 제외
   const meetingPeople = (d) => S.members.filter((m) => m.is_active && !(m.status === "trainee" && m.joined_at && m.joined_at > d)).sort(byPos);
@@ -2892,7 +2895,7 @@
         if (!target(s, kind, m)) return `<td class="m-off"${bl}>·</td>`;
         const r = recOf(mt(s), m.id, kind);
         const day = kind === "rehearsal" ? addDays(s, 1) : s;
-        return `<td class="${r ? "m-" + r.status : "m-off"}"${bl} ${r ? `title="${md(day)} ${ACT_KINDS[kind]} ${ATT[r.status]}${r.status === "absent" ? " · " + esc(reasonText(r)) : ""}"` : ""}>${r ? short[r.status] : day > today ? "" : "–"}</td>`;
+        return `<td class="${r ? "m-" + r.status : "m-off"}"${bl} ${r ? `title="${md(day)} ${ACT_KINDS[kind]} ${ATT[r.status]}${r.status === "absent" ? " · " + esc(reasonText(r)) : ""}${r.self_reported_at ? " · 미리 알림" : ""}"` : ""}>${r ? short[r.status] : day > today ? "" : "–"}</td>`;
       };
       const everyone = meetingPeople(sats[sats.length - 1]);
       const tally = (m, st) => sats.reduce((n, s) => n + kinds.filter((k) => recOf(mt(s), m.id, k)?.status === st).length, 0);
@@ -2931,7 +2934,7 @@
       const r = mt(s);
       const p = servePeople(s, services, r.attendance).list.length;
       const c = (k) => r.attendance.filter((x) => x.kind === k).length;
-      const info = s > today ? `팀모임 ${MEETING[r.meeting_status]}`
+      const info = s > today ? `팀모임 ${MEETING[r.meeting_status]}${preN(r) ? ` · 불참 ${preN(r)}` : ""}`
         : `연습 ${c("practice")}/${p} · 모임 ${r.meeting_status === "no" ? "없음" : c("meeting") + "/" + meetingPeople(s).length} · 리허설 ${c("rehearsal")}/${p}`;
       return `<button type="button" class="sat-tab ${s === d ? "on" : ""} ${s === lastSaturday() ? "today" : ""}" data-sat="${s}"><b>${md(s)} – ${md(addDays(s, 1))}</b><span>${info}</span></button>`;
     }).join("");
@@ -2956,7 +2959,7 @@
       const r = recOf(row, m.id, kind);
       const open = A.open && A.open.mid === m.id && A.open.kind === kind;
       return `<div class="att-row" data-row="${m.id}:${kind}"><span class="who"><b>${esc(m.name)}${m.status === "trainee" ? ` <span class="chip chip-mid">수습</span>` : ""}</b>
-        <span>${extra || esc(positionName(m.main_position))}${r?.status === "absent" ? ` · <button type="button" class="rs" data-redit>결석: ${esc(reasonText(r))}</button>` : ""}</span></span>
+        <span>${extra || esc(positionName(m.main_position))}${r?.status === "absent" ? ` · <button type="button" class="rs" data-redit>결석: ${esc(reasonText(r))}</button>` : ""}${r?.self_reported_at ? ` <span class="chip chip-pre" title="${esc(fmtDateTime(r.self_reported_at))}에 본인이 알림">미리 알림</span>` : ""}</span></span>
         ${seg(m, kind, open ? "absent" : r?.status, disabled)}${open ? reasonBox(r) : ""}</div>`;
     };
     const col = (kind, title, sub, people, disabled, emptyMsg) => `<section class="att-col" aria-label="${title}">
@@ -2969,7 +2972,7 @@
 
     const meetCol = ms === "no"
       ? `<section class="att-col off" aria-label="팀모임"><div class="dcard-head"><h2>팀모임</h2><span class="small muted">활동 중 ${meet.length}명</span></div><div class="empty" style="padding:20px">이번 주는 팀모임이 없어요.</div></section>`
-      : col("meeting", "팀모임", `활동 중 ${meet.length}명 · 수습 포함`, meet.map((m) => ({ m })), futureSat,
+      : col("meeting", "팀모임", `활동 중 ${meet.length}명 · 수습 포함${preN(row) ? ` · 불참 미리 알림 ${preN(row)}명` : ""}`, meet.map((m) => ({ m })), futureSat,
           "").replace(`<div class="att-sum">`, `${ms === "tbd" && !futureSat ? `<p class="notice warn" style="margin:0">팀모임 여부가 '미정'이에요. 출석을 체크하면 '있음'으로 바뀌어요.</p>` : ""}<div class="att-sum">`);
 
     $("#content").innerHTML = `${head}${tabsHTML}
@@ -2979,7 +2982,7 @@
           <span class="small muted">${futureSat ? "정해지면 팀원 홈에 바로 보여요" : "연습 후 팀모임이 있었는지 골라 주세요"}</span></div>
         <div class="seg" id="msSeg">${["yes", "no", "tbd"].map((k) => `<button type="button" data-v="${k}" aria-pressed="${ms === k}">${MEETING[k]}</button>`).join("")}</div>
       </section>
-      ${futureSat ? `<p class="notice ok" style="margin:0">아직 오지 않은 주예요. 출석은 그날부터 체크할 수 있어요.</p>` : ""}
+      ${futureSat ? `<p class="notice ok" style="margin:0">아직 오지 않은 주예요. 출석은 그날부터 체크할 수 있어요.${ms === "yes" ? " 팀모임 불참은 팀원이 그날 낮 12시까지 미리 알릴 수 있고, 미리 알린 사람은 결석으로 들어가 있어요." : ""}</p>` : ""}
       <div class="att-cols att3">
         ${col("practice", "토요 연습", `${timeRange(...satTime(row, S.settings))} · ${md(sun)} 섬김 ${prac.list.filter((x) => !x.off).length}명${prac.status === "draft" ? " · 배치 임시저장" : ""}`, prac.list, futureSat, noLineup(sun))}
         ${meetCol}
@@ -3016,8 +3019,10 @@
     const save = async (key, status, reason = {}) => {
       const { error } = await sb.from("attendance").upsert({ ...key, status, reason_tag: reason.tag || null, reason: reason.text || null });
       if (error) { toast(error.message?.includes("팀모임이 없는") || error.message?.includes("사유") ? error.message : "저장하지 못했습니다", 3500); return false; }
+      const was = recOf(row, key.member_id, key.kind) || null;
       row.attendance = row.attendance.filter((r) => !(r.member_id === key.member_id && r.kind === key.kind));
-      row.attendance.push({ ...key, status, reason_tag: status === "absent" ? reason.tag || null : null, reason: status === "absent" ? reason.text || null : null });
+      row.attendance.push({ ...key, status, reason_tag: status === "absent" ? reason.tag || null : null, reason: status === "absent" ? reason.text || null : null,
+        self_reported_at: status === "absent" ? was?.self_reported_at || null : null });
       if (key.kind === "meeting" && row.meeting_status === "tbd") row.meeting_status = "yes";
       return true;
     };
@@ -3321,6 +3326,8 @@
         <section class="box" aria-label="섬김 응답"><h2>${r0 ? monthLabel(r0.m.month) + " " : ""}섬김 응답 <a href="#respond" ${r0 ? `data-rmonth="${r0.m.month}"` : ""}>응답 현황</a></h2>${respBox}</section>
         <section class="box" aria-label="출석"><h2>출석 <a href="#attendance" data-stats>통계 보기</a></h2>
           <a href="#attendance" data-stats class="head-num" style="text-decoration:none;color:inherit"><b>${rate === null ? "–" : rate + "%"}</b><span class="muted">팀모임 출석률 · 최근 ${held.length}회</span></a>
+          ${ts.meeting_status === "yes" && preN(ts) ? `<a href="#attendance" data-sat="${thisSat}" class="prebox"><b>${md(thisSat)} 팀모임 불참 미리 알림 ${preN(ts)}명</b>
+            <span class="small">${preList(ts).map((r) => `${esc(memberName(r.member_id))}${reasonText(r) ? ` <span class="muted">(${esc(reasonText(r))})</span>` : ""}`).join(", ")}</span></a>` : ""}
           <div class="plist">
             ${streaks.map((x) => `<div><a href="#member/${x.m.id}" style="color:inherit;text-decoration:none"><b>${esc(x.m.name)}</b> <span class="muted small">${esc(positionName(x.m.main_position))}</span></a>
               <span class="chip chip-bad">모임 ${x.n}회 연속 결석${x.lastReason ? " · " + esc(x.lastReason) : ""}</span></div>`).join("")}
@@ -3989,7 +3996,9 @@
 
   // ---------------------------------------------------------------- 설정 · 기본 시간 · 추천 기준 · 테스트 데이터
   // ================================================================ 공지 · 알림 (013)
-  const NV = { tab: "send", sel: "remind", draft: null, target: "all", date: null, pick: new Set(), title: "", body: "" };
+  const NV = { tab: "send", sel: "remind", draft: null, target: "all", date: null, pick: new Set(), title: "", body: "", vote: null };
+  // 016: 공지에 붙이는 투표 (기본: 하나만 · 실명 · 사흘 뒤 밤 9시 마감)
+  const newVote = () => ({ on: false, options: ["", ""], multi: false, anonymous: false, date: addDays(todayISO(), 3), hour: 21 });
   const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent"];
   const NINFO = {
     open: { who: "정식 팀원 전체", when: "리더가 월말 응답을 열 때 (확인 창에서 고름)", vars: ["월", "마감일", "이름"] },
@@ -4039,7 +4048,7 @@
   const kindTag = (k) => `<span class="ktag ${k}">${NOTIFY_KIND[k] || "알림"}</span>`;
 
   async function renderNotify() {
-    const tabs = [["send", "공지 보내기"], ["settings", "알림 설정"], ["log", "보낸 기록"]];
+    const tabs = [["send", "공지 보내기"], ["votes", "투표"], ["settings", "알림 설정"], ["log", "보낸 기록"]];
     $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">공지 · 알림</h1>
         <div class="row"><span class="small muted" id="myDev"></span><button type="button" class="btn btn-ghost btn-sm" id="myDevBtn" hidden></button></div></div>
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" role="tab" data-ntab="${k}" aria-selected="${NV.tab === k}">${l}</button>`).join("")}</div>
@@ -4048,6 +4057,7 @@
     devLine();
     if (NV.tab === "send") return drawNotice();
     if (NV.tab === "settings") return drawNotifySettings();
+    if (NV.tab === "votes") return drawVotes();
     return drawNotifyLog();
   }
   // 이 PC(브라우저)에서도 받기
@@ -4083,6 +4093,9 @@
     });
     if (NV.target === "date" && !dates.some((d) => d.date === NV.date)) NV.date = dates[0]?.date || null;
     const reads = sent.data?.length ? (await sb.from("notification_inbox").select("notification_id, read_at").in("notification_id", sent.data.map((n) => n.id))).data || [] : [];
+    const votedN = sent.data?.length ? new Set(((await sb.from("polls").select("notification_id").in("notification_id", sent.data.map((n) => n.id))).data || []).map((x) => x.notification_id)) : new Set();
+    if (!NV.vote) NV.vote = newVote();
+    const VT = NV.vote;
     const recipients = () => NV.target === "all" ? people : NV.target === "lead" ? people.filter((m) => m.role === "admin")
       : NV.target === "date" ? people.filter((m) => dates.find((d) => d.date === NV.date)?.ids.has(m.id)) : people.filter((m) => NV.pick.has(m.id));
     const noSub = people.filter((m) => !subSet.has(m.id));
@@ -4098,9 +4111,21 @@
             : `<span class="small muted" style="font-weight:400">앞으로 8주 안에 배치된 예배가 없어요.</span>`) : ""}
           ${NV.target === "pick" ? `<div class="pick-people" id="nPick">${people.map((m) => `<label><input type="checkbox" value="${m.id}" ${NV.pick.has(m.id) ? "checked" : ""}>${esc(m.name)} <small>${esc(POS_SHORT[m.main_position] || "")}</small></label>`).join("")}</div>` : ""}
           <span class="small" style="font-weight:400" id="nCount"></span></div>
+        <section class="votebox ${VT.on ? "on" : ""}" id="vBox">
+          <label class="checkrow" style="border:0;padding:0;background:none"><input type="checkbox" id="vOn" ${VT.on ? "checked" : ""}><span><b>투표 붙이기</b><small>받는 사람이 공지에서 바로 투표해요. 결과는 마감 뒤에 모두에게 공개돼요</small></span></label>
+          ${VT.on ? `<div class="vopts" id="vOpts">${VT.options.map((o, i) => `<div class="vopt"><span class="vnum">${i + 1}</span><input type="text" class="input" data-vo="${i}" maxlength="40" value="${esc(o)}" placeholder="선택지 ${i + 1}" aria-label="선택지 ${i + 1}">
+              ${VT.options.length > 2 ? `<button type="button" class="lu-x" data-vrm="${i}" aria-label="선택지 ${i + 1} 빼기">${XICON}</button>` : `<span></span>`}</div>`).join("")}
+              ${VT.options.length < 10 ? `<button type="button" class="btn btn-ghost btn-sm" id="vAdd" style="align-self:flex-start">+ 선택지 추가</button>` : ""}</div>
+            <div class="row" style="gap:6px"><label class="pillchk"><input type="checkbox" id="vMulti" ${VT.multi ? "checked" : ""}> 여러 개 고르기</label>
+              <label class="pillchk"><input type="checkbox" id="vAnon" ${VT.anonymous ? "checked" : ""}> 익명</label></div>
+            <div class="row" style="gap:8px;font-size:14px;font-weight:700">마감
+              <input type="date" class="input" id="vDate" value="${VT.date}" min="${todayISO()}" style="width:170px;min-height:42px">
+              <select class="select" id="vHour" style="width:120px;min-height:42px">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === VT.hour ? "selected" : ""}>${hourLabel(h)}</option>`).join("")}</select></div>
+            <span class="small muted">마감 전까지는 각자 바꿀 수 있어요. ${VT.anonymous ? "익명이라 누가 무엇을 골랐는지는 리더십도 못 봐요 (참여 여부만 보여요)." : "결과에 누가 무엇을 골랐는지도 보여요."}</span>` : ""}
+        </section>
         <div style="display:flex;flex-direction:column;gap:6px"><span class="small muted" style="font-weight:700">휴대폰에 이렇게 보여요</span>
           <div class="phone-pv"><img src="assets/icon-192.png" alt=""><span><small>Pole2 찬양팀 · 지금</small><b id="pvT"></b><span class="pb" id="pvB"></span></span></div></div>
-        <button type="button" class="btn btn-primary btn-block" id="nSend">공지 보내기</button>
+        <button type="button" class="btn btn-primary btn-block" id="nSend">${VT.on ? "투표 공지 보내기" : "공지 보내기"}</button>
       </section>
       <div style="display:flex;flex-direction:column;gap:16px">
         <section class="panel"><h2>알림 받는 사람 <small>${people.length - noSub.length} / ${people.length}명</small></h2>
@@ -4109,16 +4134,17 @@
           <p class="small muted" style="margin:0">알림을 안 켠 사람도 앱 안 알림함에는 공지가 남아요. 기기를 여러 개 켠 사람은 모두 받아요.</p>
           <button type="button" class="btn btn-ghost btn-sm" id="nGuide" style="align-self:flex-start">설치 안내 문구 복사 (카톡용)</button></section>
         <section class="panel"><h2>보낸 공지 <small>최근 10개 · 전체는 보낸 기록 탭</small></h2>
-          <div class="sentlist">${(sent.data || []).map((n) => `<div><span class="h"><b>${esc(n.title)}</b><span class="small muted">${fmtDateTime(n.created_at)}</span></span>
+          <div class="sentlist">${(sent.data || []).map((n) => `<div><span class="h">${votedN.has(n.id) ? `<span class="ktag vtag">투표</span>` : ""}<b>${esc(n.title)}</b><span class="small muted">${fmtDateTime(n.created_at)}</span></span>
             ${n.body ? `<span class="small">${esc(n.body)}</span>` : ""}
             <span class="small muted">${esc(n.target_label || "")} · 푸시 ${n.pushed}명 · 읽음 ${reads.filter((r) => r.notification_id === n.id && r.read_at).length}명</span></div>`).join("") || `<span class="small muted">아직 보낸 공지가 없어요.</span>`}</div></section>
       </div></div>`;
 
     const preview = () => {
       NV.title = $("#nTitle").value; NV.body = $("#nText").value;
-      const v = { "제목": NV.title.trim() || "제목", "내용": NV.body.trim(), "이름": "이은혜" };
+      const vd = voteDeadline();
+      const v = { "제목": NV.title.trim() || "제목", "내용": VT.on ? [NV.body.trim(), `투표 · ${vd ? dlHour(vd) : "마감 일시"} 마감`].filter(Boolean).join("\n") : NV.body.trim(), "이름": "이은혜" };
       const st = NV.noticeSetting || NDEF.notice;
-      $("#pvT").textContent = nfill(st[0], v); $("#pvB").textContent = nfill(st[1], v);
+      $("#pvT").textContent = VT.on ? nfill(st[0], v).replace(/^\[공지\]/, "[투표]") : nfill(st[0], v); $("#pvB").textContent = nfill(st[1], v);
       const r = recipients(), on = r.filter((m) => subSet.has(m.id)).length;
       $("#nCount").innerHTML = `<b>${T.find((x) => x[0] === NV.target)[1]} ${r.length}명</b> · 알림 켠 ${on}명에게 푸시, 나머지는 알림함에만 남아요`;
     };
@@ -4128,24 +4154,103 @@
     $$("#nTarget [data-t]").forEach((b) => b.addEventListener("click", () => { NV.target = b.dataset.t; drawNotice(); }));
     $$("#nDates [data-d]").forEach((b) => b.addEventListener("click", () => { NV.date = b.dataset.d; drawNotice(); }));
     $("#nPick")?.addEventListener("change", (e) => { if (e.target.checked) NV.pick.add(e.target.value); else NV.pick.delete(e.target.value); preview(); });
+    // 투표
+    const keepVote = () => { $$("[data-vo]").forEach((el) => (VT.options[+el.dataset.vo] = el.value)); };
+    $("#vOn").addEventListener("change", (e) => { keepVote(); VT.on = e.target.checked; drawNotice().then(() => VT.on && $("[data-vo]")?.focus()); });
+    $$("[data-vo]").forEach((el) => el.addEventListener("input", () => { VT.options[+el.dataset.vo] = el.value; }));
+    $$("[data-vo]").forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const nx = $(`[data-vo="${+el.dataset.vo + 1}"]`); if (nx) nx.focus(); else $("#vAdd")?.click(); } }));
+    $("#vAdd")?.addEventListener("click", () => { keepVote(); VT.options.push(""); drawNotice().then(() => $(`[data-vo="${VT.options.length - 1}"]`)?.focus()); });
+    $$("[data-vrm]").forEach((b) => b.addEventListener("click", () => { keepVote(); VT.options.splice(+b.dataset.vrm, 1); drawNotice(); }));
+    $("#vMulti")?.addEventListener("change", (e) => { VT.multi = e.target.checked; });
+    $("#vAnon")?.addEventListener("change", (e) => { keepVote(); VT.anonymous = e.target.checked; drawNotice(); });
+    $("#vDate")?.addEventListener("change", (e) => { VT.date = e.target.value; preview(); });
+    $("#vHour")?.addEventListener("change", (e) => { VT.hour = +e.target.value; preview(); });
     $("#nGuide").addEventListener("click", async () => {
       const msg = `[찬양팀] 앱으로 쓰고 알림 받기\n응답 요청 · 배치표 · 공지를 휴대폰 알림으로 받을 수 있어요.\n\n① 아래 링크를 사파리(아이폰) 또는 크롬(안드로이드)으로 열기\n   (카톡 안에서는 안 돼요: 오른쪽 아래/위 메뉴 → 다른 브라우저로 열기)\n② 공유 버튼 → '홈 화면에 추가'\n③ 홈 화면의 Pole2 아이콘으로 열고 '알림 켜기'\n\n${location.origin}/me.html#install`;
       toast((await copyText(msg)) ? "설치 안내 문구를 복사했어요" : "복사하지 못했어요");
     });
     $("#nSend").addEventListener("click", () => {
+      keepVote();
       const title = NV.title.trim(), text = NV.body.trim(), r = recipients();
-      if (!title) return toast("제목을 적어 주세요");
+      if (!title) return toast(VT.on ? "제목(투표 질문)을 적어 주세요" : "제목을 적어 주세요");
       if (!r.length) return toast("받는 사람을 골라 주세요");
       const target = { type: NV.target, date: NV.date, ids: [...NV.pick] };
-      modal({ title: "공지 보내기", body: `<p style="margin:0"><b>${r.length}명</b>에게 보낼까요? 알림 켠 ${r.filter((m) => subSet.has(m.id)).length}명은 푸시로 바로 받아요.</p>
-          <div class="phone-pv"><img src="assets/icon-192.png" alt=""><span><small>Pole2 찬양팀 · 지금</small><b>${esc($("#pvT").textContent)}</b><span class="pb">${esc($("#pvB").textContent)}</span></span></div>`,
+      let poll = null;
+      if (VT.on) {
+        const options = VT.options.map((x) => x.trim()).filter(Boolean), dl = voteDeadline();
+        if (options.length < 2) return toast("선택지를 두 개 이상 적어 주세요");
+        if (new Set(options).size !== options.length) return toast("같은 선택지가 두 번 있어요");
+        if (!dl) return toast("마감 날짜를 골라 주세요");
+        if (Date.parse(dl) < Date.now() + 10 * 60e3) return toast("마감은 지금부터 10분 뒤 이후로 골라 주세요");
+        poll = { options, multi: VT.multi, anonymous: VT.anonymous, deadline: dl };
+      }
+      modal({ title: poll ? "투표 공지 보내기" : "공지 보내기", body: `<p style="margin:0"><b>${r.length}명</b>에게 보낼까요? 알림 켠 ${r.filter((m) => subSet.has(m.id)).length}명은 푸시로 바로 받아요.</p>
+          <div class="phone-pv"><img src="assets/icon-192.png" alt=""><span><small>Pole2 찬양팀 · 지금</small><b>${esc($("#pvT").textContent)}</b><span class="pb">${esc($("#pvB").textContent)}</span></span></div>
+          ${poll ? `<div class="note-box small" style="display:flex;flex-direction:column;gap:4px"><b>투표 · ${poll.multi ? "여러 개 고르기" : "하나만 고르기"}${poll.anonymous ? " · 익명" : ""}</b>
+            <span>${poll.options.map((o, i) => `${i + 1}. ${esc(o)}`).join("<br>")}</span>
+            <span class="muted">${dlHour(poll.deadline)} 마감 · 결과는 마감 뒤 공개 · 보낸 뒤에는 선택지를 바꿀 수 없어요</span></div>` : ""}`,
         confirmLabel: "보내기",
         onConfirm: async (close) => {
-          const res = await api("/api/notify", { kind: "notice", title, body: text, target });
-          close(); NV.title = ""; NV.body = "";
-          toast(`공지를 보냈어요 · 푸시 ${res.pushed}명 / 알림함 ${res.recipients}명${res.noPushReady ? " (푸시 키 설정 필요)" : ""}`, 4000); drawNotice();
+          const res = await api("/api/notify", { kind: "notice", title, body: text, target, ...(poll ? { poll } : {}) });
+          close(); NV.title = ""; NV.body = ""; NV.vote = newVote();
+          toast(`${poll ? "투표 공지를" : "공지를"} 보냈어요 · 푸시 ${res.pushed}명 / 알림함 ${res.recipients}명${res.noPushReady ? " (푸시 키 설정 필요)" : ""}`, 4000);
+          if (poll) { NV.tab = "votes"; return renderNotify(); }
+          drawNotice();
         } });
     });
+  }
+
+  // 투표 마감: 고른 날짜 + 시각 (한국 시간) → ISO
+  const voteDeadline = () => { const V2 = NV.vote; return V2?.date ? new Date(`${V2.date}T${String(V2.hour).padStart(2, "0")}:00:00+09:00`).toISOString() : null; };
+  const dlHour = (iso) => { const d = new Date(iso); const k = new Date(d.getTime() + 9 * 3600e3); const h = k.getUTCHours(), mi = k.getUTCMinutes();
+    return `${mdw(k.toISOString().slice(0, 10))} ${hourLabel(h)}${mi ? " " + mi + "분" : ""}`; };
+  const XICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+
+  // ---------------------------------------------------------------- 투표 (016)
+  //  리더십은 진행 중에도 결과를 봐요. 팀원에게는 마감 뒤에 공개
+  async function drawVotes() {
+    const { data, error } = await sb.rpc("poll_views", { p_ids: null });
+    if (error) { $("#nBody").innerHTML = `<div class="empty">투표를 불러오지 못했어요. migration_015를 실행했는지 확인해 주세요.</div>`; return console.error(error); }
+    const list = data || [];
+    const open = list.filter((p) => !p.ended), done = list.filter((p) => p.ended);
+    const card = (p) => {
+      const max = Math.max(1, ...p.options.map((o) => o.count || 0));
+      const pend = (p.pending || []).map((id) => S.members.find((m) => m.id === id)).filter(Boolean);
+      return `<section class="panel vcard ${p.ended ? "ended" : ""}" data-vid="${p.id}">
+        <div class="vhead"><span class="chip ${p.ended ? "chip-gray" : "chip-ok"}">${p.ended ? "마감" : "진행 중"}</span>
+          <b>${esc(p.question)}</b>
+          <span class="small muted">${p.multi ? "여러 개" : "하나만"}${p.anonymous ? " · 익명" : ""} · ${p.ended ? (p.closed_at && Date.parse(p.closed_at) < Date.parse(p.deadline) ? dlHour(p.closed_at) + " 일찍 마감" : dlHour(p.deadline) + " 마감") : dlHour(p.deadline) + " 마감 · " + dday(new Date(Date.parse(p.deadline) + 9 * 3600e3).toISOString().slice(0, 10))}</span></div>
+        <div class="vstat"><b>${p.voters}</b><span>/ ${p.targets}명 참여</span>
+          <span class="reach" style="flex:1"><i style="width:${p.targets ? Math.round(100 * p.voters / p.targets) : 0}%"></i></span></div>
+        <div class="vres">${p.options.map((o) => `<div class="vrow"><span class="vl">${esc(o.label)}</span>
+            <span class="vbar"><i style="width:${o.count ? Math.max(4, Math.round(100 * o.count / max)) : 0}%"></i></span><b>${o.count ?? 0}</b>
+            ${!p.anonymous && o.names?.length ? `<span class="vn small muted">${o.names.map(esc).join(", ")}</span>` : ""}</div>`).join("")}</div>
+        ${!p.ended ? `<p class="small muted" style="margin:0">팀원에게는 마감 뒤에 결과가 보여요.${p.anonymous ? " 익명 투표라 리더십도 누가 무엇을 골랐는지는 못 봐요." : ""}</p>` : ""}
+        ${pend.length ? `<div class="small" style="line-height:1.6"><b>${p.ended ? "참여 안 한" : "아직 안 한"} ${pend.length}명</b> · ${pend.map((m) => esc(m.name)).join(", ")}</div>` : p.targets ? `<span class="small" style="color:var(--ok);font-weight:700">모두 참여했어요</span>` : ""}
+        ${!p.ended ? `<div class="row" style="justify-content:flex-end">
+          ${pend.length ? `<button type="button" class="btn btn-soft btn-sm" data-vnudge="${p.id}">독촉 보내기</button>` : ""}
+          <button type="button" class="btn btn-ghost btn-sm" data-vclose="${p.id}">지금 마감하기</button></div>` : ""}
+      </section>`;
+    };
+    $("#nBody").innerHTML = `<p class="lead" style="margin:0">공지 보내기에서 '투표 붙이기'로 만들어요. 최근 60일 · 진행 중 ${open.length}개${done.length ? ` · 마감 ${done.length}개` : ""}</p>
+      ${list.length ? `<div class="vgrid">${open.map(card).join("")}${done.map(card).join("")}</div>` : `<div class="empty">아직 만든 투표가 없어요.<br><button type="button" class="btn btn-soft btn-sm" id="vNew" style="margin-top:10px">투표 공지 만들기</button></div>`}`;
+    $("#vNew")?.addEventListener("click", () => { NV.tab = "send"; NV.vote = { ...newVote(), on: true }; renderNotify(); });
+    $$("[data-vclose]").forEach((b) => b.addEventListener("click", () => {
+      const p = list.find((x) => x.id === +b.dataset.vclose);
+      modal({ title: "투표 지금 마감하기", body: `<p style="margin:0">'${esc(p.question)}' 투표를 지금 마감할까요? ${p.voters}/${p.targets}명 참여했어요. 마감하면 팀원에게 결과가 공개되고, 다시 열 수 없어요.</p>`,
+        confirmLabel: "마감하기", danger: true,
+        onConfirm: async (close) => { const { error: e } = await sb.rpc("close_poll", { p_poll: p.id }); if (e) throw new Error(e.message); close(); toast("투표를 마감했어요. 결과가 공개됐어요"); drawVotes(); } });
+    }));
+    $$("[data-vnudge]").forEach((b) => b.addEventListener("click", () => {
+      const p = list.find((x) => x.id === +b.dataset.vnudge);
+      const pend = (p.pending || []).map((id) => S.members.find((m) => m.id === id)).filter(Boolean);
+      const what = `'${p.question}' 투표`;
+      openSend({ title: "투표 독촉 보내기", ctx: `votenudge:${p.id}`, label: `${what} 독촉`, url: `/me.html#alerts/${p.notification_id}`,
+        groups: [{ id: "vote", label: "아직 안 한 사람", people: pend }],
+        push: () => ({ title: `${what}에 아직 참여하지 않았어요`, body: `${dlHour(p.deadline)} 마감이에요. 한 번만 눌러 주세요!` }),
+        text: (sel, names) => `[찬양팀] ${namesNim(names)}\n${what}에 아직 참여하지 않았어요. ${dlHour(p.deadline)} 마감이에요!\n\n${location.origin}/me.html#alerts/${p.notification_id}`,
+        after: () => drawVotes() });
+    }));
   }
 
   async function drawNotifySettings() {
@@ -4163,7 +4268,7 @@
           <label class="row" style="gap:6px;font-weight:700"><input type="checkbox" data-sc-on="${i}" ${x ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--violet)">${i ? "두 번째" : "첫 번째"}</label>
           <select data-sc-days="${i}" ${x ? "" : "disabled"} aria-label="며칠 전">${[0, 1, 2, 3].map((n) => `<option value="${n}" ${x?.days === n ? "selected" : ""}>${dayLabel(n)}</option>`).join("")}</select>
           <select data-sc-hour="${i}" ${x ? "" : "disabled"} aria-label="시각">${hours(x?.hour ?? 18)}</select></div>`; }).join("")
-        + `<span class="small muted">월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 마감에 모두 적용돼요. 마감일을 정해 둔 것만 보내요. 같은 알림은 한 번만 가요.</span>`;
+        + `<span class="small muted">월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 · 공지 투표 마감에 모두 적용돼요. 마감일을 정해 둔 것만 보내요. 같은 알림은 한 번만 가요.</span>`;
     } else if (k === "trainee") {
       const sc = d.schedule || { dow: 6, hour: 18 };
       whenHTML = `<div class="row" style="font-size:14px"><span>수습 주차마다</span>
