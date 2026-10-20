@@ -81,7 +81,7 @@ export default async function cron(req, res) {
     // ---------- 기도 (015)
     const week = prayerWeekOf(now.date);
     let prayers = null;
-    const weekPrayers = async () => prayers || (prayers = (await db.from("prayers").select("member_id").eq("week_of", week)).data || []);
+    const weekPrayers = async () => prayers || (prayers = (await db.from("prayers").select("member_id").eq("week_of", week).is("hidden_at", null)).data || []);
     //  · 이번 주 기도제목이 올라왔어요: 정한 요일·시각부터 하루 안에, 기도제목이 있으면 한 번
     const pn = await settingOf(db, "prayer_new");
     const ps = pn.schedule || { dow: 6, hour: 21 };

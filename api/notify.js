@@ -186,7 +186,7 @@ async function prayerUrgent(req, db, body) {
   const { me } = await requireMember(req, db);
   const ids = [...new Set([].concat(body.prayer_ids || []).map(Number))].filter(Boolean).slice(0, 20);
   if (!ids.length) throw new HttpError(400, "기도제목을 찾을 수 없어요.");
-  const { data: ps } = await db.from("prayers").select("id, member_id, author_id, urgent, created_at").in("id", ids);
+  const { data: ps } = await db.from("prayers").select("id, member_id, author_id, urgent, created_at").in("id", ids).is("hidden_at", null);
   const mine = (ps || []).filter((p) => p.author_id === me.id && p.urgent && Date.now() - new Date(p.created_at).getTime() < 30 * 60 * 1000);
   const fresh = [];
   for (const p of mine) if (!(await wasSent(db, `prayer_urgent:${p.id}`))) fresh.push(p);

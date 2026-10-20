@@ -279,11 +279,15 @@
   //  b = 싱어 리더·밴드 마스터(굵게), 칸이 비면 X
   const LCOLS = [["leader", "인도"], ["singer", "싱어"], ["key_main", "메인"], ["key_second", "세컨"], ["e_guitar", "일렉"], ["bass", "베이스"], ["drum", "드럼"]];
   const korDate = (iso) => `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일`;
+  // 019: 한 칸에 5명 이상(싱어 5~6명)이면 두 줄로 나눠 칸이 너무 넓어지지 않게
+  const cellLines = (list) => (list.length > 4 ? [list.slice(0, Math.ceil(list.length / 2)), list.slice(Math.ceil(list.length / 2))] : [list]);
   window.LTABLE = {
     COLS: LCOLS,
     korDate,
+    cellLines,
     html(rows) {
-      const cell = (list) => list.length ? list.map((x) => `<span class="${x.b ? "b" : ""} ${x.me ? "me" : ""}">${esc(x.n)}</span>`).join(" ") : `<span>X</span>`;
+      const one = (x) => `<span class="${x.b ? "b" : ""} ${x.me ? "me" : ""}">${esc(x.n)}</span>`;
+      const cell = (list) => list.length ? cellLines(list).map((ln) => ln.map(one).join(" ")).join("<br>") : `<span>X</span>`;
       return `<div class="lt-wrap"><table class="lt"><thead><tr><th class="lt-d"></th>${LCOLS.map(([, l]) => `<th>${l}</th>`).join("")}</tr></thead>
         <tbody>${rows.map((r) => `<tr class="${r.green ? "g" : ""}"><th class="lt-d" scope="row">${esc(r.date)}${r.sub ? `<br><span>${esc(r.sub)}</span>` : ""}</th>
           ${LCOLS.map(([k]) => `<td>${cell(r.cells[k] || [])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
@@ -297,10 +301,12 @@
       const cv = document.createElement("canvas"), g = cv.getContext("2d");
       const font = (w, size = FS) => `${w} ${size}px ${FONT}`;
       const tw = (t, w) => { g.font = font(w); return g.measureText(t).width; };
-      const cellW = (list) => list.length ? list.reduce((s, x, i) => s + tw(x.n, x.b ? 800 : 500) + (i ? GAP : 0), 0) : tw("X", 500);
+      const lineW = (ln) => ln.reduce((s, x, i) => s + tw(x.n, x.b ? 800 : 500) + (i ? GAP : 0), 0);
+      const cellW = (list) => list.length ? Math.max(...cellLines(list).map(lineW)) : tw("X", 500);
       const widths = [Math.max(120, ...rows.map((r) => Math.max(tw(r.date, 800), r.sub ? tw(r.sub, 800) : 0) + PX * 2)),
         ...LCOLS.map(([k, l]) => Math.max(tw(l, 700), ...rows.map((r) => cellW(r.cells[k] || []))) + PX * 2)];
-      const rowH = rows.map((r) => (r.sub ? LH * 2 : LH) + PY * 2), headH = LH + PY * 2;
+      const linesOf = (r) => Math.max(r.sub ? 2 : 1, ...LCOLS.map(([k]) => cellLines(r.cells[k] || []).length));
+      const rowH = rows.map((r) => linesOf(r) * LH + PY * 2), headH = LH + PY * 2;
       const titleH = title ? 44 : 0;
       const W = Math.ceil(widths.reduce((a, b) => a + b, 0) + M * 2), H = Math.ceil(M * 2 + titleH + headH + rowH.reduce((a, b) => a + b, 0));
       cv.width = W * S; cv.height = H * S; g.scale(S, S);
@@ -327,10 +333,12 @@
         if (r.sub) { g.fillText(r.date, x0 + PX, y + PY + LH / 2); g.fillText(r.sub, x0 + PX, y + PY + LH * 1.5); }
         else g.fillText(r.date, x0 + PX, y + h / 2);
         LCOLS.forEach(([k], i) => {
-          let x = xs[i + 1] + PX; const list = r.cells[k] || [];
-          const cy = y + PY + LH / 2;
-          if (!list.length) { g.font = font(500); g.fillText("X", x, cy); return; }
-          list.forEach((nm) => { g.font = font(nm.b ? 800 : 500); g.fillText(nm.n, x, cy); x += g.measureText(nm.n).width + GAP; });
+          const list = r.cells[k] || [];
+          if (!list.length) { g.font = font(500); g.fillText("X", xs[i + 1] + PX, y + PY + LH / 2); return; }
+          cellLines(list).forEach((ln, li) => {
+            let x = xs[i + 1] + PX; const cy = y + PY + LH / 2 + li * LH;
+            ln.forEach((nm) => { g.font = font(nm.b ? 800 : 500); g.fillText(nm.n, x, cy); x += g.measureText(nm.n).width + GAP; });
+          });
         });
         y += h;
       });

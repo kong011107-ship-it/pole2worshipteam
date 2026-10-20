@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=18" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=18" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=18" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=19" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=19" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=19" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=18">
-  <link rel="stylesheet" href="assets/app.css?v=18">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=19">
+  <link rel="stylesheet" href="assets/app.css?v=19">
 </head>
 <body>
 <div class="m-wrap">
@@ -52,9 +52,9 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=18"></script>
+<script src="assets/config.js?v=19"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=18"></script>
+<script src="assets/common.js?v=19"></script>
 <script>
   let ctx, me, app, extras = [], ST;
 
@@ -417,7 +417,7 @@
     let hero;
     if (next) {
       const same = rows.filter((r) => (r.service_id || r.service_date) === (next.service_id || next.service_date));
-      const lead = same.find((r) => r.position_code === "leader");
+      const lead = same.filter((r) => r.position_code === "leader").map((r) => r.member_name).join(", ");
       const bm = same.find((r) => r.is_band_master);
       const role = roleChip(next);
       const pills = [];
@@ -429,7 +429,7 @@
         const sat = addDays(next.service_date, -1), sr = sats.find((x) => x.meeting_date === sat);
         pills.push(`토요 연습 ${md(sat)} ${hm(satTime(sr, ST)[0])}`);
       }
-      if (lead || bm) pills.push([lead && "인도 " + esc(lead.member_name), bm && "밴마 " + esc(bm.member_name)].filter(Boolean).join(" · "));
+      if (lead || bm) pills.push([lead && "인도 " + esc(lead), bm && "밴마 " + esc(bm.member_name)].filter(Boolean).join(" · "));
       hero = `<section class="hero"><p class="eyebrow">${next.service_date <= addDays(today, 7) ? "이번 주" : "다음"} 나의 섬김</p>
         <div style="display:flex;flex-direction:column;gap:4px"><span class="big">${fmtDate(next.service_date, { month: "long", day: "numeric" })} ${esc(svcTitle(next, multiOf(next)))}</span>
           <span style="display:flex;align-items:center;gap:8px;font-size:17px;font-weight:600">${esc(next.position_name)} · ${svcTime(next)}
@@ -1069,7 +1069,7 @@
     return j;
   }
   async function homePrayLink() {   // 홈에 '이번 주 기도제목' 바로가기
-    const { count } = await sb.from("prayers").select("id", { count: "exact", head: true }).eq("week_of", prayWeek());
+    const { count } = await sb.from("prayers").select("id", { count: "exact", head: true }).eq("week_of", prayWeek()).is("hidden_at", null);
     if (!count) return "";
     return `<a class="notice-link" href="#pray"><span style="display:flex;flex-direction:column;gap:2px"><b>이번 주 기도제목 ${count}개</b><span class="muted small">함께 기도해요</span></span>
       <span class="chip chip-violet" style="border-radius:999px;padding:6px 12px">기도</span></a>`;
@@ -1089,7 +1089,7 @@
     const dp = deep?.v === "pray" ? deep : null; if (dp) deep = null;
     const week = prayWeek(), from = addDays(week, -56);
     const [ps, st] = await Promise.all([
-      sb.from("prayers").select("*").gte("week_of", from).order("created_at", { ascending: true }),
+      sb.from("prayers").select("*").gte("week_of", from).is("hidden_at", null).order("created_at", { ascending: true }),
       sb.rpc("prayer_status", { p_from: from }), loadRoster(),
     ]);
     const all = ps.data || [], S2 = st.data || { weeks: [] };
