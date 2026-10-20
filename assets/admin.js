@@ -5041,40 +5041,58 @@
       <a href="#members" style="font-weight:800">멤버에서 기수 넣기</a></div>` : "";
   const posLine = (p) => p.subs.length ? `주 ${POS_SHORT[p.main] || "—"} · 보조 ${p.subs.map((c) => POS_SHORT[c] || c).join("·")}` : POS_SHORT[p.main] || "—";
 
-  // 리더십 승계 카드. at = 인구 구조에서 보는 기(몇 년 뒤) — 짧게
+  // 리더십 승계 카드 (019.5: 긴급도 순 · 짧은 상태 배지 · 후보 칩 한 번에 고르기). at = 인구 구조에서 보는 기(몇 년 뒤)
+  // 단계: bad(빨강) = 비어 있음 · 다음 기 공백인데 후보 없음 · 후보 부족 / warn(주황) = 공백 예정, 후보 없음 / ok(초록) = 후보 있음 · 기간 안엔 그대로
+  const leadLevel = (L) => (!L.holder ? "bad" : L.k == null ? "ok" : L.okHeirs?.length ? "ok" : L.alert ? "bad" : "warn");
+  const LV_RANK = { bad: 0, warn: 1, ok: 2 };
+  const sortLeads = (leads) => leads.slice().sort((a, b) => (LV_RANK[leadLevel(a)] - LV_RANK[leadLevel(b)])
+    || ((a.holder ? 1 : 0) - (b.holder ? 1 : 0)) || ((a.k ?? 99) - (b.k ?? 99)) || (TITLE_ORDER.indexOf(a.t) - TITLE_ORDER.indexOf(b.t)));
+  const leadWho = (h) => [esc(h.name), h.cohort ? `${h.cohort}기` : "", POS_SHORT[h.main] || ""].filter(Boolean).join(" · ");
+  function leadBadge(M, L) {
+    const lv = leadLevel(L);
+    if (!L.holder) return [lv, "비어 있음"];
+    if (L.k == null) return [lv, `${M.H}년 안에는 그대로`];
+    const when = L.k === 1 ? `다음 기(${M.T0 + 1}기) 공백` : `${M.T0 + L.k}기부터 공백`;
+    if (lv === "ok") return [lv, `${when} · 후보 있음`];
+    if (lv === "bad") return [lv, `${when} · ${L.urgent ? "후보 없음" : "후보 부족"}`];
+    return [lv, `${when} · 후보 없음`];
+  }
   function fcLeadHTML(M, at = null) {
     const lastOn = (p) => (p.cohort == null ? null : p.cohort - M.G);   // 졸업 전 마지막 기
-    return M.leads.map((L) => {
-      const name = TITLES[L.t];
-      if (!L.holder) return `<div class="fc-lead empty" data-lead="${L.t}"><b>${name}</b><span class="muted">지정 안 됨</span><span class="small muted">멤버 › 정보 수정에서 직책을 정해 주세요</span></div>`;
-      const h = L.holder, who = `${esc(h.name)}${h.cohort ? ` · ${h.cohort}기` : ""}`;
-      const heirTxt = L.heirs.length ? L.heirs.map((p) => esc(p.name)).join(", ") : "";
+    return sortLeads(M.leads).map((L) => {
+      const name = TITLES[L.t], [lv, btxt] = leadBadge(M, L);
+      if (!L.holder) return `<div class="fc-lead empty lv-bad" data-lead="${L.t}" data-lv="bad"><b>${name}</b><span class="fc-badge bad">비어 있음</span><a href="#members" class="small">멤버 › 정보 수정에서 정하기</a></div>`;
+      const h = L.holder, who = leadWho(h);
       if (at !== null) {
-        if (L.k === null || at < L.k) {
-          const left = L.k === null ? null : L.k - at;
-          return `<div class="fc-lead" data-lead="${L.t}"><b>${name}</b><span>${who}</span><span class="small muted">${left === null ? `${M.H}년 안에는 그대로` : `${M.T0 + L.k}기부터 공백 · ${left === 1 ? "다음 해" : left + "년 뒤"}`}${heirTxt ? ` · 후보 ${heirTxt}` : ""}</span></div>`;
-        }
-        return `<div class="fc-lead ${L.alert ? "alert" : "soon"}" data-lead="${L.t}"><b>${name}</b><span>공백 · ${who} ${GAP_WHY[L.why]}</span>
-          <span class="small" style="font-weight:700">${L.okHeirs.length ? `이어받을 후보 ${L.okHeirs.map((x) => esc(x.p.name)).join(", ")}` : `지정 후보 없음 · 조건 맞는 사람 ${L.cands.length}명`}</span></div>`;
+        // 인구 구조 오른쪽: 그 기 기준 짧게
+        let txt, cls = lv;
+        if (L.k === null || at < L.k) { const left = L.k === null ? null : L.k - at;
+          txt = left === null ? `${M.H}년 안에는 그대로` : `${M.T0 + L.k}기부터 공백 · ${left === 1 ? "다음 해" : left + "년 뒤"}`; }
+        else { txt = `공백 · ${GAP_WHY[L.why]}`; cls = L.okHeirs.length ? "warn" : "bad"; }
+        const hs = L.okHeirs?.length ? L.okHeirs.map((x) => esc(x.p.name)).join(", ") : L.heirs.map((p) => esc(p.name)).join(", ");
+        return `<div class="fc-lead lv-${cls}" data-lead="${L.t}" data-lv="${cls}"><div class="fc-lead-hd"><b>${name}</b><span>${who}</span></div>
+          <span class="fc-badge ${cls}">${txt}</span>${hs ? `<span class="small muted">후보 ${hs}</span>` : ""}</div>`;
       }
-      // 충원 계획: 예상 종료 고르기 · 지정 후보 · 조건 맞는 사람
+      // 충원 계획: 이름 줄 → 상태 배지 → 임기 → 승계 후보 칩
       const last = lastOn(h);
       const opts = []; for (let t = M.T0; t <= M.T0 + M.H && (last == null || t < last); t++) opts.push(t);
       const until = `<select class="select fc-until" data-until="${h.id}" aria-label="${name} 예상 종료">
           <option value="" ${h.until == null ? "selected" : ""}>졸업까지${last != null ? ` (${last}기까지)` : ""}</option>
           ${opts.map((t) => `<option value="${t}" ${+h.until === t ? "selected" : ""}>${t}기까지 · ${t === M.T0 ? "이번 기" : `${t - M.T0}년 더`}</option>`).join("")}
           ${h.until != null && !opts.includes(+h.until) ? `<option value="${h.until}" selected>${h.until}기까지</option>` : ""}</select>`;
-      const heirs = `<div class="fc-heirs"><span class="small muted">승계 후보</span>
-          ${(L.heirInfo || L.heirs.map((p) => ({ p, ok: true, note: "" }))).map((x) => `<span class="fc-heir ${x.ok ? (x.note ? "mid" : "ok") : "bad"}" title="${esc(posLine(x.p))}">${esc(x.p.name)}${x.p.cohort ? ` ${x.p.cohort}기` : ""}${x.note ? ` · ${x.note}` : ""}</span>`).join("") || `<span class="small" style="color:var(--muted)">아직 없음</span>`}
-          <button type="button" class="btn btn-ghost btn-sm" data-heir="${L.t}">${L.heirs.length ? "바꾸기" : "+ 후보 지정"}</button></div>`;
-      if (L.k === null) return `<div class="fc-lead" data-lead="${L.t}"><div class="fc-lead-hd"><b>${name}</b><span>${who}</span>${until}</div>
-        <span class="small muted">전망 기간(${M.H}년) 안에는 그대로</span>${heirs}</div>`;
-      const n = L.cands.length;
-      const msg = L.urgent ? `${M.T0 + L.k}기 전까지 승계 후보를 정해 주세요` : L.thin ? "지정 후보가 없고 조건 맞는 사람도 1명 이하" : L.okHeirs.length ? `이어받을 후보 ${L.okHeirs.map((x) => esc(x.p.name)).join(", ")}` : `${M.T0 + L.k - 1}기 안에 승계 후보를 정해 두면 좋아요`;
-      return `<div class="fc-lead ${L.alert ? "alert" : "soon"}" data-lead="${L.t}"><div class="fc-lead-hd"><b>${name}</b><span>${who}</span>${until}</div>
-        <span class="small" style="font-weight:700">${M.T0 + L.k}기부터 공백 (${GAP_WHY[L.why]}) · ${msg}</span>
-        ${heirs}
-        <span class="small muted">조건 맞는 사람 ${n}명${n ? ` · ${L.cands.slice(0, 8).map((p) => esc(p.name)).join(", ")}${n > 8 ? ` 외 ${n - 8}명` : ""}` : ""}</span></div>`;
+      const info = L.heirInfo || L.heirs.map((p) => ({ p, ok: true, note: "" }));
+      const picked = new Set(L.heirs.map((p) => p.id));
+      const more = (L.cands || []).filter((p) => !picked.has(p.id));
+      const chips = info.map((x) => `<button type="button" class="fc-heir on ${x.ok ? (x.note ? "mid" : "ok") : "bad"}" data-unpick="${x.p.id}" data-t="${L.t}" title="누르면 후보에서 빼요 · ${esc(posLine(x.p))}" aria-pressed="true">✓ ${esc(x.p.name)}${x.p.cohort ? ` ${x.p.cohort}기` : ""}${x.note ? ` · ${x.note}` : ""}</button>`).join("")
+        + more.slice(0, 6).map((p) => `<button type="button" class="fc-heir pick" data-pick="${p.id}" data-t="${L.t}" title="누르면 후보로 정해요 · ${esc(posLine(p))} · ${p.exp0}년째" aria-pressed="false">+ ${esc(p.name)}${p.cohort ? ` ${p.cohort}기` : ""}</button>`).join("");
+      return `<div class="fc-lead lv-${lv}" data-lead="${L.t}" data-lv="${lv}">
+        <div class="fc-lead-hd"><b>${name}</b><span>${who}</span></div>
+        <div class="fc-lead-st"><span class="fc-badge ${lv}">${btxt}</span>${L.k != null ? `<small>${GAP_WHY[L.why]}</small>` : ""}</div>
+        <label class="fc-lead-term"><span>임기</span>${until}</label>
+        <div class="fc-heirs"><span class="fc-heirs-l">승계 후보 <small>${L.heirs.length}/2</small></span>
+          <div class="fc-heir-chips">${chips || `<span class="small muted">조건 맞는 사람이 없어요</span>`}
+          <button type="button" class="btn btn-ghost btn-sm" data-heir="${L.t}">다른 사람${more.length > 6 ? ` (+${more.length - 6})` : ""}</button></div>
+          ${L.k != null ? `<small class="muted">${more.length ? "+ 이름은 조건 맞는 사람 · 누르면 바로 후보로 정해요" : ""}</small>` : ""}</div></div>`;
     }).join("");
   }
   // 예상 종료 · 승계 후보 고르기 (충원 계획 탭)
@@ -5087,6 +5105,21 @@
       toast(v == null ? "졸업까지 맡는 것으로 바꿨어요" : `${v}기까지 맡는 것으로 저장했어요`); renderForecast();
     }));
     $$("[data-heir]").forEach((b) => b.addEventListener("click", () => openFcHeirs(M, b.dataset.heir)));
+    $$("[data-pick]").forEach((b) => b.addEventListener("click", async () => {
+      const t = b.dataset.t, L = M.leads.find((x) => x.t === t);
+      if (L.heirs.length >= 2) return toast("승계 후보는 직책마다 2명까지예요. 먼저 한 명을 빼 주세요");
+      b.disabled = true;
+      const { error } = await sb.from("forecast_heirs").insert({ role_title: t, member_id: b.dataset.pick, rank: L.heirs.length + 1, created_by: S.me.id });
+      if (error) { b.disabled = false; return toast("저장하지 못했어요: " + error.message, 4000); }
+      const p = M.ppl.find((x) => x.id === b.dataset.pick);
+      toast(`${p ? p.name + "님을 " : ""}${TITLES[t]} 승계 후보로 정했어요`); renderForecast();
+    }));
+    $$("[data-unpick]").forEach((b) => b.addEventListener("click", async () => {
+      const t = b.dataset.t; b.disabled = true;
+      const { error } = await sb.from("forecast_heirs").delete().eq("role_title", t).eq("member_id", b.dataset.unpick);
+      if (error) { b.disabled = false; return toast("저장하지 못했어요: " + error.message, 4000); }
+      toast(`${TITLES[t]} 승계 후보에서 뺐어요`); renderForecast();
+    }));
   }
   function openFcHeirs(M, t) {
     const L = M.leads.find((x) => x.t === t), k = L.k ?? 1;
@@ -5174,21 +5207,22 @@
     const chip = (p) => {
       const s = M.stateAt(p, k);
       if (s === "on") { if (p.gender === "m") mN++; else if (p.gender === "f") fN++; } else away++;
-      const t = p.title && s === "on" ? TITLE_SHORT[p.title] : "";
-      const cls = s === "mil" ? "mil" : s === "gone" ? "gone" : p.title ? "lead" : p.gender || "x";
-      // 019: 보조 포지션이 있으면 점 · 포지션 보기를 고르면 주는 진하게, 보조는 연하게, 나머지는 흐리게
+      // 019.5: 직책은 이름표 + 테두리, 주 포지션은 굵게, 보조 포지션은 '+이름'으로 (직책이 포지션을 가리지 않음)
+      const t = p.title ? TITLE_SHORT[p.title] : "";
+      const st = s === "mil" ? "mil" : s === "gone" ? "gone" : "";
       const hl = !pf ? "" : p.main === pf ? "pf-main" : p.subs.includes(pf) ? "pf-sub" : "pf-off";
-      const label = pf && p.subs.includes(pf) && !t && s === "on" ? `${POS_SHORT[pf]}·보` : s === "mil" ? "복무" : t || esc(POS_SHORT[p.main] || "—");
-      return `<span class="fc-p ${cls} ${p.subs.length ? "multi" : ""} ${hl}" data-p="${p.id}" tabindex="0" title="${esc(`${p.name} · ${posLine(p)}${p.title ? " · " + TITLES[p.title] : ""}${s === "mil" ? " · 군복무 중" : s === "gone" ? " · " + EXIT_REASON[p.ex.reason] : ""}`)}">${label}</span>`;
+      const subs = p.subs.map((c) => POS_SHORT[c] || c).join("·");
+      return `<span class="fc-p ${p.gender || "x"} ${st} ${t ? "role" : ""} ${hl}" data-p="${p.id}" tabindex="0" title="${esc(`${p.name} · ${posLine(p)}${p.title ? " · " + TITLES[p.title] : ""}${s === "mil" ? " · 군복무 중" : s === "gone" ? " · " + EXIT_REASON[p.ex.reason] : ""}`)}">`
+        + `${t ? `<em class="rt">${t}</em>` : ""}<b>${s === "mil" ? "복무" : esc(POS_SHORT[p.main] || "—")}</b>${subs ? `<i>+${esc(subs)}</i>` : ""}</span>`;
     };
     const rows = [];
     for (let c = last; c <= top; c++) {
       const g = M.ppl.filter((p) => p.cohort === c), rc = recs.filter((r) => r.cohort === c);
       const left = g.filter((p) => p.gender === "m").map(chip).join(""), right = g.filter((p) => p.gender !== "m").map(chip).join("")
-        + rc.map((r) => `<span class="fc-p new ${r.pos ? "" : "extra"} ${pf ? (r.pos === pf ? "pf-main" : "pf-off") : ""}" title="${r.k + M.T0}기에 충원${r.pos ? " · " + esc(positionName(r.pos)) : ""}">${r.pos ? POS_SHORT[r.pos] : "추가"}</span>`).join("");
+        + rc.map((r) => `<span class="fc-p new ${r.pos ? "" : "extra"} ${pf ? (r.pos === pf ? "pf-main" : "pf-off") : ""}" title="${r.k + M.T0}기에 충원${r.pos ? " · " + esc(positionName(r.pos)) : ""}"><b>${r.pos ? POS_SHORT[r.pos] : "추가"}</b><i>충원</i></span>`).join("");
       const yl = c - last;
       rows.push(`<div class="fc-row"><div class="fc-m">${left}</div>
-        <div class="fc-mid ${yl === 0 ? "last" : ""} ${rc.length && !g.length ? "new" : ""}"><b>${c}기</b><span>${yl === 0 ? "이번 기 마지막" : `${yl}년 남음`}${rc.length ? ` · 충원 ${rc.length}` : ""}</span></div>
+        <div class="fc-mid ${yl === 0 ? "last" : ""} ${rc.length && !g.length ? "new" : ""}"><b>${c}<small>기</small></b><span>${yl === 0 ? "이번 기 마지막" : `${yl}년 남음`}${rc.length ? ` · 충원 ${rc.length}` : ""}</span></div>
         <div class="fc-f">${right}</div></div>`);
     }
     const none = M.ppl.filter((p) => p.cohort == null);
@@ -5196,46 +5230,58 @@
       <div class="fc-mid nocoh"><b>기수 ?</b><span>졸업 계산 안 됨</span></div><div class="fc-f">${none.filter((p) => p.gender !== "m").map(chip).join("")}</div></div>`);
     const total = Y.heads + Y.add, d = total - R.N0;
     const yrs = Array.from({ length: M.H + 1 }, (_, i) => i);
-    const pfStat = pf ? `<div class="fc-stat" style="grid-column:1/-1"><span>${esc(positionName(pf))} · ${T}기</span><b>${Y.have[pf] + (Y.recs || []).filter((r) => r.pos === pf).length}명</b>
-        <small>주 ${Y.main[pf]}${Y.recs?.some((r) => r.pos === pf) ? ` + 충원 ${Y.recs.filter((r) => r.pos === pf).length}` : ""} · 보조 ${Y.sub[pf]} · 최소 ${cfg.min[pf]}${Y.main[pf] < cfg.min[pf] && Y.have[pf] >= cfg.min[pf] ? " · 보조로 채움" : ""}</small></div>` : "";
+    // 019.5: 포지션별 인원 (그 기 · 주 + 보조 + 충원 예정, 최소와 비교)
+    const recN = (c) => (Y.recs || []).filter((r) => r.pos === c).length;
+    const posStat = (c) => { const main = Y.main[c] + recN(c), sub = Y.sub[c], tot = main + sub, min = +cfg.min[c];
+      const lv = tot < min - 1e-9 ? "bad" : main < min - 1e-9 ? "warn" : "ok";
+      return { c, main, sub, tot, min, lv, txt: lv === "bad" ? `부족 ${fmtN(min - tot)}` : lv === "warn" ? "보조로 채움" : "충족" }; };
+    const PS = FC_POS.map(posStat);
+    // 포지션별 인원 = 포지션 보기(필터) 겸용. 줄을 누르면 그 포지션만 강조, 다시 누르면 전체
+    const posPanel = `<section class="panel fc-pos" style="gap:8px"><h2 style="font-size:15px">포지션별 인원 <small>${pf ? `<button type="button" class="btn btn-ghost btn-sm" data-pf="all">전체 보기</button>` : `${T}기 · 누르면 강조`}</small></h2>
+        <div id="fcPf" role="group" aria-label="포지션 보기" style="display:flex;flex-direction:column;gap:2px">
+        ${PS.map((x) => { const full = Math.max(x.min, x.tot, 1) * 1.15;
+          return `<button type="button" class="fc-pos-row ${pf === x.c ? "on" : ""}" data-pf="${x.c}" data-pos="${x.c}" aria-pressed="${pf === x.c}" title="${esc(POS_SHORT[x.c])} ${T}기: 주 ${fmtN(x.main)} · 보조 ${fmtN(x.sub)} / 최소 ${x.min} · ${x.txt}"><b>${esc(POS_SHORT[x.c] || x.c)}</b>
+            <span class="fc-pos-mid"><span class="fc-bar" aria-hidden="true"><i class="m" style="width:${Math.round(100 * x.main / full)}%"></i><i class="s" style="width:${Math.round(100 * x.sub / full)}%"></i><i class="ln" style="left:${Math.round(100 * x.min / full)}%"></i></span>
+            <small>주 ${fmtN(x.main)}${recN(x.c) ? `(충원 ${recN(x.c)})` : ""} · 보조 ${fmtN(x.sub)} · 최소 ${x.min}</small></span>
+            <span class="fc-badge ${x.lv}">${x.txt}</span></button>`; }).join("")}</div>
+        <div class="lg" style="font-size:11.5px;gap:10px"><span><i style="background:var(--violet-mid)"></i>주</span><span><i style="background:repeating-linear-gradient(135deg,var(--violet-soft) 0 2px,#fff 2px 4px)"></i>보조</span><span><i style="background:var(--ink);width:2px"></i>최소</span></div></section>`;
+    // 019.5 B안: 위는 한 줄(기 고르기 · 충원 반영), 아래는 3열(숫자·포지션 | 피라미드 | 리더십)
     $("#fcBody").innerHTML = `${fcNoCohort(M)}
-      <section class="panel" style="border-color:var(--violet-soft);gap:10px">
-        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
-          <label for="fcRange" style="font-size:17px;font-weight:800">${T}기 · ${k ? k + "년 뒤" : "지금"} <span class="small muted" style="font-weight:600">${termStartLabel(M.TN, k, true)}월 시작</span></label>
-          <div class="seg" id="fcPlan" role="group" aria-label="충원 반영"><span class="small muted" style="align-self:center;margin-right:4px">충원 반영</span>
-            ${[["none", "안 함"], ["min", "최소 운영"], ["keep", "규모 유지"]].map(([v, l]) => `<button type="button" data-plan="${v}" aria-pressed="${FC.plan === v}">${l}</button>`).join("")}</div></div>
-        <input id="fcRange" class="fc-slider" type="range" min="0" max="${M.H}" step="1" value="${k}">
-        <div class="fc-years">${yrs.map((i) => `<button type="button" data-k="${i}" aria-pressed="${i === k}"><b>${M.T0 + i}기</b><span>${i ? i + "년 뒤" : "지금"}</span></button>`).join("")}</div>
-        <div class="chips2" id="fcPf" role="group" aria-label="포지션 보기"><span class="small muted" style="align-self:center;margin-right:2px">포지션 보기</span>
-          ${[["all", "전체"], ...FC_POS.map((c) => [c, POS_SHORT[c] || c])].map(([v, l]) => `<button type="button" data-pf="${v}" aria-pressed="${(pf || "all") === v}">${l}</button>`).join("")}</div>
+      <section class="panel fc-ctl" style="border-color:var(--violet-soft)">
+        <span class="fc-ctl-t" id="fcAt" style="font-size:17px;font-weight:800">${T}기 · ${k ? k + "년 뒤" : "지금"} <span class="small muted" style="font-weight:600">${termStartLabel(M.TN, k, true)}월 시작</span></span>
+        <div class="fc-years" role="group" aria-label="볼 기">${yrs.map((i) => `<button type="button" data-k="${i}" aria-pressed="${i === k}"><b>${M.T0 + i}기</b><span>${i ? i + "년 뒤" : "지금"}</span></button>`).join("")}</div>
+        <div class="seg" id="fcPlan" role="group" aria-label="충원 반영"><span class="small muted" style="align-self:center;margin-right:4px">충원 반영</span>
+          ${[["none", "안 함"], ["min", "최소 운영"], ["keep", "규모 유지"]].map(([v, l]) => `<button type="button" data-plan="${v}" aria-pressed="${FC.plan === v}">${l}</button>`).join("")}</div>
       </section>
-      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
-        <section class="panel" style="flex:999 1 620px;min-width:0;gap:6px;overflow-x:auto">
-          <div class="fc-row head"><span style="text-align:right;color:#1F4E7A">남 ${mN}</span><span style="text-align:center">공동체 기수</span><span style="color:#7E2556">여 ${fN}</span></div>
-          ${grads.length ? `<div class="fc-grad">졸업 · ${Math.min(...grads.map((p) => p.cohort))}${last - 1 > Math.min(...grads.map((p) => p.cohort)) ? `~${last - 1}` : ""}기 ${grads.length}명</div>` : ""}
-          ${rows.join("")}
-          <div class="lg" style="padding-top:12px;margin-top:6px;border-top:1px solid var(--tint)">
-            <span><i style="background:#D9E8F7"></i>남</span><span><i style="background:#F6DCEA"></i>여</span><span><i style="background:var(--violet);box-shadow:0 0 0 2px #E0A23B inset"></i>직책</span>
-            <span><i class="lg-dot"></i>보조 포지션 있음</span>
-            <span><i style="background:repeating-linear-gradient(135deg,#E6E1EE 0 3px,#F6F3F9 3px 6px);border:1px solid #CFC6DD"></i>군복무 중</span><span><i style="background:#fff;border:1px dashed #CFC6DD"></i>이탈 가정</span>
-            <span><i style="background:#fff;border:1.5px dashed var(--violet-mid)"></i>충원 예정 (성별 미정)</span>
-            ${pf ? `<span><b>진하게</b> = 주 ${esc(POS_SHORT[pf])} · <b>연하게</b> = 보조 ${esc(POS_SHORT[pf])}</span>` : ""}</div>
-        </section>
-        <aside style="flex:1 1 280px;max-width:360px;display:flex;flex-direction:column;gap:12px">
+      <div class="fc-3col">
+        <aside class="fc-col-l">
           <section class="panel" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">
             <div class="fc-stat"><span>섬기는 인원</span><b>${total}명</b><small style="color:${d < 0 ? "var(--bad)" : "var(--muted)"}">${k ? (d === 0 ? "지금과 같음" : d > 0 ? `지금보다 +${d}` : `지금보다 ${d}`) : `${M.T0}기 기준`}</small></div>
             <div class="fc-stat"><span>자리 비움</span><b>${away}명</b><small>군복무·이탈 가정</small></div>
             ${k && Y.add ? `<div class="fc-stat" style="grid-column:1/-1"><span>${T}기 충원</span><b>${Y.add}명</b><small>${FC_POS.filter((c) => Y.need[c]).map((c) => `${POS_SHORT[c]} ${Y.need[c]}`).join(" · ")}${Y.add > Y.minT ? ` · 추가 ${Y.add - Y.minT}` : ""}</small></div>` : ""}
-            ${pfStat}
           </section>
-          <section class="panel" style="gap:8px"><h2 style="font-size:15px">리더십 4자리${FC.sc === "pess" ? " <small>비관 · 1년 임기</small>" : ""}</h2><div class="fc-leads one">${fcLeadHTML(M, k)}</div></section>
+          ${posPanel}
+        </aside>
+        <section class="panel fc-col-p" style="gap:6px;overflow-x:auto">
+          <div class="fc-row head"><span style="text-align:right;color:#1F4E7A">남 ${mN}</span><span style="text-align:center">공동체 기수</span><span style="color:#7E2556">여 ${fN}</span></div>
+          ${grads.length ? `<div class="fc-grad">졸업 · ${Math.min(...grads.map((p) => p.cohort))}${last - 1 > Math.min(...grads.map((p) => p.cohort)) ? `~${last - 1}` : ""}기 ${grads.length}명</div>` : ""}
+          ${rows.join("")}
+          <div class="lg" style="padding-top:12px;margin-top:6px;border-top:1px solid var(--tint)">
+            <span><i style="background:#D9E8F7"></i>남</span><span><i style="background:#F6DCEA"></i>여</span>
+            <span><b style="color:var(--ink)">싱어</b> 주 포지션</span><span><em class="lg-sub">+메인</em> 보조 포지션</span>
+            <span><em class="lg-rt">팀장</em> 직책 (이름표 · 보라 테두리)</span>
+            <span><i style="background:repeating-linear-gradient(135deg,#E6E1EE 0 3px,#F6F3F9 3px 6px);border:1px solid #CFC6DD"></i>군복무 중</span><span><i style="background:#fff;border:1px dashed #CFC6DD"></i>이탈 가정</span>
+            <span><i style="background:#fff;border:1.5px dashed var(--violet-mid)"></i>충원 예정 (성별 미정)</span>
+            ${pf ? `<span>실선 테두리 = 주 ${esc(POS_SHORT[pf])} · 점선 테두리 = 보조 ${esc(POS_SHORT[pf])}</span>` : ""}</div>
+        </section>
+        <aside class="fc-col-r">
+          <section class="panel" style="gap:8px"><h2 style="font-size:15px">리더십 4자리 <small>급한 순${FC.sc === "pess" ? " · 비관 · 1년 임기" : ""}</small></h2><div class="fc-leads one">${fcLeadHTML(M, k)}</div></section>
         </aside>
       </div>`;
     const setK = (v) => { FC.t = +v; drawFcPyramid(M); };
-    $("#fcRange").addEventListener("input", (e) => setK(e.target.value));
     $$(".fc-years [data-k]").forEach((b) => b.addEventListener("click", () => setK(b.dataset.k)));
     $$("#fcPlan [data-plan]").forEach((b) => b.addEventListener("click", () => { FC.plan = b.dataset.plan; drawFcPyramid(M); }));
-    $$("#fcPf [data-pf]").forEach((b) => b.addEventListener("click", () => { FC.pf = b.dataset.pf; drawFcPyramid(M); }));
+    $$(".fc-pos [data-pf]").forEach((b) => b.addEventListener("click", () => { FC.pf = b.dataset.pf === "all" || FC.pf === b.dataset.pf ? "all" : b.dataset.pf; drawFcPyramid(M); }));
   }
 
   function drawFcExits(M) {

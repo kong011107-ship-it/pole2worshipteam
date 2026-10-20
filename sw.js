@@ -9,8 +9,8 @@ self.addEventListener("push", (e) => {
   try { d = e.data ? e.data.json() : {}; } catch { d = { title: e.data?.text() || "Pole2 찬양팀" }; }
   e.waitUntil(self.registration.showNotification(d.title || "Pole2 찬양팀", {
     body: d.body || "",
-    icon: "/assets/icon-192.png",
-    badge: "/assets/badge-72.png",
+    icon: "/assets/icon-192.png?v=20",
+    badge: "/assets/badge-72.png?v=20",
     tag: d.tag || undefined,
     data: { url: d.url || "/me.html#alerts" },
   }));
