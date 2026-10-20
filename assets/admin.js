@@ -357,7 +357,7 @@
 
   // ---------------------------------------------------------------- 푸시 알림 (013)
   const NOTIFY_NAME = { open: "섬김 응답 열림", minopen: "사역 응답 열림", poll: "연습 시간 요청", remind: "마감 임박", lineup: "배치표 공개", practice: "연습 시간 확정", apply: "새 지원서", trainee: "수습 기록 차례", notice: "리더 공지",
-    prayer_new: "기도제목 올라옴", prayer_remind: "주중 함께 기도", prayer_urgent: "급한 기도" };
+    prayer_new: "기도제목 올라옴", prayer_remind: "주중 함께 기도", prayer_urgent: "급한 기도", birthday_soon: "생일 다가옴", birthday_today: "생일 당일" };
   async function notifyEnabled(kind) {
     const { data } = await sb.from("notify_settings").select("enabled").eq("kind", kind).maybeSingle();
     return data ? data.enabled : true;
@@ -848,10 +848,11 @@
   }
 
   function renderAppTab(a, body) {
-    const q = [a.q_practice && "토요 연습·팀모임 참석", a.q_sunday && "주일 예배 참여", a.q_group && "순모임 소속"].filter(Boolean);
+    const q = [a.q_practice && "팀모임 참여", a.q_sunday && "주일 예배 참여", a.q_group && "순모임 참여"].filter(Boolean);
     body.innerHTML = `<section class="card bordered"><dl class="kv" style="grid-template-columns:140px minmax(0,1fr);gap:14px 20px;line-height:1.65">
       <dt>지원 자격</dt><dd>${q.join(" · ")} ${q.length === 3 ? `<span class="chip chip-ok">3항목 확인</span>` : ""}</dd>
       <dt>연락처</dt><dd>${esc(a.phone)}</dd><dt>이메일</dt><dd>${esc(a.email)}</dd><dt>순모임</dt><dd>${esc(a.small_group) || "—"}</dd>
+      <dt>기수 · 생년월일</dt><dd>${a.cohort ? a.cohort + "기" : "—"} · ${a.birth_date ? birthLabel(a.birth_date) : "—"}</dd>
       <dt>지원 포지션</dt><dd>${esc(positionName(a.applied_position))}</dd>
       <dt>지원 동기</dt><dd>${esc(a.motivation) || "—"}</dd><dt>이루고 싶은 것</dt><dd>${esc(a.goal) || "—"}</dd>
       <dt>서약</dt><dd>${esc(a.pledge_title)} · ${fmtDate(a.pledged_at)} 서약
@@ -984,7 +985,7 @@
       const pick = S.memberSelect;
       const tag = pick ? `label class="mrow pickrow ${S.picked.has(m.id) ? "on" : ""}"` : `a class="mrow" href="#member/${m.id}"`;
       const box = pick ? `<input type="checkbox" data-pick="${m.id}" ${S.picked.has(m.id) ? "checked" : ""} ${m.id === S.me.id ? `disabled title="본인 계정은 고를 수 없어요"` : m.is_owner ? `disabled title="최상위 리더십 계정은 고를 수 없어요"` : ""} aria-label="${esc(m.name)} 고르기">` : "";
-      return `<${tag}><span class="nm">${box}${esc(m.name)} ${badges}</span><span class="sub">${esc(posText(m))}</span>
+      return `<${tag}><span class="nm">${box}${esc(m.name)} ${badges}</span><span class="sub">${m.cohort ? `<b class="coh">${m.cohort}기</b> · ` : ""}${esc(posText(m))}</span>
         ${m.status === "trainee" ? `<span class="sub">–</span><span class="sub">–</span>` : `<span class="num"><b>${s.monthN}</b>회</span><span class="num"><b>${s.q3}</b>회</span>`}
         ${s.marks.length ? dotsHTML(s.marks) : `<span class="sub">–</span>`}
         ${s.lates ? `<span style="color:var(--mid);font-weight:800">${s.lates}회</span>` : `<span class="sub">–</span>`}<span class="arrow">${pick ? "" : "›"}</span></${pick ? "label" : "a"}>`;
@@ -992,6 +993,10 @@
     const byName = (a, b) => a.name.localeCompare(b.name, "ko");
     let body;
     if (S.memberGroup === "name") body = list.slice().sort(byName).map(rowHTML).join("");
+    else if (S.memberGroup === "cohort") body = [...new Set(list.map((m) => m.cohort ?? null))].sort((a, b) => (a ?? 999) - (b ?? 999)).map((c) => {
+      const g = list.filter((m) => (m.cohort ?? null) === c).sort(byName);
+      return `<div class="group-label">${c ? c + "기" : "기수 미입력"} · ${g.length}명</div>${g.map(rowHTML).join("")}`;
+    }).join("");
     else body = ["leader", "vocal", "band"].map((part) => {
       const g = list.filter((m) => partOf(m.main_position) === part).sort((a, b) => (m2o(a) - m2o(b)) || byName(a, b));
       return g.length ? `<div class="group-label">${PART_LABEL[part]} · ${g.length}명</div>${g.map(rowHTML).join("")}` : "";
@@ -1004,7 +1009,7 @@
           <button type="button" class="btn btn-ghost btn-sm" id="mPickMode" aria-pressed="${!!S.memberSelect}">${S.memberSelect ? "고르기 끝" : "여러 명 고르기"}</button>
           <button type="button" class="btn btn-ghost btn-sm" id="mBulkAdd">엑셀로 일괄 등록</button></div>
         <div class="seg" id="mGroup"><span class="small muted" style="align-self:center;margin-right:4px">묶어 보기</span>
-          <button type="button" data-g="part" aria-pressed="${S.memberGroup !== "name"}">파트별</button><button type="button" data-g="name" aria-pressed="${S.memberGroup === "name"}">이름순</button></div>
+          <button type="button" data-g="part" aria-pressed="${!["name", "cohort"].includes(S.memberGroup)}">파트별</button><button type="button" data-g="cohort" aria-pressed="${S.memberGroup === "cohort"}">기수별</button><button type="button" data-g="name" aria-pressed="${S.memberGroup === "name"}">이름순</button></div>
       </div>
       <div class="mtable">
         <div class="mrow head"><span>이름</span><span>포지션</span><span>이번 달 섬김</span><span>최근 3개월</span><span>최근 팀모임 ${held.length}회</span><span>지각 ${LATE_WEEKS}주</span><span></span></div>
@@ -1093,17 +1098,19 @@
     sc.onerror = () => { xlsxP = null; no(new Error("엑셀 도구를 불러오지 못했어요. 인터넷 연결을 확인해 주세요")); };
     document.head.appendChild(sc);
   }));
-  const BULK_HEAD = ["이름", "이메일(아이디)", "연락처", "성별(남/여)", "주 포지션", "추가 포지션", "숙련도(상/중/하)", "순모임", "구분(정식/수습)"];
+  const BULK_HEAD = ["이름", "이메일(아이디)", "연락처", "성별(남/여)", "기수", "생년월일", "주 포지션", "추가 포지션", "생일선물 정산(참여/미참여)", "숙련도(상/중/하)", "순모임", "구분(정식/수습)"];
   async function downloadTemplate() {
     const X = await loadXLSX();
     const ps = window.__allPositions || [];
     const ws = X.utils.aoa_to_sheet([BULK_HEAD,
-      ["홍길동(예시)", "gildong@example.com", "010-1234-5678", "남", "싱어", "", "중", "1순", "정식"],
-      ["김예시(예시)", "yesi@example.com", "010-2345-6789", "여", "메인건반", "세컨건반, 싱어", "상", "", "정식"]]);
-    ws["!cols"] = [12, 26, 16, 10, 12, 18, 14, 10, 14].map((w) => ({ wch: w }));
+      ["홍길동(예시)", "gildong@example.com", "010-1234-5678", "남", "39기", "2003. 2. 4", "싱어", "", "참여", "중", "1순", "정식"],
+      ["김예시(예시)", "yesi@example.com", "010-2345-6789", "여", "41기", "2005-11-20", "메인건반", "세컨건반, 싱어", "미참여", "상", "", "정식"]]);
+    ws["!cols"] = [12, 26, 16, 10, 8, 14, 12, 18, 18, 14, 10, 14].map((w) => ({ wch: w }));
     const guide = X.utils.aoa_to_sheet([["항목", "적는 법"], ["이름 · 이메일 · 주 포지션", "꼭 적어 주세요. 이메일이 로그인 아이디가 돼요"],
       ["포지션", ps.map((p) => p.name).join(", ") + " (줄여서 " + Object.values(POS_SHORT).join(", ") + "도 돼요)"],
-      ["추가 포지션", "여러 개면 쉼표로 (예: 세컨건반, 싱어)"], ["성별", "남 / 여 (배치 성비에 써요)"], ["숙련도", "상 / 중 / 하 — 주 포지션 기준, 비우면 '중'"],
+      ["추가 포지션", "여러 개면 쉼표로 (예: 세컨건반, 싱어)"], ["성별", "남 / 여 (배치 성비에 써요)"],
+      ["기수", "숫자만 또는 39기"], ["생년월일", "양력 · 2003. 2. 4 / 2003-02-04 / 20030204 모두 돼요"], ["생일선물 정산", "참여 / 미참여 (참여합니다 · 참여하지 않습니다도 돼요). 비우면 미정"],
+      ["구글 폼 응답", "20기 찬양팀 신청서 응답 시트를 그대로 올려도 돼요. 같은 이메일로 여러 번 냈으면 마지막 응답만 써요"], ["숙련도", "상 / 중 / 하 — 주 포지션 기준, 비우면 '중'"],
       ["구분", "정식 / 수습 — 비우면 정식"], ["예시 줄", "이름에 (예시)가 들어간 줄은 등록하지 않아요. 지우고 써도 돼요"]]);
     guide["!cols"] = [{ wch: 24 }, { wch: 80 }];
     const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, "팀원"); X.utils.book_append_sheet(wb, guide, "적는 법");
@@ -1112,15 +1119,24 @@
   // 엑셀 한 장 → [{ line, raw, row, errors }]
   function parseBulk(X, buf) {
     const wb = X.read(buf, { type: "array" });
-    const aoa = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true });
-    const hi = aoa.findIndex((r) => r.some((c) => String(c).replace(/\s/g, "") === "이름"));
+    let aoa = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true });
+    const hnorm = (c) => String(c).replace(/\s/g, "").replace(/^\d+[.)]/, "");
+    const hi = aoa.findIndex((r) => r.some((c) => hnorm(c) === "이름"));
     if (hi < 0) throw new Error("첫 줄에 '이름' 칸이 있는 양식으로 올려 주세요");
-    const head = aoa[hi].map((c) => String(c).replace(/\s/g, ""));
-    const col = (...keys) => head.findIndex((h) => keys.some((k) => h.startsWith(k)));
-    const C = { name: col("이름"), email: col("이메일", "아이디"), phone: col("연락처", "전화", "휴대폰"), gender: col("성별"), main: col("주포지션", "포지션"),
-      extra: col("추가포지션", "추가"), skill: col("숙련도"), group: col("순모임"), status: col("구분", "상태") };
+    const head = aoa[hi].map(hnorm);
+    const col = (...keys) => { for (const k of keys) { const i = head.indexOf(k); if (i >= 0) return i; } return head.findIndex((h) => keys.some((k) => h.startsWith(k))); };
+    const C = { name: col("이름"), email: col("이메일", "아이디"), phone: col("연락처", "전화", "휴대폰"), gender: col("성별"), main: col("주포지션", "주섬김", "포지션"),
+      extra: col("추가포지션", "추가"), skill: col("숙련도"), group: col("순모임이름", "순모임명", "소속순모임"), status: col("구분", "상태"),
+      cohort: col("기수"), birth: col("생년월일", "생일"), gift: col("생일선물", "정산"), ts: col("타임스탬프", "Timestamp") };
+    if (C.group < 0) { const gi = head.findIndex((h) => h === "순모임"); C.group = gi; }
     if (C.name < 0 || C.email < 0 || C.main < 0) throw new Error("이름 · 이메일 · 주 포지션 칸이 필요해요. 양식을 내려받아 써 주세요");
     const ps = window.__allPositions || [];
+    // 구글 폼 응답: 같은 이메일로 여러 번 냈으면 마지막(아래쪽) 응답만 씀
+    if (C.ts >= 0) {
+      const last = new Map();
+      aoa.slice(hi + 1).forEach((r, i) => { const e = String(r[C.email] ?? "").trim().toLowerCase(); if (e) last.set(e, i); });
+      aoa = aoa.slice(0, hi + 1).concat(aoa.slice(hi + 1).map((r, i) => { const e = String(r[C.email] ?? "").trim().toLowerCase(); return e && last.get(e) !== i ? [] : r; }));
+    }
     const norm = (v) => String(v ?? "").replace(/\s/g, "");
     const POSMAP = {};
     ps.forEach((p) => { POSMAP[norm(p.name)] = p.code; POSMAP[p.code] = p.code; if (POS_SHORT[p.code]) POSMAP[POS_SHORT[p.code]] = p.code; });
@@ -1129,7 +1145,7 @@
     const seen = new Map();
     const out = [];
     aoa.slice(hi + 1).forEach((r, i) => {
-      const get = (k) => (C[k] >= 0 ? r[C[k]] : "");
+      const get = (k) => (C[k] >= 0 ? r[C[k]] ?? "" : "");
       const name = String(get("name")).trim();
       if (!name && !String(get("email")).trim()) return;
       if (name.includes("예시")) return;
@@ -1142,20 +1158,44 @@
       const extra = extraRaw.map((x) => POSMAP[x]);
       const sk = norm(get("skill")), skill = { "상": 3, "중": 2, "하": 1 }[sk] ?? (sk ? "?" : null);
       const st = norm(get("status")), status = st === "수습" ? "trainee" : !st || st === "정식" ? "active" : "?";
+      const ch = norm(get("cohort")), cohort = !ch ? null : /^\d{1,3}기?$/.test(ch) && +ch.replace("기", "") <= 200 ? +ch.replace("기", "") : "?";
+      const birth = parseBirth(get("birth"));
+      const gf = norm(get("gift")), gift = !gf ? null : /^(참여|참여합니다|o|y|예)$/i.test(gf) ? true : /^(미참여|불참|참여하지않습니다|참여안함|x|n|아니오)$/i.test(gf) ? false : "?";
       if (!name) errors.push("이름 없음");
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errors.push(email ? "이메일 형식" : "이메일 없음");
       else if (have.has(email)) errors.push("이미 등록된 이메일");
-      else if (seen.has(email)) errors.push(`${seen.get(email)}번 줄과 이메일 중복`);
+      else if (seen.has(email) && C.ts < 0) errors.push(`${seen.get(email)}번 줄과 이메일 중복`);
       if (!main) errors.push(get("main") ? `포지션 '${get("main")}'?` : "주 포지션 없음");
       extra.forEach((c, k) => { if (!c) errors.push(`추가 포지션 '${extraRaw[k]}'?`); });
       if (gender === "?") errors.push("성별은 남/여");
       if (skill === "?") errors.push("숙련도는 상/중/하");
       if (status === "?") errors.push("구분은 정식/수습");
+      if (cohort === "?") errors.push(`기수 '${get("cohort")}'?`);
+      if (birth === "?") errors.push(`생년월일 '${get("birth")}'?`);
+      if (gift === "?") errors.push("생일선물 정산은 참여/미참여");
       if (email && !seen.has(email)) seen.set(email, hi + i + 2);
       out.push({ line: hi + i + 2, errors, row: { name, email, phone, gender: gender === "?" ? null : gender, main_position: main, extra_positions: extra.filter(Boolean),
-        skill: skill === "?" ? null : skill, small_group: String(get("group")).trim(), status: status === "?" ? "active" : status } });
+        skill: skill === "?" ? null : skill, small_group: String(get("group")).trim(), status: status === "?" ? "active" : status,
+        cohort: cohort === "?" ? null : cohort, birth_date: birth === "?" ? null : birth, gift_join: gift === "?" ? null : gift } });
     });
     return out;
+  }
+  // 생년월일: "2003. 2. 4" · "2003-02-04" · "2003/2/4" · "20030204" · 엑셀 날짜 숫자. 비면 null, 못 읽으면 "?"
+  function parseBirth(v) {
+    if (v === "" || v === null || v === undefined) return null;
+    let y, m, d;
+    if (typeof v === "number" && v > 10000 && v < 80000) {   // 엑셀 날짜(1900 기준 일 수)
+      const t = new Date(Date.UTC(1899, 11, 30) + v * 864e5); y = t.getUTCFullYear(); m = t.getUTCMonth() + 1; d = t.getUTCDate();
+    } else {
+      const s2 = String(v).trim().replace(/\s/g, "");
+      let r = s2.match(/^(\d{4})[.\-/년](\d{1,2})[.\-/월](\d{1,2})[.일]?$/) || s2.match(/^(\d{4})(\d{2})(\d{2})$/);
+      if (!r) return "?";
+      [, y, m, d] = r.map(Number);
+    }
+    const iso = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const t = new Date(iso + "T00:00:00Z");
+    if (isNaN(t) || t.getUTCDate() !== d || iso < "1940-01-01" || iso > "2020-12-31") return "?";
+    return iso;
   }
   // 함께 쓰는 임시 비밀번호 검사 — 서버(_lib.js sharedPasswordProblem)와 같은 규칙
   const WEAK_PW = ["12345678", "123456789", "1234567890", "password", "password1", "qwerty12", "qwer1234", "abcd1234", "a1234567", "pole21234", "pole2pole2", "worship1"];
@@ -1191,17 +1231,18 @@
       const bad = parsed ? parsed.filter((x) => x.errors.length) : [];
       $("#bkPrev").innerHTML = !parsed ? "" : !parsed.length ? `<div class="empty">등록할 줄이 없어요.</div>` : `
         <div class="row"><span class="chip chip-ok">등록할 수 있어요 ${ok.length}명</span>${bad.length ? `<span class="chip chip-warn">고칠 곳 있음 ${bad.length}명 · 등록하지 않아요</span>` : ""}</div>
-        <div class="evaltable" style="max-height:340px;overflow:auto"><table class="bk-table"><thead><tr><th>줄</th><th>이름</th><th>이메일(아이디)</th><th>포지션</th><th>성별</th><th>숙련도</th><th>구분</th><th>확인</th></tr></thead>
+        <div class="evaltable" style="max-height:340px;overflow:auto"><table class="bk-table"><thead><tr><th>줄</th><th>이름</th><th>이메일(아이디)</th><th>포지션</th><th>성별</th><th>기수</th><th>생년월일</th><th>정산</th><th>숙련도</th><th>구분</th><th>확인</th></tr></thead>
           <tbody>${parsed.map((x) => `<tr class="${x.errors.length ? "bad" : ""}"><td>${x.line}</td><td><b>${esc(x.row.name)}</b></td><td>${esc(x.row.email)}</td>
             <td>${esc([x.row.main_position && positionName(x.row.main_position), ...x.row.extra_positions.map(positionName)].filter(Boolean).join(", "))}</td>
-            <td>${x.row.gender ? GENDER[x.row.gender] : "–"}</td><td>${x.row.skill ? LEVEL[x.row.skill] : "–"}</td><td>${x.row.status === "trainee" ? "수습" : "정식"}</td>
+            <td>${x.row.gender ? GENDER[x.row.gender] : "–"}</td><td>${x.row.cohort ? x.row.cohort + "기" : "–"}</td><td>${x.row.birth_date ? birthLabel(x.row.birth_date) : "–"}</td>
+            <td>${x.row.gift_join === true ? "참여" : x.row.gift_join === false ? "미참여" : "–"}</td><td>${x.row.skill ? LEVEL[x.row.skill] : "–"}</td><td>${x.row.status === "trainee" ? "수습" : "정식"}</td>
             <td>${x.errors.length ? `<span class="bk-err">${esc(x.errors.join(" · "))}</span>` : `<span class="bk-ok">OK</span>`}</td></tr>`).join("")}</tbody></table></div>
         ${bad.length ? `<p class="small muted" style="margin:0">빨간 줄은 엑셀에서 고쳐 다시 올리거나, 나머지만 먼저 등록하고 따로 추가해도 돼요.</p>` : ""}`;
       const b = $("#mOk"); if (b) b.textContent = ok.length ? `${ok.length}명 등록` : "등록";
       drawPw();
     };
     modal({ title: "엑셀로 멤버 일괄 등록", wide: true, confirmLabel: "등록",
-      body: `<ol class="bk-steps"><li>양식을 내려받아 한 줄에 한 명씩 채워 주세요. <button type="button" class="btn btn-soft btn-sm" id="bkTpl">양식 내려받기</button></li>
+      body: `<ol class="bk-steps"><li>양식을 내려받아 한 줄에 한 명씩 채워 주세요. <button type="button" class="btn btn-soft btn-sm" id="bkTpl">양식 내려받기</button><br><span class="small muted">구글 폼 응답 시트(파일 › 다운로드 › .xlsx 또는 .csv)를 그대로 올려도 돼요. 같은 이메일로 여러 번 냈으면 마지막 응답만 써요.</span></li>
           <li>채운 파일(.xlsx · .csv)을 올리면 등록 전에 미리 보여 줘요. <label class="btn btn-ghost btn-sm">파일 고르기<input type="file" id="bkFile" accept=".xlsx,.xls,.csv" hidden></label><span class="small muted" id="bkName"></span></li>
           <li>임시 비밀번호를 정해요. 첫 로그인 때 각자 바꿔야 해요.
             <div class="bk-pw" id="bkPwBox">
@@ -1399,6 +1440,9 @@
           <dl><div><dt>연락처</dt><dd>${esc(m.phone) || "—"}</dd></div><div><dt>이메일 (로그인)</dt><dd>${esc(m.email) || "—"}</dd></div>
             <div><dt>순모임</dt><dd>${esc(m.small_group) || "—"}</dd></div>
             <div><dt>성별</dt><dd>${m.gender ? GENDER[m.gender] : `<span style="color:var(--warn)">미입력</span>`}</dd></div>
+            <div><dt>기수</dt><dd>${m.cohort ? m.cohort + "기" : "—"}</dd></div>
+            <div><dt>생년월일 · 리더십만</dt><dd>${m.birth_date ? `${birthLabel(m.birth_date)}${(() => { const nb = nextBirthday(m.birth_date); return nb.days === 0 ? ` <span class="chip chip-bday">오늘 생일</span>` : nb.days <= 14 ? ` <span class="chip chip-bday">생일 D-${nb.days}</span>` : ""; })()}` : "—"}</dd></div>
+            <div><dt>생일선물 정산</dt><dd>${m.gift_join === true ? "참여" : m.gift_join === false ? "미참여" : `<span class="muted">미정</span>`}</dd></div>
             <div><dt>함께한 날</dt><dd>${fmtDate(sinceOf(m), { year: "numeric", month: "long", day: "numeric" })} · ${durText(sinceOf(m))}</dd></div>
             <div><dt>숙련도 · 리더십만</dt><dd>${esc(skillLine)}</dd></div></dl>
         </div>
@@ -1519,7 +1563,11 @@
           <label class="field"><span class="lrow">연락처</span><input type="tel" id="ePhone" maxlength="13" value="${esc(m.phone || "")}" placeholder="010-0000-0000"></label>
           <label class="field"><span class="lrow">순모임</span><input type="text" id="eGroup" maxlength="30" value="${esc(m.small_group || "")}" placeholder="예: OOO순"></label>
           <label class="field"><span class="lrow">함께한 날 <span class="hint">· 실제 찬양팀 합류일</span></span><input type="date" id="eSince" value="${sinceOf(m) || ""}"></label>
+          <label class="field"><span class="lrow">기수</span><span style="display:flex;align-items:center;gap:6px"><input type="text" id="eCohort" inputmode="numeric" maxlength="3" value="${m.cohort ?? ""}" placeholder="예: 39" style="min-width:0">기</span></label>
+          <label class="field"><span class="lrow">생년월일 <span class="hint">· 양력 · 리더십만 봐요</span></span><input type="date" id="eBirth" min="1940-01-01" max="2020-12-31" value="${m.birth_date || ""}"></label>
         </div>
+        <div class="field"><span class="lrow">생일선물 정산 <span class="hint">· 참여한 사람만 생일 선물을 받아요. 바꿀 땐 본인이 리더십에게 말해요</span></span>
+          <div class="seg" id="eGift"><button type="button" data-v="true" aria-pressed="${m.gift_join === true}">참여</button><button type="button" data-v="false" aria-pressed="${m.gift_join === false}">미참여</button></div></div>
         <div class="field"><span class="lrow">성별 <span class="hint">· 배치 추천에서 싱어 성비에 써요</span></span>
           <div class="seg" id="eGender"><button type="button" data-v="m" aria-pressed="${m.gender === "m"}">남</button><button type="button" data-v="f" aria-pressed="${m.gender === "f"}">여</button></div></div>
         <label class="field">이메일 (로그인 아이디)<input type="email" id="eEmail" value="${esc(m.email || "")}" ${lockedFor(m) ? "disabled" : ""}>
@@ -1543,6 +1591,8 @@
           drawSkills();
         }
         if (e.target?.closest?.("#eExtra input") && e.type === "input") drawSkills();
+        const fb = e.target?.closest?.("#eGift button");
+        if (fb && e.type === "click") $$("#eGift button").forEach((x) => x.setAttribute("aria-pressed", String(x === fb && x.getAttribute("aria-pressed") !== "true")));
         const gb = e.target?.closest?.("#eGender button");
         if (gb && e.type === "click") $$("#eGender button").forEach((x) => x.setAttribute("aria-pressed", String(x === gb && x.getAttribute("aria-pressed") !== "true")));
         const k = e.target?.closest?.("[data-skill] button");
@@ -1559,8 +1609,12 @@
         if (!name) throw new Error("이름을 입력해 주세요.");
         if (phone && !/^[0-9\-]{9,13}$/.test(phone)) throw new Error("연락처를 010-0000-0000 형식으로 입력해 주세요.");
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("이메일 주소를 다시 확인해 주세요.");
+        const coh = $("#eCohort").value.replace(/\D/g, ""), birth = $("#eBirth").value || null;
+        if (coh && +coh > 200) throw new Error("기수를 확인해 주세요.");
+        if (birth && (birth < "1940-01-01" || birth > "2020-12-31")) throw new Error("생년월일을 확인해 주세요.");
+        const gv = $("#eGift [aria-pressed=true]")?.dataset.v;
         const patch = { name, phone, small_group: $("#eGroup").value.trim() || null, served_since: $("#eSince").value || null, main_position: main,
-          gender: $("#eGender [aria-pressed=true]")?.dataset.v || null };
+          gender: $("#eGender [aria-pressed=true]")?.dataset.v || null, cohort: coh ? +coh : null, birth_date: birth, gift_join: gv === undefined ? null : gv === "true" };
         const { error } = await sb.from("members").update(patch).eq("id", m.id);
         if (error) throw new Error("저장하지 못했습니다");
         // 추가 포지션 맞추기
@@ -3343,6 +3397,9 @@
             return `<div title="${esc(p.name)} 주 포지션 ${n}명${multi ? ` · 멀티 ${multi}명` : ""}"><b>${n}${multi ? `<span class="small muted" style="font-weight:600">+${multi}</span>` : ""}</b>${POS_SHORT[p.code] || esc(p.name)}</div>`;
           }).join("")}</div>
           <span class="small muted">숫자 = 주 포지션 인원 · +는 멀티 포지션</span>
+          ${(() => { const bs = S.members.filter((m) => m.is_active && m.birth_date).map((m) => ({ m, ...nextBirthday(m.birth_date, today) })).filter((x) => x.days <= 14).sort((a, b) => a.days - b.days);
+            return bs.length ? `<div class="bdays"><b class="small">다가오는 생일 · 2주</b>${bs.map((x) => `<a href="#member/${x.m.id}"><span class="chip chip-bday">${x.days ? "D-" + x.days : "오늘"}</span><b>${esc(x.m.name)}</b><span class="small muted">${md(x.date)} (${["주일", "월", "화", "수", "목", "금", "토"][dowOf(x.date)]})</span>
+              <span class="small ${x.m.gift_join ? "" : "muted"}" style="margin-left:auto">${x.m.gift_join === true ? "선물 대상" : x.m.gift_join === false ? "정산 미참여" : "정산 미정"}</span></a>`).join("")}</div>` : ""; })()}
           ${trainees.length ? `<div class="plist">${trainees.map((m) => {
             const a = S.apps.find((x) => x.user_id === m.id);
             return `<div><a href="#member/${m.id}" style="color:inherit;text-decoration:none"><b>${esc(m.name)}</b> <span class="muted small">${esc(positionName(m.main_position))}</span></a>
@@ -3999,7 +4056,7 @@
   const NV = { tab: "send", sel: "remind", draft: null, target: "all", date: null, pick: new Set(), title: "", body: "", vote: null };
   // 016: 공지에 붙이는 투표 (기본: 하나만 · 실명 · 사흘 뒤 밤 9시 마감)
   const newVote = () => ({ on: false, options: ["", ""], multi: false, anonymous: false, date: addDays(todayISO(), 3), hour: 21 });
-  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent"];
+  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent", "birthday_soon", "birthday_today"];
   const NINFO = {
     open: { who: "정식 팀원 전체", when: "리더가 월말 응답을 열 때 (확인 창에서 고름)", vars: ["월", "마감일", "이름"] },
     minopen: { who: "그 사역 응답 대상", when: "따로 받는 사역을 만들거나 응답을 다시 열 때 (확인 창에서 고름)", vars: ["사역", "마감일", "이름"] },
@@ -4013,10 +4070,13 @@
     prayer_new: { who: "팀원 전체 (수습 포함)", when: "", vars: ["인원", "개수", "이름"] },
     prayer_remind: { who: "팀원 전체 (수습 포함)", when: "", vars: ["개수", "인원", "이름"] },
     prayer_urgent: { who: "올린 사람을 뺀 팀원 전체", when: "팀원이 '급한 기도'로 올릴 때", vars: ["대상", "이름"] },
+    birthday_soon: { who: "리더십 (생일인 본인은 빼고)", when: "", vars: ["생일자", "며칠", "날짜", "정산", "이름"] },
+    birthday_today: { who: "리더십 (생일인 본인은 빼고)", when: "", vars: ["생일자", "날짜", "정산", "이름"] },
   };
   const NSAMPLE = { "월": "11월", "마감일": "10/31(토)", "사역": "원스텝", "무엇": "11월 섬김 응답", "남은 것": "3개 남았어요", "이름": "이은혜",
     "내 섬김": "11/8 싱어 리더 · 11/15 섬겨요", "연습 일시": "11/10(화) 19:00–21:00", "지원자": "이도현", "포지션": "싱어", "수습생": "이도현", "주차": "3",
-    "제목": "이번 주 팀모임은 없어요", "내용": "토요 연습은 그대로 11:00에 있어요", "인원": "12", "개수": "12", "대상": "김하늘" };
+    "제목": "이번 주 팀모임은 없어요", "내용": "토요 연습은 그대로 11:00에 있어요", "인원": "12", "개수": "12", "대상": "김하늘",
+    "생일자": "김하늘", "며칠": "3일", "날짜": "10/23(금)", "정산": "생일선물 정산 참여 · 선물 준비해요" };
   const NDEF = {
     open: ["{월} 섬김 응답을 받고 있어요", "{마감일}까지 토요 연습·주일 가능 여부를 체크해 주세요"],
     minopen: ["{사역} 섬김 응답을 받고 있어요", "{마감일}까지 가능 여부를 체크해 주세요"],
@@ -4030,8 +4090,10 @@
     prayer_new: ["이번 주 기도제목이 올라왔어요", "{인원}명의 기도제목을 함께 품어요"],
     prayer_remind: ["오늘 저녁, 함께 기도해요", "이번 주 기도제목 {개수}개를 함께 기도해요"],
     prayer_urgent: ["급한 기도제목이 올라왔어요", "{대상}님을 위해 함께 기도해 주세요"],
+    birthday_soon: ["{생일자}님 생일이 {며칠} 남았어요", "{날짜} · {정산}"],
+    birthday_today: ["오늘은 {생일자}님 생일이에요", "{정산} · 축하 메시지를 보내 주세요"],
   };
-  const NSCHED = { remind: [{ days: 1, hour: 18 }, { days: 0, hour: 10 }], trainee: { dow: 6, hour: 18 }, prayer_new: { dow: 6, hour: 21 }, prayer_remind: { days: [2, 4], hour: 20 } };
+  const NSCHED = { remind: [{ days: 1, hour: 18 }, { days: 0, hour: 10 }], trainee: { dow: 6, hour: 18 }, prayer_new: { dow: 6, hour: 21 }, prayer_remind: { days: [2, 4], hour: 20 }, birthday_soon: { days: 3, hour: 9 }, birthday_today: { hour: 9 } };
   const DOWN = ["주일", "월", "화", "수", "목", "금", "토"];
   const hourLabel = (h) => `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}시`;
   const dayLabel = (d) => (d ? `마감 ${d}일 전` : "마감 당일");
@@ -4044,6 +4106,8 @@
     : k === "trainee" ? `매주 ${DOWN[s?.schedule?.dow ?? 6]}요일 ${hourLabel(s?.schedule?.hour ?? 18)}`
     : k === "prayer_new" ? `${DOWN[s?.schedule?.dow ?? 6]}요일 ${hourLabel(s?.schedule?.hour ?? 21)}부터 · 한 번`
     : k === "prayer_remind" ? `매주 ${([].concat(s?.schedule?.days ?? [2, 4])).map((d) => DOWN[d]).join("·") || "요일 없음"} ${hourLabel(s?.schedule?.hour ?? 20)}`
+    : k === "birthday_soon" ? `생일 ${s?.schedule?.days ?? 3}일 전 ${hourLabel(s?.schedule?.hour ?? 9)}`
+    : k === "birthday_today" ? `생일 당일 ${hourLabel(s?.schedule?.hour ?? 9)}`
     : NINFO[k].when.replace(/ \(.*\)$/, "");
   const kindTag = (k) => `<span class="ktag ${k}">${NOTIFY_KIND[k] || "알림"}</span>`;
 
@@ -4286,6 +4350,12 @@
           <span class="chips2" id="scDays">${DOWN.map((w, i) => `<button type="button" data-day="${i}" aria-pressed="${days.includes(i)}">${w}</button>`).join("")}</span>
           <select id="scHour" aria-label="시각">${hours(sc.hour)}</select></div>
         <span class="small muted">이번 주 기도제목이 하나도 없으면 보내지 않아요.</span>`;
+    } else if (k === "birthday_soon" || k === "birthday_today") {
+      const sc = d.schedule || NSCHED[k];
+      whenHTML = `<div class="row" style="font-size:14px"><span>생일</span>
+          ${k === "birthday_soon" ? `<select id="scBd" aria-label="며칠 전">${[1, 2, 3, 4, 5, 7].map((n) => `<option value="${n}" ${sc.days === n ? "selected" : ""}>${n}일 전</option>`).join("")}</select>` : `<span>당일</span>`}
+          <select id="scHour" aria-label="시각">${hours(sc.hour)}</select></div>
+        <span class="small muted">생년월일이 들어 있는 활동 중인 멤버만 보내요 (양력 · 2/29 생일은 평년이면 2/28). 생일인 리더십 본인에게는 안 가요.</span>`;
     } else whenHTML = `<span class="small" style="font-weight:400">${esc(info.when)}에 바로 보내요.</span>`;
 
     $("#nBody").innerHTML = `<section class="card bordered warnset"><div><b>다시 보내기 경고</b><span class="small muted">'보내기' 창에서 같은 안내를 이 시간 안에 받은 사람에게 다시 보내려고 하면 경고해요. 0이면 경고하지 않아요.</span></div>
@@ -4348,8 +4418,10 @@
       if (k === "remind") d.schedule = [0, 1].filter((i) => $(`[data-sc-on="${i}"]`).checked).map((i) => ({ days: +$(`[data-sc-days="${i}"]`).value, hour: +$(`[data-sc-hour="${i}"]`).value }));
       if (k === "trainee" || k === "prayer_new") d.schedule = { dow: +$("#scDow").value, hour: +$("#scHour").value };
       if (k === "prayer_remind") d.schedule = { days: $$("#scDays [aria-pressed=true]").map((b) => +b.dataset.day), hour: +$("#scHour").value };
+      if (k === "birthday_soon") d.schedule = { days: +$("#scBd").value, hour: +$("#scHour").value };
+      if (k === "birthday_today") d.schedule = { hour: +$("#scHour").value };
     };
-    $$("[data-sc-on], [data-sc-days], [data-sc-hour], #scDow, #scHour").forEach((el) => el.addEventListener("change", () => { sched(); drawNotifySettings(); }));
+    $$("[data-sc-on], [data-sc-days], [data-sc-hour], #scDow, #scHour, #scBd").forEach((el) => el.addEventListener("change", () => { sched(); drawNotifySettings(); }));
     $$("#scDays [data-day]").forEach((b) => b.addEventListener("click", () => { b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true")); sched(); drawNotifySettings(); }));
     $("#nsReset").addEventListener("click", () => { d.title = NDEF[k][0]; d.body = NDEF[k][1]; drawNotifySettings(); });
     $("#nsTest").addEventListener("click", async (e) => {

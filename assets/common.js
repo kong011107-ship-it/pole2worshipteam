@@ -104,6 +104,18 @@
     return out;
   };
   window.GENDER = { m: "남", f: "여" };
+  // ---------- 생일 (016 · 양력) ----------
+  // 다가오는 생일: { date: 올해 또는 내년 생일, days: 오늘부터 며칠 } · 2/29는 평년이면 2/28
+  window.nextBirthday = (birth, today = todayISO()) => {
+    if (!birth) return null;
+    const md2 = birth.slice(5, 10);
+    const on = (y) => { const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; return `${y}-${md2 === "02-29" && !leap ? "02-28" : md2}`; };
+    let y = +today.slice(0, 4), d = on(y);
+    if (d < today) d = on(++y);
+    return { date: d, days: Math.round((new Date(d + "T00:00:00Z") - new Date(today + "T00:00:00Z")) / 864e5), age: y - +birth.slice(0, 4) };
+  };
+  window.birthLabel = (birth) => (birth ? `${+birth.slice(0, 4)}. ${+birth.slice(5, 7)}. ${+birth.slice(8, 10)}` : "");
+  window.GIFT = { true: "참여", false: "미참여", null: "미정" };
 
   // ---------- 출석 ----------
   window.ATT = { present: "출석", late: "지각", absent: "결석" };
@@ -260,7 +272,7 @@
       try { await sub.unsubscribe(); } catch {}
     },
   };
-  window.NOTIFY_KIND = { open: "응답", minopen: "응답", poll: "연습", remind: "마감", lineup: "배치", practice: "연습", apply: "지원", trainee: "수습", notice: "공지", message: "안내", prayer: "기도" };
+  window.NOTIFY_KIND = { open: "응답", minopen: "응답", poll: "연습", remind: "마감", lineup: "배치", practice: "연습", apply: "지원", trainee: "수습", notice: "공지", message: "안내", prayer: "기도", birthday: "생일" };
 
   // ---------- 013: 배치표 표 (보기 · 이미지 저장) ----------
   //  row = { date: "9월 6일", sub: "ONE STEP" | "", green: 사역 줄, cells: { leader: [{ n, b, me }], singer: [...], key_main, ... } }

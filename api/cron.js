@@ -3,7 +3,7 @@
 //  · 수습 기록 차례: 그 주차 기록이 비어 있으면 나눔 리더(없으면 리더십)에게
 //  보낼지는 '공지 · 알림 › 알림 설정'의 시간을 보고 정함. 같은 알림은 한 번만.
 import { adminClient } from "./_lib.js";
-import { settingOf, fill, deliver, wasSent, markSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf,
+import { settingOf, fill, deliver, wasSent, markSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf, birthdayIn, GIFT_TEXT,
   pendingForMonth, pendingForMinistry, pollPeople, votePending, traineeWeekOn } from "./_notify.js";
 
 export default async function cron(req, res) {
@@ -108,6 +108,27 @@ export default async function cron(req, res) {
         const r = await deliver(db, { kind: "prayer", sentKey: key, url: "/me.html#pray", label: `함께 기도 · 기도제목 ${vars["개수"]}개 · 팀원 전체`,
           items: people.map((m) => ({ member_id: m.id, title: fill(pr.title, { ...vars, "이름": m.name }), body: fill(pr.body, { ...vars, "이름": m.name }) })) });
         out.sent.push({ kind: "prayer_remind", recipients: r.recipients, pushed: r.pushed });
+      }
+    }
+    // ---------- 생일 (016): 리더십에게 — D-n · 당일. 생일인 리더십 본인은 빼고, 사람마다 해마다 한 번
+    for (const kind of ["birthday_soon", "birthday_today"]) {
+      const bs = await settingOf(db, kind);
+      const sc = bs.schedule || {};
+      const days = kind === "birthday_today" ? 0 : Number.isInteger(sc.days) ? sc.days : 3;
+      if (!bs.enabled || !Number.isInteger(sc.hour) || sc.hour !== now.hour) continue;
+      const target = addDays(now.date, days);
+      const { data: ms } = await db.from("members").select("id, name, birth_date, gift_join").eq("is_active", true).not("birth_date", "is", null);
+      const lead = await admins(db);
+      for (const m of ms || []) {
+        if (birthdayIn(m.birth_date, +target.slice(0, 4)) !== target) continue;
+        const key = `${kind}:${m.id}:${target.slice(0, 4)}`;
+        if (await wasSent(db, key)) continue;
+        const vars = { "생일자": m.name, "며칠": `${days}일`, "날짜": mdw(target), "정산": GIFT_TEXT(m.gift_join) };
+        const to = lead.filter((x) => x.id !== m.id);
+        const r = await deliver(db, { kind: "birthday", sentKey: key, url: `/admin.html#member/${m.id}`, label: `${m.name} 생일 ${days ? days + "일 전" : "당일"} · 리더십 ${to.length}명`,
+          items: to.map((x) => ({ member_id: x.id, title: fill(bs.title, { ...vars, "이름": x.name }), body: fill(bs.body, { ...vars, "이름": x.name }) })) });
+        if (!to.length) await markSent(db, key);
+        out.sent.push({ kind, who: m.name, recipients: r.recipients, pushed: r.pushed });
       }
     }
     res.status(200).json(out);

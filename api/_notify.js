@@ -37,7 +37,15 @@ export const DEFAULTS = {
   prayer_new: { title: "이번 주 기도제목이 올라왔어요", body: "{인원}명의 기도제목을 함께 품어요", schedule: { dow: 6, hour: 21 } },
   prayer_remind: { title: "오늘 저녁, 함께 기도해요", body: "이번 주 기도제목 {개수}개를 함께 기도해요", schedule: { days: [2, 4], hour: 20 } },
   prayer_urgent: { title: "급한 기도제목이 올라왔어요", body: "{대상}님을 위해 함께 기도해 주세요" },
+  birthday_soon: { title: "{생일자}님 생일이 {며칠} 남았어요", body: "{날짜} · {정산}", schedule: { days: 3, hour: 9 } },
+  birthday_today: { title: "오늘은 {생일자}님 생일이에요", body: "{정산} · 축하 메시지를 보내 주세요", schedule: { hour: 9 } },
 };
+// 생일 (016 · 양력): 그해 생일 날짜 — 2/29는 평년이면 2/28
+export function birthdayIn(birth, year) {
+  const md = birth.slice(5, 10), leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  return `${year}-${md === "02-29" && !leap ? "02-28" : md}`;
+}
+export const GIFT_TEXT = (g) => (g === true ? "생일선물 정산 참여 · 선물 준비해요" : g === false ? "생일선물 정산 미참여" : "생일선물 정산 미정");
 // 기도 주간: 그 주 토요일(팀모임) — 토요일은 그날, 주중은 지난 토요일 (DB prayer_week와 같음)
 export const prayerWeekOf = (iso) => addDays(iso, -((dowOf(iso) + 1) % 7));
 export async function settingOf(db, kind) {

@@ -1,5 +1,5 @@
 // POST /api/members-bulk  — 멤버 일괄 작업 (014). Vercel 함수 수를 아끼려고 한 파일에 모음
-//  { action: "add", rows: [{ name, email, phone, gender, main_position, extra_positions, skill, small_group, status }], password? }
+//  { action: "add", rows: [{ name, email, phone, gender, main_position, extra_positions, skill, small_group, status, cohort, birth_date, gift_join }], password? }
 //      멤버 일괄 등록: 첫 로그인 때 비밀번호 변경을 강제
 //      password가 있으면 모두 같은 임시 비밀번호(015), 없으면 사람마다 다르게
 //      반환 { results: [{ ok, name, email, tempPassword } | { ok: false, name, email, error }], shared }
@@ -54,6 +54,11 @@ async function add(req, body) {
     if (extras.some((c) => !codes.has(c))) { fail("추가 포지션을 확인해 주세요"); continue; }
     if (r.gender && !["m", "f"].includes(r.gender)) { fail("성별은 남/여로 적어 주세요"); continue; }
     if (r.skill && ![1, 2, 3].includes(+r.skill)) { fail("숙련도는 상/중/하로 적어 주세요"); continue; }
+    const cohort = r.cohort === null || r.cohort === undefined || r.cohort === "" ? null : +r.cohort;
+    if (cohort !== null && !(Number.isInteger(cohort) && cohort >= 1 && cohort <= 200)) { fail("기수를 확인해 주세요"); continue; }
+    const birth = r.birth_date || null;
+    if (birth && !(/^\d{4}-\d{2}-\d{2}$/.test(birth) && birth >= "1940-01-01" && birth <= "2020-12-31" && !isNaN(Date.parse(birth)))) { fail("생년월일을 확인해 주세요"); continue; }
+    const gift = r.gift_join === true || r.gift_join === false ? r.gift_join : null;
 
     const password = shared || tempPassword();
     const { data: created, error: e1 } = await db.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { name } });
@@ -63,6 +68,7 @@ async function add(req, body) {
       id, name, email, phone, gender: r.gender || null, main_position: r.main_position,
       status: r.status === "trainee" ? "trainee" : "active", must_change_password: true,
       small_group: String(r.small_group || "").trim().slice(0, 30) || null,
+      cohort, birth_date: birth, gift_join: gift,
     });
     if (e2) { await db.auth.admin.deleteUser(id); fail("멤버 정보를 저장하지 못했어요: " + e2.message); continue; }
     if (extras.length) await db.from("member_extra_positions").insert(extras.map((c) => ({ member_id: id, position_code: c })));
