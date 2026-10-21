@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#410A85">
   <title>관리 · Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=22" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=22" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=22" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=23" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=23" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=23" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=22">
-  <link rel="stylesheet" href="assets/app.css?v=22">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=23">
+  <link rel="stylesheet" href="assets/app.css?v=23">
 </head>
 <body>
 <div class="shell">
@@ -22,22 +22,38 @@
     <div class="side-top"><img src="assets/logo-violet.png" alt="Pole2"><a href="me.html" class="switch-btn">팀원 화면</a></div>
     <nav aria-label="관리 메뉴">
       <a href="#dashboard" data-nav="dashboard">대시보드</a>
-      <span class="nav-group">사람</span>
-      <a href="#members" data-nav="members">멤버</a>
-      <a href="#pipeline" data-nav="pipeline">모집·수습 <span class="badge-count hidden" id="todoCount"></span></a>
-      <a href="#forecast" data-nav="forecast">인원 전망</a>
-      <span class="nav-group">섬김</span>
-      <a href="#schedule" data-nav="schedule">섬김 일정·응답</a>
-      <a href="#lineup" data-nav="lineup">배치표</a>
-      <a href="#attendance" data-nav="attendance">출석</a>
-      <span class="nav-group">찬양</span>
-      <a href="#songs" data-nav="songs">곡</a>
-      <a href="#history" data-nav="history">기록</a>
-      <span class="nav-group">소통</span>
-      <a href="#notify" data-nav="notify">공지 · 알림</a>
-      <a href="#sharing" data-nav="sharing">나눔 관리</a>
-      <a href="#templates" data-nav="templates">안내 문구·서약서</a>
-      <span class="nav-group"></span>
+      <div class="nav-sec" data-sec="people">
+        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-people"><span>사람</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-items" id="navSec-people"><div>
+          <a href="#members" data-nav="members">멤버</a>
+          <a href="#pipeline" data-nav="pipeline">모집·수습 <span class="badge-count hidden" id="todoCount"></span></a>
+          <a href="#forecast" data-nav="forecast">인원 전망</a>
+        </div></div>
+      </div>
+      <div class="nav-sec" data-sec="serve">
+        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-serve"><span>섬김</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-items" id="navSec-serve"><div>
+          <a href="#schedule" data-nav="schedule">섬김 일정·응답</a>
+          <a href="#lineup" data-nav="lineup">배치표</a>
+          <a href="#attendance" data-nav="attendance">출석</a>
+        </div></div>
+      </div>
+      <div class="nav-sec" data-sec="worship">
+        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-worship"><span>찬양</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-items" id="navSec-worship"><div>
+          <a href="#songs" data-nav="songs">곡</a>
+          <a href="#history" data-nav="history">기록</a>
+        </div></div>
+      </div>
+      <div class="nav-sec" data-sec="comm">
+        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-comm"><span>소통</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-items" id="navSec-comm"><div>
+          <a href="#notify" data-nav="notify">공지 · 알림</a>
+          <a href="#sharing" data-nav="sharing">나눔 관리</a>
+          <a href="#templates" data-nav="templates">안내 문구·서약서</a>
+        </div></div>
+      </div>
+      <span class="nav-div" aria-hidden="true"></span>
       <a href="#settings" data-nav="settings">설정</a>
       <a href="me.html#lineup" class="nav-switch">내 섬김 · 찬양</a>
     </nav>
@@ -47,10 +63,10 @@
 </div>
 <div id="modalRoot"></div>
 
-<script src="assets/config.js?v=22"></script>
+<script src="assets/config.js?v=23"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=22"></script>
-<script src="assets/history.js?v=22"></script>
-<script src="assets/admin.js?v=22"></script>
+<script src="assets/common.js?v=23"></script>
+<script src="assets/history.js?v=23"></script>
+<script src="assets/admin.js?v=23"></script>
 </body>
 </html>

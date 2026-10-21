@@ -132,6 +132,36 @@
     return j;
   }
 
+  // ---------------------------------------------------------------- 메뉴 서랍 (021.1)
+  //  묶음(사람·섬김·찬양·소통)은 한 번에 하나만 열림. 메뉴를 옮기면 그 메뉴의 묶음이 열리고 나머지는 닫힘
+  //  마지막으로 연 묶음은 이 기기에 기억(대시보드·설정처럼 묶음 밖 메뉴에서 새로고침해도 그대로)
+  //  닫힌 묶음: 지금 보는 메뉴가 있으면 제목이 보라, 할 일 숫자가 있으면 점
+  const NAV_KEY = "pole2.navOpen";
+  const navSecs = () => $$(".side .nav-sec");
+  function navOpen(key, remember = true) {
+    navSecs().forEach((sec) => {
+      const on = sec.dataset.sec === key;
+      sec.classList.toggle("open", on);
+      sec.querySelector(".nav-group").setAttribute("aria-expanded", String(on));
+    });
+    if (remember) { try { localStorage.setItem(NAV_KEY, key || ""); } catch {} }
+  }
+  function navSync() {
+    const cur = $(".side nav a.on")?.closest(".nav-sec");
+    navSecs().forEach((sec) => {
+      sec.classList.toggle("has-on", sec === cur);
+      sec.classList.toggle("has-todo", !!sec.querySelector(".badge-count:not(.hidden)"));
+    });
+    if (cur) navOpen(cur.dataset.sec);
+    else if (!$(".side .nav-sec.open")) { let k = ""; try { k = localStorage.getItem(NAV_KEY) || ""; } catch {} navOpen(k, false); }
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest(".side button.nav-group");
+    if (!b) return;
+    const sec = b.closest(".nav-sec");
+    navOpen(sec.classList.contains("open") ? "" : sec.dataset.sec);
+  });
+
   // ---------------------------------------------------------------- 라우팅
   let routed = null;
   function route() {
@@ -141,6 +171,7 @@
     const navOf = { app: "pipeline", member: "members", ministry: "schedule", audit: "settings", respond: "schedule" };
     $$(".side nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === (navOf[view] || view)));
     updateTodoCount();
+    navSync();
     if (view === "app" && id) return renderDetail(id, sub);
     if (view === "member" && id) return renderMemberDetail(id);
     if (view === "ministry" && id) return renderMinistry(id);
@@ -214,6 +245,7 @@
     const n = S.apps.filter((a) => cardTodo(a).pending).length;
     $("#todoCount").textContent = n;
     $("#todoCount").classList.toggle("hidden", !n);
+    $("#todoCount").closest(".nav-sec")?.classList.toggle("has-todo", !!n);
   }
 
   // ---------------------------------------------------------------- 파이프라인

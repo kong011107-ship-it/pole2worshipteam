@@ -1438,3 +1438,44 @@ button.fc-pos-row { font: inherit; text-align: left; width: 100%; border: 0; bac
 .song-table td:last-child { text-align: right; }
 @media (max-width: 760px) { .song-table .wide { display: none; } }
 .chip-obs { color: #8A4B00; background: #FFF1DC; }
+/* ---------- 021.1: 관리자 메뉴 서랍 (한 번에 하나만 열림) ---------- */
+.side nav .nav-items a {
+  display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 12px 0 22px;
+  border-radius: 10px; text-decoration: none; color: var(--ink-2); font-size: 15px; font-weight: 600;
+}
+.side nav .nav-items a.on { color: var(--violet); background: var(--tint-3); font-weight: 700; }
+.side nav .nav-items a:hover:not(.on), .side nav > a:hover:not(.on) { background: #FBF8FE; }
+.nav-sec { display: flex; flex-direction: column; }
+.side nav button.nav-group {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 0 12px; margin: 0;
+  border: 0; border-radius: 10px; background: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 15px; font-weight: 700; color: var(--ink-2); letter-spacing: -0.01em;
+}
+.side nav button.nav-group:hover { background: #FBF8FE; }
+.side nav button.nav-group > span { flex: 1; }
+.nav-chev { width: 16px; height: 16px; flex: none; color: var(--muted-2); transition: transform .18s ease; }
+.nav-group[aria-expanded=true] .nav-chev { transform: rotate(180deg); }
+/* 닫힌 묶음 안에 지금 보는 메뉴가 있으면 제목을 보라로, 할 일 숫자가 있으면 점 */
+.nav-sec.has-on > button.nav-group[aria-expanded=false] { color: var(--violet); }
+.nav-dot { display: none; width: 7px; height: 7px; border-radius: 999px; background: var(--violet); flex: none; }
+.nav-sec.has-todo > button.nav-group[aria-expanded=false] .nav-dot { display: block; }
+.nav-items { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .2s ease; }
+.nav-items > div { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
+.nav-sec.open > .nav-items { grid-template-rows: 1fr; }
+.nav-sec.open > .nav-items > div { padding: 2px 0 6px; }
+.nav-sec:not(.open) .nav-items a { visibility: hidden; transition: visibility 0s .2s; }
+.side nav > .nav-div { display: block; min-height: 0; padding: 0; margin: 6px 12px; border-bottom: 1px solid var(--line); border-radius: 0; }
+@media (prefers-reduced-motion: reduce) { .nav-items, .nav-chev { transition: none; } }
+@media (max-width: 760px) {
+  .nav-sec { flex-direction: row; flex: none; align-items: center; }
+  .side nav button.nav-group { width: auto; white-space: nowrap; gap: 4px; padding: 0 10px; min-height: 40px; }
+  .side nav button.nav-group[aria-expanded=true] { background: var(--tint); color: var(--violet); }
+  .nav-items { display: flex; transition: none; }
+  .nav-items > div { flex-direction: row; overflow: visible; }
+  .nav-sec:not(.open) > .nav-items { display: none; }
+  .nav-sec.open > .nav-items > div { padding: 0; }
+  .side nav .nav-items a { white-space: nowrap; padding: 0 12px; }
+  .nav-chev { transform: rotate(-90deg); }
+  .nav-group[aria-expanded=true] .nav-chev { display: none; }
+  .side nav > .nav-div { flex: none; width: 1px; margin: 10px 4px; border: 0; background: var(--line-2); }
+}
