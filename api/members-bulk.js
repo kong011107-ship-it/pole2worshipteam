@@ -26,7 +26,7 @@ export default handler(async (req, body) => {
 
 async function add(req, body) {
   const db = adminClient();
-  await requireAdmin(req, db);
+  const me = await requireAdmin(req, db);
   const rows = [].concat(body.rows || []);
   if (!rows.length) throw new HttpError(400, "등록할 사람이 없어요.");
   if (rows.length > 100) throw new HttpError(400, "한 번에 100명까지 등록할 수 있어요.");
@@ -41,6 +41,13 @@ async function add(req, body) {
   const { data: existing } = await db.from("members").select("email");
   const taken = new Set((existing || []).map((m) => String(m.email || "").toLowerCase()));
 
+  // 021: 예배MC · 교역자 = 리더십 권한 → 최상위 리더십만 등록
+  const OBS = ["mc", "pastor"];
+  if (rows.some((r) => OBS.includes(r.status))) {
+    const oid = await ownerId(db);
+    if (oid && me.id !== oid) throw new HttpError(403, "예배MC · 교역자 등록은 최상위 리더십만 할 수 있어요.");
+  }
+
   const results = [];
   for (const r of rows) {
     const name = String(r.name || "").trim(), email = String(r.email || "").trim().toLowerCase();
@@ -50,7 +57,8 @@ async function add(req, body) {
     if (!name || name.length > 30) { fail("이름을 확인해 주세요"); continue; }
     if (!EMAIL.test(email)) { fail("이메일 형식이 아니에요"); continue; }
     if (taken.has(email)) { fail("이미 등록된 이메일이에요"); continue; }
-    if (!codes.has(r.main_position)) { fail("주 포지션을 확인해 주세요"); continue; }
+    const obs = OBS.includes(r.status);
+    if (!(obs && !r.main_position) && !codes.has(r.main_position)) { fail("주 포지션을 확인해 주세요"); continue; }
     if (extras.some((c) => !codes.has(c))) { fail("추가 포지션을 확인해 주세요"); continue; }
     if (r.gender && !["m", "f"].includes(r.gender)) { fail("성별은 남/여로 적어 주세요"); continue; }
     if (r.skill && ![1, 2, 3].includes(+r.skill)) { fail("숙련도는 상/중/하로 적어 주세요"); continue; }
@@ -65,14 +73,14 @@ async function add(req, body) {
     if (e1) { fail(/already|registered|exists/i.test(e1.message) ? "이미 계정이 있는 이메일이에요" : "계정을 만들지 못했어요"); continue; }
     const id = created.user.id;
     const { error: e2 } = await db.from("members").insert({
-      id, name, email, phone, gender: r.gender || null, main_position: r.main_position,
-      status: r.status === "trainee" ? "trainee" : "active", must_change_password: true,
+      id, name, email, phone, gender: r.gender || null, main_position: r.main_position || null,
+      status: obs ? r.status : r.status === "trainee" ? "trainee" : "active", must_change_password: true,
       small_group: String(r.small_group || "").trim().slice(0, 30) || null,
       cohort, birth_date: birth, gift_join: gift,
     });
     if (e2) { await db.auth.admin.deleteUser(id); fail("멤버 정보를 저장하지 못했어요: " + e2.message); continue; }
     if (extras.length) await db.from("member_extra_positions").insert(extras.map((c) => ({ member_id: id, position_code: c })));
-    if (r.skill) await db.from("member_skills").upsert({ member_id: id, position_code: r.main_position, level: +r.skill });
+    if (r.skill && r.main_position) await db.from("member_skills").upsert({ member_id: id, position_code: r.main_position, level: +r.skill });
     taken.add(email);
     results.push({ ok: true, id, name, email, tempPassword: password });
   }

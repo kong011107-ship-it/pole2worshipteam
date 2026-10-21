@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=21" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=21" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=21" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=22" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=22" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=22" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=21">
-  <link rel="stylesheet" href="assets/app.css?v=21">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=22">
+  <link rel="stylesheet" href="assets/app.css?v=22">
 </head>
 <body>
 <div class="m-wrap">
@@ -23,6 +23,9 @@
     <span class="who"><span id="whoName"></span><span id="whoBadge"></span><a href="#alerts" class="bell" id="bell" aria-label="알림"></a></span>
   </header>
 
+  <div class="m-subnav hidden" id="serveNav"><div class="segbar" role="tablist" aria-label="섬김">
+    <button type="button" data-sv="lineup" aria-pressed="false">배치표</button><button type="button" data-sv="respond" aria-pressed="false">섬김 응답</button></div></div>
+
   <main class="m-main" id="view-home"></main>
 
   <main class="m-main hidden" id="view-respond"></main>
@@ -30,6 +33,7 @@
   <main class="m-main hidden" id="view-alerts"></main>
   <main class="m-main hidden" id="view-install"></main>
   <main class="m-main hidden" id="view-pray"></main>
+  <main class="m-main hidden" id="view-worship"></main>
 
   <main class="m-main hidden" id="view-info">
     <section class="card">
@@ -52,11 +56,15 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=21"></script>
+<script src="assets/config.js?v=22"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=21"></script>
+<script src="assets/common.js?v=22"></script>
+<script src="assets/history.js?v=22"></script>
 <script>
   let ctx, me, app, extras = [], ST;
+  // 021: 예배MC · 교역자 — 리더십 권한으로 보기만 (섬김 응답 없음)
+  const OBS = { mc: "예배MC", pastor: "교역자" };
+  const isObs = () => !!OBS[me?.status];
 
   (async function init() {
     ctx = await requireMember();
@@ -66,6 +74,7 @@
     ST = await loadSettings();
     $("#whoName").textContent = `${me.name}님`;
     $("#whoBadge").innerHTML = me.status === "trainee" ? `<span class="chip chip-violet">수습</span>`
+      : isObs() ? `<span class="chip chip-violet">${OBS[me.status]}</span>${me.role === "admin" ? `<a href="admin.html" class="switch-btn">관리자 화면</a>` : ""}`
       : me.role === "admin" ? `<a href="admin.html" class="switch-btn">관리자 화면</a>` : "";
 
     const [a, x] = await Promise.all([
@@ -89,21 +98,34 @@
 
   // ---------- 탭 ----------
   function renderTabbar() {
+    // 021: 홈 · 섬김(배치표 | 섬김 응답) · 찬양 · 나눔 · 내 정보
     const tabs = me.status === "trainee"
-      ? [["home", "홈", ICON.home], ["pray", "기도", ICON.pray], ["info", "내 정보", ICON.user]]
-      : [["home", "홈", ICON.home], ["respond", "섬김 응답", ICON.check], ["lineup", "배치표", ICON.table], ["pray", "기도", ICON.pray], ["info", "내 정보", ICON.user]];
+      ? [["home", "홈", ICON.home], ["worship", "찬양", ICON.music], ["pray", "나눔", ICON.pray], ["info", "내 정보", ICON.user]]
+      : [["home", "홈", ICON.home], ["serve", "섬김", ICON.table], ["worship", "찬양", ICON.music], ["pray", "나눔", ICON.pray], ["info", "내 정보", ICON.user]];
     $("#tabbar").innerHTML = tabs.map(([id, label, icon]) =>
       `<button type="button" data-tab="${id}">${icon}${label}</button>`).join("");
     $("#tabbar").addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;
-      go(b.dataset.tab);
+      go(b.dataset.tab === "serve" ? serveLast() : b.dataset.tab);
+    });
+    if (isObs()) $('#serveNav [data-sv="respond"]').remove();
+    $("#serveNav").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-sv]"); if (!b) return;
+      try { sessionStorage.setItem("pole2.serve", b.dataset.sv); } catch {}
+      go(b.dataset.sv);
     });
   }
+  // 섬김 탭: 마지막에 본 화면 (처음엔 배치표)
+  function serveLast() {
+    let v = null; try { v = sessionStorage.getItem("pole2.serve"); } catch {}
+    return v === "respond" && !isObs() ? "respond" : "lineup";
+  }
+  const tabOf = (v) => (v === "respond" || v === "lineup" ? "serve" : v);
 
   // ---------- 014: 뒤로가기 ----------
   //  메인 화면끼리 옮겨 다닐 때는 기록을 쌓지 않음: 기록은 늘 [홈] 또는 [홈, 지금 화면] 두 칸
   //  → 어느 화면에서든 뒤로가기 = 홈, 홈에서 뒤로가기 = 앱 종료
-  const VIEWS = ["home", "respond", "lineup", "info", "alerts", "install", "pray"];
+  const VIEWS = ["home", "respond", "lineup", "info", "alerts", "install", "pray", "worship"];
   const curView = () => { const h = location.hash.slice(1); return VIEWS.includes(h) ? h : "home"; };
   // ---------- 015: 알림으로 바로 가기 (#respond/min:… · #lineup/2026-11-01 · #practice/… · #alerts/12 · #pray/3)
   //  주소 뒤쪽(항목)은 한 번만 쓰고, 기록에는 화면 이름만 남김 → 뒤로가기 규칙(014)은 그대로
@@ -147,18 +169,24 @@
   });
   function showView() {
     if (!me) return;   // 아직 불러오는 중이면 init이 끝난 뒤 다시 호출됨
-    const allowed = me.status === "trainee" ? ["home", "info", "alerts", "install", "pray"] : ["home", "respond", "lineup", "info", "alerts", "install", "pray"];
+    const allowed = me.status === "trainee" ? ["home", "info", "alerts", "install", "pray", "worship"]
+      : isObs() ? ["home", "lineup", "info", "alerts", "install", "pray", "worship"]
+      : ["home", "respond", "lineup", "info", "alerts", "install", "pray", "worship"];
     const h = location.hash.slice(1);
     const v = allowed.includes(h) ? h : "home";
     if (deep?.v === "practice") return void resolvePractice();
     VIEWS.forEach((k) => $(`#view-${k}`).classList.toggle("hidden", v !== k));
-    $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === v));
+    $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tabOf(v)));
+    $("#serveNav").classList.toggle("hidden", tabOf(v) !== "serve" || me.status === "trainee");
+    $$("#serveNav [data-sv]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sv === v)));
+    if (v === "respond" || v === "lineup") { try { sessionStorage.setItem("pole2.serve", v); } catch {} }
     $("#bell").classList.toggle("on", v === "alerts");
     if (v === "respond") renderRespond();
     if (v === "lineup") renderLineup();
     if (v === "alerts") renderAlerts();
     if (v === "install") renderInstall();
     if (v === "pray") renderPray();
+    if (v === "worship" && !$("#view-worship").dataset.on) { $("#view-worship").dataset.on = "1"; HISTORY.mount($("#view-worship")); }
     if (v === "info") renderDevCard($("#devCard"));
     if (v === "home" && deep?.v === "home") deep = null;
     if (v === "home") refreshVoteBanners();
@@ -185,6 +213,7 @@
     if (location.hash !== "#home") { go("home"); }
     VIEWS.forEach((k) => $(`#view-${k}`).classList.toggle("hidden", k !== "home"));
     $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === "home"));
+    $("#serveNav").classList.add("hidden");
     $("#practiceCard")?.remove();
     if (!p) { toast("연습 일정을 찾을 수 없어요. 바뀌었을 수 있어요", 3500); return; }
     const ans = D.pa.find((a) => a.practice_id === id)?.available;
@@ -501,6 +530,7 @@
   };
 
   async function respondBanners() {
+    if (isObs()) return "";
     const [months, D] = await Promise.all([openMonths(), loadMinistries()]);
     const out = [];
     for (const m of months) {
@@ -1201,9 +1231,9 @@
 
   // ---------- 내 정보 ----------
   function renderInfo() {
-    $("#posInfo").innerHTML = `<dt>주 포지션</dt><dd>${esc(positionName(me.main_position))}</dd>
+    $("#posInfo").innerHTML = `${isObs() ? "" : `<dt>주 포지션</dt><dd>${esc(positionName(me.main_position))}</dd>`}
       ${extras.length ? `<dt>추가 포지션</dt><dd>${extras.map((e) => esc(positionName(e.position_code))).join(", ")}</dd>` : ""}
-      <dt>구분</dt><dd>${me.status === "trainee" ? "수습" : "정식 팀원"}</dd>
+      <dt>구분</dt><dd>${me.status === "trainee" ? "수습" : OBS[me.status] || "정식 팀원"}</dd>
       <dt>기수</dt><dd>${me.cohort ? me.cohort + "기" : "—"}</dd>
       <dt>생년월일</dt><dd>${me.birth_date ? birthLabel(me.birth_date) : "—"}</dd>
       <dt>생일선물 정산</dt><dd>${me.gift_join === true ? "참여" : me.gift_join === false ? "미참여" : "미정"}</dd>`;

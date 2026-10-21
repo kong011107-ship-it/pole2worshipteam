@@ -160,7 +160,7 @@
     return data;
   };
   window.positionName = (code) => positionsCache?.find((p) => p.code === code)?.name ?? code ?? "";
-  window.POS_SHORT = { leader: "인도", singer: "싱어", key_main: "메인", key_second: "세컨", e_guitar: "일렉", bass: "베이스", drum: "드럼" };
+  window.POS_SHORT = { leader: "인도", singer: "싱어", key_main: "메인", key_second: "세컨", e_guitar: "일렉", acoustic: "어쿠", bass: "베이스", drum: "드럼" };
 
   // ---------- 로그인 ----------
   // 로그인 뒤 돌아올 곳 (015: 알림을 눌렀는데 로그인이 풀려 있던 경우 그 화면으로)
@@ -214,6 +214,7 @@
     pray: `<svg viewBox="0 0 24 24" ${P}><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.1 4.1 0 0 1 12 7.6a4.1 4.1 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>`,
     bell: `<svg viewBox="0 0 24 24" ${P}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>`,
     download: `<svg viewBox="0 0 24 24" ${P}><path d="M12 3v12M7 10l5 5 5-5M4 19h16"/></svg>`,
+    music: `<svg viewBox="0 0 24 24" ${P}><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>`,
     share: `<svg viewBox="0 0 24 24" ${P}><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>`,
   };
 
@@ -277,15 +278,20 @@
   // ---------- 013: 배치표 표 (보기 · 이미지 저장) ----------
   //  row = { date: "9월 6일", sub: "ONE STEP" | "", green: 사역 줄, cells: { leader: [{ n, b, me }], singer: [...], key_main, ... } }
   //  b = 싱어 리더·밴드 마스터(굵게), 칸이 비면 X
-  const LCOLS = [["leader", "인도"], ["singer", "싱어"], ["key_main", "메인"], ["key_second", "세컨"], ["e_guitar", "일렉"], ["bass", "베이스"], ["drum", "드럼"]];
+  const LCOLS_ALL = [["leader", "인도"], ["singer", "싱어"], ["key_main", "메인"], ["key_second", "세컨"], ["e_guitar", "일렉"], ["bass", "베이스"], ["drum", "드럼"], ["acoustic", "어쿠스틱"]];
+  // 021: 선택 포지션(어쿠스틱)은 그 표에 한 명이라도 있을 때만 칸을 만듦
+  const OPTIONAL = new Set(["acoustic"]);
+  const colsOf = (rows) => LCOLS_ALL.filter(([k]) => !OPTIONAL.has(k) || rows.some((r) => (r.cells[k] || []).length));
   const korDate = (iso) => `${+iso.slice(5, 7)}월 ${+iso.slice(8, 10)}일`;
   // 019: 한 칸에 5명 이상(싱어 5~6명)이면 두 줄로 나눠 칸이 너무 넓어지지 않게
   const cellLines = (list) => (list.length > 4 ? [list.slice(0, Math.ceil(list.length / 2)), list.slice(Math.ceil(list.length / 2))] : [list]);
   window.LTABLE = {
-    COLS: LCOLS,
+    COLS: LCOLS_ALL,
+    colsOf,
     korDate,
     cellLines,
     html(rows) {
+      const LCOLS = colsOf(rows);
       const one = (x) => `<span class="${x.b ? "b" : ""} ${x.me ? "me" : ""}">${esc(x.n)}</span>`;
       const cell = (list) => list.length ? cellLines(list).map((ln) => ln.map(one).join(" ")).join("<br>") : `<span>X</span>`;
       return `<div class="lt-wrap"><table class="lt"><thead><tr><th class="lt-d"></th>${LCOLS.map(([, l]) => `<th>${l}</th>`).join("")}</tr></thead>
@@ -294,8 +300,9 @@
     },
     // 보내 준 표 모양 그대로 PNG로 (2배 해상도)
     async png(rows, title) {
+      const LCOLS = colsOf(rows);
       const FONT = '"Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
-      const allText = (title || "") + rows.map((r) => r.date + r.sub + Object.values(r.cells).flat().map((x) => x.n).join("")).join("") + "인도싱어메인세컨일렉베이스드럼XPole2 찬양팀";
+      const allText = (title || "") + rows.map((r) => r.date + r.sub + Object.values(r.cells).flat().map((x) => x.n).join("")).join("") + "인도싱어메인세컨일렉베이스드럼어쿠스틱XPole2 찬양팀";
       try { await Promise.all([500, 700, 800].map((w) => document.fonts.load(`${w} 19px "Pretendard Variable"`, allText))); } catch {}
       const S = 2, FS = 19, PX = 18, PY = 16, LH = 26, GAP = 9, M = 22;
       const cv = document.createElement("canvas"), g = cv.getContext("2d");

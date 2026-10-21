@@ -64,9 +64,10 @@ export function fill(t, vars) {
 }
 
 // ---------------------------------------------------------------- 사람
-export async function activeMembers(db, { trainees = false } = {}) {
+// trainees: 수습까지 모두(예배MC · 교역자 포함) · observers: 정식 + 예배MC · 교역자 (021: 배치표 공개 알림)
+export async function activeMembers(db, { trainees = false, observers = false } = {}) {
   const { data } = await db.from("members").select("id, name, role, status, main_position, is_active").eq("is_active", true);
-  return (data || []).filter((m) => trainees || m.status === "active");
+  return (data || []).filter((m) => trainees || m.status === "active" || (observers && (m.status === "mc" || m.status === "pastor")));
 }
 export async function admins(db) {
   const { data } = await db.from("members").select("id, name").eq("is_active", true).eq("role", "admin");

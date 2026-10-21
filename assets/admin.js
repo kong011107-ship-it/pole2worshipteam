@@ -31,9 +31,13 @@
   const admins = () => S.members.filter((m) => m.role === "admin" && m.is_active);
   // 최상위 리더십 (015)
   const isOwner = () => !!S.me?.is_owner;
+  // 021: 예배MC · 교역자 — 리더십 권한(알림 · 정보), 섬김 응답 · 출석 · 자동 추천에서는 빠짐. 배치는 어느 자리든
+  const OBS = { mc: "예배MC", pastor: "교역자" };
+  const isObs = (m) => !!OBS[m?.status];
+  const obsChip = (m) => (isObs(m) ? `<span class="chip chip-obs">${OBS[m.status]}</span>` : "");
   const ownerOf = () => S.members.find((m) => m.is_owner);
   const lockedFor = (m) => !!m.is_owner && m.id !== S.me.id;   // 다른 리더가 보는 최상위 리더십 계정
-  const leaderChip = (m) => (m.is_owner ? `<span class="chip chip-owner">최상위 리더십</span>` : m.role === "admin" ? `<span class="chip chip-violet">리더십</span>` : "")
+  const leaderChip = (m) => (m.is_owner ? `<span class="chip chip-owner">최상위 리더십</span>` : isObs(m) ? obsChip(m) : m.role === "admin" ? `<span class="chip chip-violet">리더십</span>` : "")
     + (m.role_title ? `<span class="chip chip-title">${TITLES[m.role_title]}</span>` : "");
   const firstLogin = (m) => m.is_active && m.must_change_password;
   const sent = (appId, code) => S.logs.some((l) => l.application_id === appId && l.template_code === code);
@@ -100,7 +104,7 @@
     if (f === "role_title") return TITLES[v] || v;
     if (f === "role") return v === "admin" ? "리더십" : "팀원";
     if (f === "level") return LEVEL[v] || v;
-    if (f === "status") return ATT[v] || { active: "정식", trainee: "수습" }[v] || v;
+    if (f === "status") return ATT[v] || { active: "정식", trainee: "수습", mc: "예배MC", pastor: "교역자" }[v] || v;
     if (f === "meeting_status") return MEETING[v] || v;
     if (f === "cohort") return v + "기";
     if (f === "title_until") return v + "기까지";
@@ -134,7 +138,7 @@
     routed = location.hash;
     const h = location.hash.slice(1) || "dashboard";
     const [view, id, sub] = h.split("/");
-    const navOf = { app: "pipeline", member: "members", ministry: "schedule", audit: "settings" };
+    const navOf = { app: "pipeline", member: "members", ministry: "schedule", audit: "settings", respond: "schedule" };
     $$(".side nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === (navOf[view] || view)));
     updateTodoCount();
     if (view === "app" && id) return renderDetail(id, sub);
@@ -152,13 +156,15 @@
     if (view === "forecast") return renderForecast();
     if (view === "sharing") return renderSharing();
     if (view === "audit") return renderAudit();
+    if (view === "songs") return renderSongs();
+    if (view === "history") return renderHistory();
     return renderDashboard();
   }
   // ---------------------------------------------------------------- 뒤로가기 (014)
   //  기록: [대시보드] → 메뉴 한 칸 → 상세(멤버·사역·지원자) …
   //  메뉴끼리 옮길 때는 메뉴 칸을 바꿔 끼워서, 어느 메뉴에서든 뒤로가기 = 대시보드, 대시보드에서 뒤로가기 = 종료
   //  창(모달)이 열려 있으면 뒤로가기는 창만 닫음
-  const MAIN = ["dashboard", "pipeline", "members", "forecast", "schedule", "respond", "lineup", "attendance", "notify", "sharing", "templates", "settings"];
+  const MAIN = ["dashboard", "pipeline", "members", "forecast", "schedule", "respond", "lineup", "attendance", "songs", "history", "notify", "sharing", "templates", "settings"];
   const lv = () => history.state?.lv ?? 0;
   let curClose = null;
   let pendingNav = null, modalPushed = false, popWait = null, popDone = null;
@@ -1000,6 +1006,7 @@
           <button type="button" data-f="all" aria-pressed="${f === "all"}">활동 ${cnt((m) => m.is_active)}</button>
           <button type="button" data-f="active" aria-pressed="${f === "active"}">정식 ${cnt((m) => m.is_active && m.status === "active")}</button>
           <button type="button" data-f="trainee" aria-pressed="${f === "trainee"}">수습 ${cnt((m) => m.is_active && m.status === "trainee")}</button>
+          ${cnt((m) => m.is_active && isObs(m)) || f === "obs" ? `<button type="button" data-f="obs" aria-pressed="${f === "obs"}">예배MC·교역자 ${cnt((m) => m.is_active && isObs(m))}</button>` : ""}
           <button type="button" data-f="off" aria-pressed="${f === "off"}">휴면·종료 ${cnt((m) => !m.is_active)}</button>
           ${cnt(firstLogin) || f === "first" ? `<button type="button" data-f="first" aria-pressed="${f === "first"}">첫 로그인 전 ${cnt(firstLogin)}</button>` : ""}
           <button type="button" data-f="guests" aria-pressed="${f === "guests"}">객원 ${S.guests.length}</button>
@@ -1041,7 +1048,7 @@
     };
     const q = (S.memberQuery || "").trim();
     const list = S.members.filter((m) => f === "all" ? m.is_active : f === "trainee" ? m.is_active && m.status === "trainee"
-      : f === "active" ? m.is_active && m.status === "active" : f === "first" ? firstLogin(m) : !m.is_active).filter((m) => !q || m.name.includes(q));
+      : f === "active" ? m.is_active && m.status === "active" : f === "obs" ? m.is_active && isObs(m) : f === "first" ? firstLogin(m) : !m.is_active).filter((m) => !q || m.name.includes(q));
     const rowHTML = (m) => {
       const s = stat(m);
       const badges = [leaderChip(m), firstLogin(m) && `<span class="chip chip-first">첫 로그인 전</span>`,
@@ -1051,7 +1058,7 @@
       const pick = S.memberSelect;
       const tag = pick ? `label class="mrow pickrow ${S.picked.has(m.id) ? "on" : ""}"` : `a class="mrow" href="#member/${m.id}"`;
       const box = pick ? `<input type="checkbox" data-pick="${m.id}" ${S.picked.has(m.id) ? "checked" : ""} ${m.id === S.me.id ? `disabled title="본인 계정은 고를 수 없어요"` : m.is_owner ? `disabled title="최상위 리더십 계정은 고를 수 없어요"` : ""} aria-label="${esc(m.name)} 고르기">` : "";
-      return `<${tag}><span class="nm">${box}${esc(m.name)} ${badges}</span><span class="sub">${m.cohort ? `<b class="coh">${m.cohort}기</b> · ` : ""}${esc(posText(m))}</span>
+      return `<${tag}><span class="nm">${box}${esc(m.name)} ${badges}</span><span class="sub">${m.cohort ? `<b class="coh">${m.cohort}기</b> · ` : ""}${isObs(m) ? "배치는 어느 자리든" : esc(posText(m))}</span>
         ${m.status === "trainee" ? `<span class="sub">–</span><span class="sub">–</span>` : `<span class="num"><b>${s.monthN}</b>회</span><span class="num"><b>${s.q3}</b>회</span>`}
         ${s.marks.length ? dotsHTML(s.marks) : `<span class="sub">–</span>`}
         ${s.lates ? `<span style="color:var(--mid);font-weight:800">${s.lates}회</span>` : `<span class="sub">–</span>`}<span class="arrow">${pick ? "" : "›"}</span></${pick ? "label" : "a"}>`;
@@ -1064,9 +1071,12 @@
       return `<div class="group-label">${c ? c + "기" : "기수 미입력"} · ${g.length}명</div>${g.map(rowHTML).join("")}`;
     }).join("");
     else body = ["leader", "vocal", "band"].map((part) => {
-      const g = list.filter((m) => partOf(m.main_position) === part).sort((a, b) => (m2o(a) - m2o(b)) || byName(a, b));
+      const g = list.filter((m) => !isObs(m) && partOf(m.main_position) === part).sort((a, b) => (m2o(a) - m2o(b)) || byName(a, b));
       return g.length ? `<div class="group-label">${PART_LABEL[part]} · ${g.length}명</div>${g.map(rowHTML).join("")}` : "";
-    }).join("");
+    }).join("") + (() => {
+      const g = list.filter(isObs).sort((a, b) => a.status.localeCompare(b.status) || byName(a, b));
+      return g.length ? `<div class="group-label">예배MC · 교역자 · ${g.length}명</div>${g.map(rowHTML).join("")}` : "";
+    })();
     function m2o(m) { return posOrder()[m.main_position] ?? 99; }
 
     $("#content").innerHTML = `${head}
@@ -1373,7 +1383,7 @@
       if (!v.name) out.push("이름을 적어 주세요");
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) out.push(v.email ? "이메일 형식을 확인해 주세요" : "이메일(아이디)을 적어 주세요");
       else if (S.members.some((m) => String(m.email || "").toLowerCase() === v.email)) out.push("이미 등록된 이메일이에요");
-      if (!v.main_position) out.push("주 포지션을 골라 주세요");
+      if (!v.main_position && !OBS[v.status]) out.push("주 포지션을 골라 주세요");
       if (v.phone && !/^[0-9\-]{9,13}$/.test(v.phone)) out.push("연락처는 010-0000-0000 형식으로");
       if (v.cohort !== null && !(v.cohort >= 1 && v.cohort <= 200)) out.push("기수를 숫자로 적어 주세요");
       if (v.birth_date && (v.birth_date < "1940-01-01" || v.birth_date > "2020-12-31")) out.push("생년월일을 확인해 주세요");
@@ -1410,7 +1420,7 @@
         <div class="grid2">
           <div class="field"><span>숙련도 <span class="hint">· 주 포지션 · 비우면 '중'</span></span>${segBtns("aSkill", [[3, "상"], [2, "중"], [1, "하"]], skill)}</div>
           <div class="field"><span>생일선물 정산</span>${segBtns("aGift", [["true", "참여"], ["false", "미참여"]], gift)}</div>
-          <div class="field"><span>구분</span>${segBtns("aStatus", [["active", "정식"], ["trainee", "수습"]], status)}</div>
+          <div class="field"><span>구분</span>${segBtns("aStatus", [["active", "정식"], ["trainee", "수습"], ...(isOwner() ? [["mc", "예배MC"], ["pastor", "교역자"]] : [])], status)}</div>
         </div>
         <div class="field"><span>임시 비밀번호 <span class="hint">· 첫 로그인 때 바꿔요</span></span>
           <div class="bk-pw" id="aPwBox" style="margin-top:0">
@@ -1418,13 +1428,17 @@
             <div class="bk-pw-in" id="aPwIn"><input type="text" class="input" id="aPw" maxlength="40" autocomplete="off" spellcheck="false" value="${esc(last)}" placeholder="영문+숫자 8자 이상" aria-label="임시 비밀번호"></div>
             <label class="radio1"><input type="radio" name="aPwMode" value="each"><span><b>자동으로 만들기</b><small>이 사람만 쓰는 비밀번호를 만들어 개인 카톡으로 전해요</small></span></label>
           </div></div>
+        <p class="small muted hidden" id="aObsNote" style="margin:0">예배MC · 교역자는 리더십 권한(알림 · 정보 보기)을 받아요. 주 포지션은 비워도 되고, 섬김 응답 · 출석 · 자동 추천에서는 빠져요. 배치표에는 어느 자리든 넣을 수 있어요.</p>
         <div id="aMsg"></div><span class="small bk-err" id="aHint"></span>`,
       onInput: (e) => {
         const seg = e?.target?.closest?.(".seg button");
         if (seg && e.type === "click") {
           const box = seg.closest(".seg"), on = seg.getAttribute("aria-pressed") !== "true";
           const vv = on ? seg.dataset.v : null;
-          if (box.id === "aStatus") { status = vv || "active"; $$("#aStatus button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === status))); }
+          if (box.id === "aStatus") {
+            status = vv || "active"; $$("#aStatus button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === status)));
+            $("#aObsNote").classList.toggle("hidden", !OBS[status]);
+          }
           else {
             if (box.id === "aGender") gender = vv;
             if (box.id === "aSkill") skill = vv ? +vv : null;
@@ -1611,7 +1625,7 @@
           <h1>${esc(m.name)} <span class="chip ${m.is_active ? "chip-ok" : "chip-gray"}">${m.is_active ? "활동" : "휴면·종료"}</span>
             ${leaderChip(m)}${firstLogin(m) ? `<span class="chip chip-first">첫 로그인 전</span>` : ""}${m.status === "trainee" ? `<span class="chip chip-mid">${traineeLabel(m)}</span>` : ""}
             ${streak.n >= STREAK_LIMIT ? `<span class="chip chip-bad">팀모임 ${streak.n}회 연속 결석</span>` : ""}</h1>
-          <span class="muted">${esc(positionName(m.main_position))} · ${extrasOf(id).length ? "추가 " + extrasOf(id).map(positionName).join(", ") : "추가 포지션 없음"}</span>
+          <span class="muted">${isObs(m) ? `${OBS[m.status]} · 리더십 권한으로 알림 · 정보를 받아요 · 배치는 어느 자리든 할 수 있어요` : `${esc(positionName(m.main_position))} · ${extrasOf(id).length ? "추가 " + extrasOf(id).map(positionName).join(", ") : "추가 포지션 없음"}`}</span>
           <dl><div><dt>연락처</dt><dd>${esc(m.phone) || "—"}</dd></div><div><dt>이메일 (로그인)</dt><dd>${esc(m.email) || "—"}</dd></div>
             <div><dt>순모임</dt><dd>${esc(m.small_group) || "—"}</dd></div>
             <div><dt>성별</dt><dd>${m.gender ? GENDER[m.gender] : `<span style="color:var(--warn)">미입력</span>`}</dd></div>
@@ -1624,6 +1638,7 @@
         <div class="acts">
           <button type="button" class="btn btn-primary btn-sm" data-act="edit">정보 수정</button>
           ${m.id !== S.me.id && !m.is_owner ? `<button type="button" class="btn btn-ghost btn-sm" data-act="active">${m.is_active ? "휴면으로 전환" : "활동으로 전환"}</button>` : ""}
+          ${m.id !== S.me.id && isOwner() && !m.is_owner && m.status !== "trainee" ? `<button type="button" class="btn btn-ghost btn-sm" data-act="kind">구분 바꾸기</button>` : ""}
           ${m.id !== S.me.id && isOwner() && m.status === "active" ? `<button type="button" class="btn btn-ghost btn-sm" data-act="role">${m.role === "admin" ? "리더십 해제" : "리더십으로 지정"}</button>` : ""}
           ${lockedFor(m) ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-act="reset">비밀번호 초기화</button>`}
           ${m.application_id ? `<a class="btn btn-ghost btn-sm" href="#app/${m.application_id}">지원·수습 기록</a>` : ""}
@@ -1680,6 +1695,35 @@
   }
 
   async function memberAction(m, act) {
+    if (act === "kind") {   // 021: 정식 ↔ 예배MC ↔ 교역자 (최상위 리더십만)
+      let to = m.status;
+      const ps = await loadPositions();
+      const draw = () => {
+        $$("#kSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === to)));
+        $("#kPos").classList.toggle("hidden", !(to === "active" && isObs(m)));
+        $("#kNote").innerHTML = to === m.status ? "" : OBS[to]
+          ? `${OBS[to]}은 리더십 권한을 받아요(관리자 화면 · 알림 · 정보). 섬김 응답 · 출석 · 자동 추천 · 인원 전망에서는 빠지고, 배치표에는 어느 자리든 직접 넣을 수 있어요.${m.role_title ? " 직책은 해제돼요." : ""}`
+          : "정식 팀원이 되면 섬김 응답 · 출석 대상이 되고, 리더십 권한은 해제돼요. 필요하면 다시 리더십으로 지정해 주세요.";
+        $("#mOk").disabled = to === m.status;
+      };
+      modal({ title: `${m.name}님 구분 바꾸기`, confirmLabel: "바꾸기",
+        body: `<div class="seg" id="kSeg">${[["active", "정식"], ["mc", "예배MC"], ["pastor", "교역자"]].map(([k, l]) => `<button type="button" data-v="${k}">${l}</button>`).join("")}</div>
+          <label class="field hidden" id="kPos">주 포지션 *<select class="select" id="kMain"><option value="">고르기</option>${ps.map((p) => `<option value="${p.code}" ${p.code === m.main_position ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
+          <p class="small muted" id="kNote" style="margin:0"></p>`,
+        onInput: (e) => { const b = e?.target?.closest?.("#kSeg button"); if (b && e.type === "click") to = b.dataset.v; draw(); },
+        onConfirm: async (close) => {
+          const patch = { status: to };
+          if (to === "active") {
+            patch.role = "member";
+            if (isObs(m)) { if (!$("#kMain").value) throw new Error("주 포지션을 골라 주세요"); patch.main_position = $("#kMain").value; }
+          }
+          const { error } = await sb.from("members").update(patch).eq("id", m.id);
+          if (error) throw new Error(/최상위/.test(error.message) ? error.message : "바꾸지 못했어요");
+          Object.assign(m, patch, OBS[to] ? { role: "admin", role_title: null, title_until: null } : {});
+          close(); toast(`${m.name}님 → ${OBS[to] || "정식"}`); route();
+        } });
+      return;
+    }
     if (act === "role") {
       const on = m.role !== "admin";
       return modal({ title: on ? `${m.name}님을 리더십으로 지정` : `${m.name}님 리더십 해제`,
@@ -1721,6 +1765,7 @@
   function openMemberEdit(m, noteText) {
     const ps = window.__allPositions || [];
     const ex = extrasOf(m.id);
+    const obs = isObs(m);   // 021: 예배MC · 교역자는 포지션 · 숙련도 · 직책 칸이 없음
     // 숙련도: 화면에서 고친 값 (포지션을 바꿔도 유지)
     const lv = Object.fromEntries(S.skills.filter((k) => k.member_id === m.id).map((k) => [k.position_code, k.level]));
     // 020: 창을 연 때의 값 — 저장할 때 함께 보내서 내가 바꾼 칸만 저장 (다른 리더가 그 사이 고친 칸은 덮어쓰지 않음)
@@ -1746,24 +1791,24 @@
         </div>
         <div class="field"><span class="lrow">생일선물 정산 <span class="hint">· 참여한 사람만 생일 선물을 받아요. 바꿀 땐 본인이 리더십에게 말해요</span></span>
           <div class="seg" id="eGift"><button type="button" data-v="true" aria-pressed="${m.gift_join === true}">참여</button><button type="button" data-v="false" aria-pressed="${m.gift_join === false}">미참여</button></div></div>
-        <label class="field"><span class="lrow">리더십 직책 <span class="hint">· 인원 전망의 승계 계산에 써요. 다른 사람이 맡고 있으면 그 사람 직책은 비워져요</span></span>
+        ${obs ? "" : `<label class="field"><span class="lrow">리더십 직책 <span class="hint">· 인원 전망의 승계 계산에 써요. 다른 사람이 맡고 있으면 그 사람 직책은 비워져요</span></span>
           <select class="select" id="eTitle"><option value="">없음</option>${TITLE_ORDER.map((t) => { const h = S.members.find((x) => x.role_title === t && x.id !== m.id);
-            return `<option value="${t}" ${m.role_title === t ? "selected" : ""}>${TITLES[t]}${h ? ` (지금 ${esc(h.name)})` : ""}</option>`; }).join("")}</select></label>
+            return `<option value="${t}" ${m.role_title === t ? "selected" : ""}>${TITLES[t]}${h ? ` (지금 ${esc(h.name)})` : ""}</option>`; }).join("")}</select></label>`}
         <div class="field"><span class="lrow">성별 <span class="hint">· 배치 추천에서 싱어 성비에 써요</span></span>
           <div class="seg" id="eGender"><button type="button" data-v="m" aria-pressed="${m.gender === "m"}">남</button><button type="button" data-v="f" aria-pressed="${m.gender === "f"}">여</button></div></div>
         <label class="field">이메일 (로그인 아이디)<input type="email" id="eEmail" value="${esc(m.email || "")}" ${lockedFor(m) ? "disabled" : ""}>
           <span class="hint">${lockedFor(m) ? "최상위 리더십 계정의 이메일은 본인만 바꿀 수 있어요." : "바꾸면 다음 로그인부터 새 이메일로 로그인해요. 본인에게 꼭 알려 주세요."}</span></label>
-        <div class="field"><span>주 포지션</span>
+        ${obs ? `<p class="small muted" style="margin:0">${OBS[m.status]}은 주 포지션 · 추가 포지션 · 숙련도 없이 배치표 어느 자리든 넣을 수 있어요.</p>` : `<div class="field"><span>주 포지션</span>
           <div class="seg" id="eMain">${ps.map((p) => `<button type="button" data-v="${p.code}" aria-pressed="${p.code === m.main_position}">${esc(p.name)}</button>`).join("")}</div>
           <span class="hint">이미 짜인 배치표는 그대로 남아요. 다음 배치부터 새 포지션 후보로 보여요.</span></div>
         <div class="field"><span>추가 포지션</span><div id="eExtra" style="display:flex;flex-wrap:wrap;gap:6px 14px">${ps.map((p) =>
           `<label style="display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:14px" data-for="${p.code}" class="${p.code === m.main_position ? "hidden" : ""}"><input type="checkbox" value="${p.code}" ${ex.includes(p.code) ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--violet)">${esc(p.name)}</label>`).join("")}</div></div>
         <div class="field"><span class="lrow">포지션별 숙련도 <span class="chip chip-violet">리더십만 봐요</span></span>
           <div id="eSkills" class="sklist"></div>
-          <span class="hint">배치 자동 추천에서 주마다 실력이 고르게 섞이도록 써요. 비워 두면 '중'으로 계산해요.</span></div>
+          <span class="hint">배치 자동 추천에서 주마다 실력이 고르게 섞이도록 써요. 비워 두면 '중'으로 계산해요.</span></div>`}
         <label class="field">리더십 메모 <span class="hint">리더십끼리만 봐요. 본인에게는 안 보여요.</span><textarea id="eNote" maxlength="1000" style="min-height:80px">${esc(noteText)}</textarea></label>`,
       onInput: (e) => {
-        if (!$("#eSkills").children.length && !e) drawSkills();
+        if (!obs && !$("#eSkills").children.length && !e) drawSkills();
         if (!e) return;
         const b = e.target?.closest?.("#eMain button");
         if (b && e.type === "click") {
@@ -1786,7 +1831,7 @@
       confirmLabel: "저장",
       onConfirm: async (close) => {
         const name = $("#eName").value.trim(), phone = $("#ePhone").value.trim() || null, email = $("#eEmail").value.trim().toLowerCase();
-        const main = $("#eMain [aria-pressed=true]").dataset.v;
+        const main = obs ? m.main_position : $("#eMain [aria-pressed=true]").dataset.v;
         if (!name) throw new Error("이름을 입력해 주세요.");
         if (phone && !/^[0-9\-]{9,13}$/.test(phone)) throw new Error("연락처를 010-0000-0000 형식으로 입력해 주세요.");
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("이메일 주소를 다시 확인해 주세요.");
@@ -1794,13 +1839,13 @@
         if (coh && +coh > 200) throw new Error("기수를 확인해 주세요.");
         if (birth && (birth < "1940-01-01" || birth > "2020-12-31")) throw new Error("생년월일을 확인해 주세요.");
         const gv = $("#eGift [aria-pressed=true]")?.dataset.v;
-        const want = $$("#eExtra input:checked").map((x) => x.value).filter((c) => c !== main);
+        const want = obs ? ex.slice() : $$("#eExtra input:checked").map((x) => x.value).filter((c) => c !== main);
         // 숙련도: 지금 포지션만 남김 (빠진 포지션 · 비운 칸은 null = 지움)
         const keep = [main, ...want];
-        const skills = Object.fromEntries([...new Set([...Object.keys(base.skills), ...keep])].map((c) => [c, keep.includes(c) && lv[c] ? lv[c] : null]));
+        const skills = obs ? { ...base.skills } : Object.fromEntries([...new Set([...Object.keys(base.skills), ...keep])].map((c) => [c, keep.includes(c) && lv[c] ? lv[c] : null]));
         const after = { name, phone, small_group: $("#eGroup").value.trim() || null, served_since: $("#eSince").value || null, main_position: main,
           gender: $("#eGender [aria-pressed=true]")?.dataset.v || null, cohort: coh ? +coh : null, birth_date: birth, gift_join: gv === undefined ? null : gv === "true",
-          role_title: $("#eTitle").value || null, extras: want, skills, note: $("#eNote").value.trim() || null };
+          role_title: obs ? null : $("#eTitle").value || null, extras: want, skills, note: $("#eNote").value.trim() || null };
         // 한 번에 저장 (직책 옮기기 · 추가 포지션 · 숙련도 · 메모까지) — 다른 리더가 먼저 고친 칸이 있으면 아무것도 저장하지 않음
         const r = await saveRpc("save_member", { p_id: m.id, p_before: base, p_after: after });
         if (r.conflict) {
@@ -2199,7 +2244,8 @@
     const nm = (a) => S.members.find((m) => m.id === a.member_id)?.name || S.guests.find((g) => g.id === a.guest_id)?.name || a.former_name || "X";
     const of = (code) => list.filter((x) => x.position_code === code).sort((a, b) => a.slot - b.slot);
     const leads = of("leader");
-    const band = POS.filter((p) => p.kind === "band").sort((a, b) => a.sort_order - b.sort_order);
+    // 021: 기본 인원 0인 선택 포지션(어쿠스틱)은 채웠을 때만
+    const band = POS.filter((p) => p.kind === "band" && (baseOf(p) > 0 || of(p.code).length)).sort((a, b) => a.sort_order - b.sort_order);
     const singers = of("singer");
     return [`📍${md(date)}${title ? " " + title : ""} 라인업`, `인도: ${leads.length ? leads.map(nm).join(", ") : "X"}`,
       `[${band.map((p) => POS_SHORT[p.code] || p.name).join(" ")}]`,
@@ -2376,7 +2422,7 @@
     const cols = B.cols, part = V.part;
     const canPlace = (who, pos) => {
       if (who?.startsWith?.("g:")) return !!guestOf(who.slice(2))?.positions.includes(pos);
-      const m = memOf(who); return !!m && posOfM(m).includes(pos);
+      const m = memOf(who); return !!m && (isObs(m) || posOfM(m).includes(pos));   // 021: 예배MC · 교역자는 어느 자리든
     };
     const active = V.drag?.who || V.picked;
     // 공개: 이 달 전체(주일 · 사역 · 수련회)
@@ -2426,7 +2472,7 @@
               <div class="small muted">${c.type === "min" ? c.sub : `${hm(sunTime(c.svc, S.settings)[0])} · 토요 연습 ${md(addDays(c.date, -1))}`}</div></div>
               <button type="button" class="lu-pub" data-pub="${ci}" aria-pressed="${pub}" ${list.length || pub ? "" : "disabled"}>${pub ? "공개" : "비공개"}</button></div>
             <dl class="stl"><dt>인도</dt><dd>${nm("leader")}</dd><dt>싱어</dt><dd>${singers.join(" · ") || `<span class="x">X</span>`}</dd>
-              <dt>밴드</dt><dd>${partPositions("band").map((p) => `${POS_SHORT[p.code] || p.name} ${nm(p.code)}`).join(" · ")}</dd>
+              <dt>밴드</dt><dd>${partPositions("band").filter((p) => baseOf(p) > 0 || list.some((a) => a.position_code === p.code)).map((p) => `${POS_SHORT[p.code] || p.name} ${nm(p.code)}`).join(" · ")}</dd>
               ${isPollCol(c) || (c.type === "min" && pr) ? `<dt>연습</dt><dd>${pr ? winText(winOf(pr)) : V.sugg[c.key] ? `미정 <span class="small muted">(추천 ${winText(V.sugg[c.key])})</span>` : "미정"}</dd>` : ""}</dl>
             <div class="row" style="gap:6px">${colCheck(c, "all").map((x) => `<span class="pill ${x.c}">${esc(x.t)}</span>`).join("")}</div>
             ${list.length ? `<button type="button" class="btn btn-ghost btn-sm" data-copy="${ci}" style="align-self:flex-start">라인업 복사</button>` : ""}
@@ -2551,6 +2597,14 @@
         ${tags.join("")}<b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
     };
     const guests = S.guests.filter((g) => g.is_active && g.positions.some((c) => partOfPos(c) === part));
+    // 021: 예배MC · 교역자 — 응답 · 자동 추천 없이 필요할 때 직접 넣음
+    const observers = S.members.filter((m) => m.is_active && isObs(m)).sort((a, b) => a.status.localeCompare(b.status) || a.name.localeCompare(b.name, "ko"));
+    const obsHTML = (m) => {
+      const placedHere = asgOf(selCol).find((x) => x.member_id === m.id);
+      return `<div class="lu-cand guest ${V.picked === m.id ? "picked" : ""} ${placedHere ? "placed" : ""}" draggable="true" data-who="${m.id}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
+        <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(m.name)}</b><span class="small muted">어느 자리든</span></span>
+        ${placedHere ? `<span class="chip chip-violet">배치됨</span>` : obsChip(m)}<b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
+    };
     const guestHTML = (g) => {
       const placed = asgOf(selCol).some((x) => x.guest_id === g.id);
       const key = "g:" + g.id;
@@ -2588,6 +2642,9 @@
             <span class="small muted" style="display:flex;justify-content:space-between;align-items:center"><b style="color:var(--ink-2)">객원</b>
               <button type="button" class="btn btn-ghost btn-sm" id="guestAdd">+ 객원 추가</button></span>
             ${guests.map(guestHTML).join("") || `<span class="small muted">이 파트 객원이 없어요</span>`}</div>
+          ${observers.length ? `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px">
+            <span class="small muted"><b style="color:var(--ink-2)">예배MC · 교역자</b> · 응답 없이 필요할 때 직접 넣어요</span>
+            ${observers.map(obsHTML).join("")}</div>` : ""}
         </aside>
       </div>
       <p class="small muted" style="margin:0">이름표에 마우스를 올리면(폰은 한 번 누르면) ${part === "vocal" ? "싱어 리더" : "밴드 마스터"} 지정과 빼기 버튼이 나와요.</p>
@@ -3086,7 +3143,7 @@
   const preN = (row) => preList(row).length;
   const byPos = (a, b) => (posOrder()[a.main_position] ?? 99) - (posOrder()[b.main_position] ?? 99) || a.name.localeCompare(b.name, "ko");
   // 기존 팀원은 계정 등록일과 관계없이 대상 (지난 토요일도 뒤늦게 기록할 수 있게). 수습생만 시작 전 토요일 제외
-  const meetingPeople = (d) => S.members.filter((m) => m.is_active && !(m.status === "trainee" && m.joined_at && m.joined_at > d)).sort(byPos);
+  const meetingPeople = (d) => S.members.filter((m) => m.is_active && !isObs(m) && !(m.status === "trainee" && m.joined_at && m.joined_at > d)).sort(byPos);
   const MS_CHIP = { yes: "chip-ok", no: "chip-gray", tbd: "chip-mid" };
 
   // 없는 토요일 줄을 만들어 둠 (기본 '미정')
@@ -4819,7 +4876,7 @@
         <p class="small muted" style="margin:0">자동 추천은 <b>기본</b> 인원까지 채우고, 비어 있으면 공석(X)으로 보여요. <b>최대</b> 인원까지는 그 주에 필요할 때 배치표에서 직접 더 넣어요(추가 자리). 주일 · 사역 모두 같아요.</p>
         <div style="overflow-x:auto"><table class="fc-table set pos-set"><thead><tr><th class="l">포지션</th><th>기본</th><th>최대</th><th class="l">배치표</th></tr></thead>
           <tbody>${(window.__allPositions || []).map((p) => `<tr data-pos="${p.code}"><td class="l"><b>${esc(p.name)}</b></td>
-            <td><select class="select" id="pB_${p.code}" aria-label="${esc(p.name)} 기본 인원">${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === baseOf(p) ? "selected" : ""}>${n}</option>`).join("")}</select></td>
+            <td><select class="select" id="pB_${p.code}" aria-label="${esc(p.name)} 기본 인원">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === baseOf(p) ? "selected" : ""}>${n}</option>`).join("")}</select></td>
             <td><select class="select" id="pM_${p.code}" aria-label="${esc(p.name)} 최대 인원">${[1, 2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === p.max_count ? "selected" : ""}>${n}</option>`).join("")}</select></td>
             <td class="l small muted" data-pos-txt></td></tr>`).join("")}</tbody></table></div>
         <button type="button" class="btn btn-primary btn-sm" id="sPosSave" style="align-self:flex-start">포지션 인원 저장</button>
@@ -4885,7 +4942,7 @@
     // 019: 포지션별 기본 / 최대 인원
     const posTxt = () => $$("#posCard tr[data-pos]").forEach((tr) => {
       const c = tr.dataset.pos, b = +$("#pB_" + c).value, m = +$("#pM_" + c).value;
-      tr.querySelector("[data-pos-txt]").textContent = b > m ? "기본이 최대보다 많아요" : m > b ? `${b}자리 + 추가 자리 ${m - b}` : `${b}자리`;
+      tr.querySelector("[data-pos-txt]").textContent = b > m ? "기본이 최대보다 많아요" : b === 0 ? `선택 포지션 · 필요할 때 ${m}자리까지 직접` : m > b ? `${b}자리 + 추가 자리 ${m - b}` : `${b}자리`;
       tr.querySelector("[data-pos-txt]").style.color = b > m ? "var(--bad)" : "";
     });
     $("#posCard").addEventListener("change", posTxt); posTxt();
@@ -4964,14 +5021,14 @@
     applications: "지원서", interview_evaluations: "면접 평가", trainee_weeks: "수습 기록", trainee_postpones: "수습 미루기",
     attendance: "출석", practice_attendance: "사역 연습 출석", team_meetings: "토요일 · 팀모임",
     assignments: "배치", services: "예배 · 배치표", guests: "객원", ministries: "사역",
-    positions: "포지션 인원", team_settings: "설정", forecast_exits: "이탈 가정", forecast_heirs: "승계 후보", reset: "초기화",
+    positions: "포지션 인원", team_settings: "설정", songs: "곡", forecast_exits: "이탈 가정", forecast_heirs: "승계 후보", reset: "초기화",
   };
   const AUD_GROUP = {
     member: ["members", "member_notes", "member_skills", "member_extra_positions", "forecast_exits", "forecast_heirs"],
     att: ["attendance", "practice_attendance", "team_meetings"],
     lineup: ["assignments", "services", "guests"],
     app: ["applications", "interview_evaluations", "trainee_weeks", "trainee_postpones"],
-    set: ["positions", "team_settings", "ministries", "reset"],
+    set: ["positions", "team_settings", "ministries", "reset", "songs"],
   };
   const AUD_GROUP_NAME = { all: "전체", member: "멤버", att: "출석", lineup: "배치", app: "지원 · 수습", set: "일정 · 설정", del: "지운 것" };
   const AUD_COL = {
@@ -4984,7 +5041,7 @@
     practice_start: "연습 시작", practice_end: "연습 끝", sunday_start: "주일 시작", sunday_end: "주일 끝", sat_practice_start: "토요 연습 시작",
     sat_practice_end: "토요 연습 끝", resend_warn_hours: "다시 보내기 경고", scores: "평가", label: "이름", start_time: "시작", end_time: "끝",
     response_open: "응답 받기", poll_open: "연습 시간 취합", response_deadline: "응답 마감", poll_deadline: "취합 마감", positions: "포지션",
-    scenario: "시나리오", out_term: "빠지는 기", back_term: "돌아오는 기", former_name: "이름", guest_id: "객원", kind: "종류",
+    title: "곡 이름", main_key: "대표 키", memo: "메모", scenario: "시나리오", out_term: "빠지는 기", back_term: "돌아오는 기", former_name: "이름", guest_id: "객원", kind: "종류",
   };
   const AUD_UNDO_DEL = ["member_notes", "member_skills", "member_extra_positions", "interview_evaluations", "trainee_postpones", "attendance", "practice_attendance", "assignments", "forecast_exits", "forecast_heirs"];
   const audWhat = (x) => {
@@ -4999,6 +5056,7 @@
     if (x.tbl === "trainee_postpones") return `${r.from_week}주차부터 ${r.weeks}주`;
     if (x.tbl === "services") return r.status === "published" ? "공개" : "비공개";
     if (x.tbl === "reset") return "데이터를 모두 비움";
+    if (x.tbl === "songs") return r.title || "";
     return "";
   };
   const audChanges = (x) => (x.changed || []).filter((k) => !["updated_by", "hidden_by"].includes(k)).map((k) => {
@@ -5007,6 +5065,82 @@
     return `<span class="aud-ch"><b>${esc(AUD_COL[k] || k)}</b> ${big ? "바뀜" : `${esc(fieldText(k, o))} → ${esc(fieldText(k, n))}`}</span>`;
   }).join("");
   const audCanUndo = (x) => !x.restored_at && ((x.op === "DELETE" && AUD_UNDO_DEL.includes(x.tbl)) || (x.op === "UPDATE" && x.tbl !== "reset"));
+
+  // ---------------------------------------------------------------- 섬김 일정 | 섬김 응답 (021: 한 메뉴)
+  const PAGE_TABS = { schedule: [["schedule", "섬김 일정"], ["respond", "섬김 응답"]], respond: [["schedule", "섬김 일정"], ["respond", "섬김 응답"]] };
+  new MutationObserver(() => {
+    const v = (location.hash.slice(1) || "dashboard").split("/");
+    const tabs = v.length === 1 && PAGE_TABS[v[0]];
+    const c = $("#content"), cur = c.querySelector(":scope > .page-tabs");
+    if (!tabs) return void cur?.remove();
+    if (cur && cur === c.firstElementChild && cur.dataset.v === v[0]) return;
+    cur?.remove();
+    if (!c.firstElementChild) return;
+    c.insertAdjacentHTML("afterbegin", `<div class="tabs page-tabs" role="tablist" data-v="${v[0]}">${tabs.map(([k, l]) => `<button type="button" role="tab" data-ptab="${k}" aria-selected="${k === v[0]}">${l}</button>`).join("")}</div>`);
+  }).observe($("#content"), { childList: true });
+  $("#content").addEventListener("click", (e) => { const b = e.target.closest("[data-ptab]"); if (b && b.getAttribute("aria-selected") !== "true") nav(b.dataset.ptab); });
+
+  // ---------------------------------------------------------------- 찬양 › 기록 (021)
+  async function renderHistory() {
+    $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">기록</h1></div>
+      <p class="lead">카카오톡 콘티방 기록(2022.3~)을 정리한 통계예요. 팀원도 찬양 탭에서 같은 화면을 봐요.</p><div id="hxRoot"></div>`;
+    await HISTORY.mount($("#hxRoot"), { admin: true });
+  }
+
+  // ---------------------------------------------------------------- 찬양 › 곡 (021)
+  const SG = { q: "", sort: "n", lim: 60 };
+  async function renderSongs() {
+    const [sr, D] = await Promise.all([sb.from("songs").select("id, title, main_key, memo").order("title"), HISTORY.load().catch(() => null)]);
+    if (sr.error) { $("#content").innerHTML = `<div class="empty">곡 목록을 불러오지 못했어요. migration_020을 실행했는지 확인해 주세요.</div>`; return console.error(sr.error); }
+    const stat = new Map((D?.songs || []).map((x) => [x.id, x]));
+    const all = (sr.data || []).map((x) => ({ ...x, st: stat.get(x.id) || { count: 0, last: "", keys: "", link: "" } }));
+    $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">곡</h1>
+        <button type="button" class="btn btn-primary btn-sm" id="songAdd">곡 추가</button></div>
+      <p class="lead">콘티에 쓰는 곡 목록이에요. 이름 · 대표 키 · 메모를 고칠 수 있어요. 악보 · 곡 시간은 다음 업데이트에서 붙어요.</p>
+      <section class="panel">
+        <div class="hx-fr"><input type="search" class="hx-search" id="songQ" placeholder="곡 이름 찾기" aria-label="곡 이름 찾기" value="${esc(SG.q)}">
+          <div class="hx-seg" id="songSort">${[["n", "많이 부른 순"], ["last", "최근 순"], ["name", "가나다 순"]].map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${SG.sort === k}">${l}</button>`).join("")}</div></div>
+        <div class="small muted" id="songSum"></div>
+        <div class="song-wrap"><table class="hx-lead song-table"><thead><tr><th>곡</th><th>대표 키</th><th class="n">부른 횟수</th><th>마지막</th><th class="wide">쓴 키</th><th class="wide">메모</th><th></th></tr></thead><tbody id="songBody"></tbody></table></div>
+        <button type="button" class="hx-more" id="songMore">더 보기</button>
+      </section>`;
+    const draw = () => {
+      const q = SG.q.toLowerCase().replace(/\s/g, "");
+      let rows = all.filter((x) => !q || x.title.toLowerCase().replace(/\s/g, "").includes(q));
+      const cmp = { n: (a, b) => b.st.count - a.st.count, last: (a, b) => (b.st.last || "").localeCompare(a.st.last || ""), name: () => 0 }[SG.sort];
+      rows.sort((a, b) => cmp(a, b) || a.title.localeCompare(b.title, "ko"));
+      $("#songSum").textContent = `${rows.length}곡${q ? ` · '${SG.q}'` : ""} · 전체 ${all.length}곡`;
+      $("#songBody").innerHTML = rows.slice(0, SG.lim).map((x) => `<tr data-id="${x.id}">
+          <td><b>${esc(x.title)}</b>${x.st.link ? ` <a class="hx-yt" href="https://youtu.be/${esc(x.st.link)}" target="_blank" rel="noopener">▶</a>` : ""}</td>
+          <td>${x.main_key ? `<span class="chip chip-violet">${esc(x.main_key)}</span>` : `<span class="muted small">—</span>`}</td>
+          <td class="n">${x.st.count}</td><td class="small">${x.st.last ? x.st.last.slice(2).replace(/-/g, ".") : "—"}</td>
+          <td class="wide small muted">${esc(x.st.keys || "")}</td><td class="wide small">${esc(x.memo || "")}</td>
+          <td><button type="button" class="btn btn-ghost btn-sm" data-edit="${x.id}">고치기</button></td></tr>`).join("")
+        || `<tr><td colspan="7" class="muted">찾는 곡이 없어요.</td></tr>`;
+      $("#songMore").hidden = rows.length <= SG.lim;
+    };
+    draw();
+    $("#songQ").addEventListener("input", (e) => { SG.q = e.target.value; SG.lim = 60; draw(); });
+    $("#songSort").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; SG.sort = b.dataset.v; $$("#songSort button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); draw(); });
+    $("#songMore").addEventListener("click", () => { SG.lim += 100; draw(); });
+    $("#songBody").addEventListener("click", (e) => { const b = e.target.closest("[data-edit]"); if (b) songEdit(all.find((x) => x.id === +b.dataset.edit)); });
+    $("#songAdd").addEventListener("click", () => songEdit(null));
+    function songEdit(x) {
+      modal({ title: x ? "곡 고치기" : "곡 추가", confirmLabel: "저장",
+        body: `<label class="field">곡 이름 *<input type="text" id="sgTitle" maxlength="80" value="${esc(x?.title || "")}" autocomplete="off"></label>
+          <label class="field">대표 키 <span class="hint">· 비우면 가장 많이 부른 키로 보여요</span><input type="text" id="sgKey" maxlength="12" value="${esc(x?.main_key || "")}" placeholder="예: G" autocomplete="off"></label>
+          <label class="field">메모<textarea id="sgMemo" maxlength="300" rows="3" placeholder="예: 후렴 두 번 반복">${esc(x?.memo || "")}</textarea></label>
+          ${x && x.st.count ? `<p class="small muted" style="margin:0">콘티 ${x.st.count}번에 쓰인 곡이에요. 이름을 바꾸면 지난 기록에도 바뀐 이름으로 보여요.</p>` : ""}
+          <span class="small bk-err" id="sgErr"></span>`,
+        onConfirm: async (close) => {
+          const v = { title: $("#sgTitle").value.trim(), main_key: $("#sgKey").value.trim() || null, memo: $("#sgMemo").value.trim() || null };
+          if (!v.title) { $("#sgErr").textContent = "곡 이름을 적어 주세요"; return; }
+          const r = x ? await sb.from("songs").update(v).eq("id", x.id) : await sb.from("songs").insert(v);
+          if (r.error) { $("#sgErr").textContent = r.error.code === "23505" ? "같은 이름의 곡이 이미 있어요 (띄어쓰기 · 대소문자는 같게 봐요)" : "저장하지 못했어요"; return; }
+          close(); HISTORY.reset(); toast(x ? "곡을 고쳤어요" : "곡을 추가했어요"); renderSongs();
+        } });
+    }
+  }
 
   async function renderAudit() {
     $("#content").innerHTML = `<a href="#settings" class="back" style="align-self:flex-start">설정으로 돌아가기</a>

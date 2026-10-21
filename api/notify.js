@@ -89,7 +89,7 @@ export default handler(async (req, body) => {
     }
     const month = body.month || pub[0].service_date.slice(0, 8) + "01";
     const label = body.label || monthLabel(month);
-    const people = await activeMembers(db);
+    const people = await activeMembers(db, { observers: true });
     const items = people.map((m) => {
       const list = mine.get(m.id);
       const vars = { "월": label, "이름": m.name, "내 섬김": list ? `${list.join(" · ")} 섬겨요` : "배치표를 확인해 보세요" };
