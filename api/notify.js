@@ -1,6 +1,6 @@
 // 리더십이 보내는 알림: 응답 열림 · 사역 응답 열림 · 연습 시간 요청 · 배치표 공개 · 연습 확정 · 공지 · 테스트
 import { adminClient, requireAdmin, requireMember, handler, HttpError } from "./_lib.js";
-import { settingOf, fill, deliver, activeMembers, targetsOf, pollPeople, wasSent, md, mdw, hm, monthLabel } from "./_notify.js";
+import { settingOf, fill, deliver, activeMembers, targetsOf, pollPeople, wasSent, claim, release, markSent, md, mdw, hm, monthLabel } from "./_notify.js";
 
 // 알림을 누르면 열리는 곳 (015: 그 항목을 바로 처리할 수 있는 화면)
 export const ME_URL = /^\/me\.html(#[a-z]+(\/[A-Za-z0-9:_.-]{1,80})?)?$/;
@@ -197,12 +197,24 @@ async function prayerUrgent(req, db, body) {
   const { count } = await db.from("notifications").select("id", { count: "exact", head: true })
     .eq("kind", "prayer").eq("created_by", me.id).like("ctx_key", "urgent:%").gte("created_at", since);
   if ((count || 0) >= 3) throw new HttpError(429, "급한 기도 알림은 하루 3번까지 보낼 수 있어요. 기도제목은 올라갔어요.");
-  const { data: who } = await db.from("members").select("id, name").in("id", fresh.map((p) => p.member_id));
-  const names = [...new Set(fresh.map((p) => (who || []).find((m) => m.id === p.member_id)?.name).filter(Boolean))];
+  // 020: 보내기 전에 기도제목마다 자리를 잡음 — 두 번 눌러도(두 기기) 한 번만
+  const got = [];
+  for (const p of fresh) if (await claim(db, `prayer_urgent:${p.id}`)) got.push(p);
+  if (!got.length) return { skipped: true, recipients: 0, pushed: 0 };
+  const keys = got.map((p) => `prayer_urgent:${p.id}`);
+  const { data: who } = await db.from("members").select("id, name").in("id", got.map((p) => p.member_id));
+  const names = [...new Set(got.map((p) => (who || []).find((m) => m.id === p.member_id)?.name).filter(Boolean))];
   const target = names.length > 2 ? `${names.slice(0, 2).join("·")} 외 ${names.length - 2}명` : names.join("·");
   const people = (await activeMembers(db, { trainees: true })).filter((m) => m.id !== me.id);
   const vars = { "대상": target };
-  return deliver(db, { kind: "prayer", by: me.id, ctxKey: `urgent:${fresh[0].id}`, sentKey: fresh.map((p) => `prayer_urgent:${p.id}`),
-    url: `/me.html#pray/${fresh[0].id}`, label: `급한 기도 · ${target} · ${people.length}명`,
-    items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })) });
+  try {
+    const r = await deliver(db, { kind: "prayer", by: me.id, ctxKey: `urgent:${got[0].id}`, sentKey: keys,
+      url: `/me.html#pray/${got[0].id}`, label: `급한 기도 · ${target} · ${people.length}명`,
+      items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })) });
+    if (!r.id) await markSent(db, keys);
+    return r;
+  } catch (e) {
+    await release(db, keys);
+    throw e;
+  }
 }

@@ -1,7 +1,7 @@
 // 새 지원서 알림 — 지원서 제출 직후 apply.html이 부름 (로그인 없음)
-// 방금(10분 안) 들어온 지원서만, 한 번만 보냄
+// 방금(10분 안) 들어온 지원서만, 한 번만 보냄 (020: 보내기 전에 자리를 잡아서 두 번 불려도 한 번)
 import { adminClient, handler, HttpError } from "./_lib.js";
-import { settingOf, fill, deliver, admins, wasSent } from "./_notify.js";
+import { settingOf, fill, deliverOnce, admins, wasSent } from "./_notify.js";
 
 export default handler(async (req, body) => {
   const id = String(body.id || "");
@@ -15,7 +15,7 @@ export default handler(async (req, body) => {
   if (!st.enabled) return { ok: true };
   const vars = { "지원자": a.name, "포지션": a.positions?.name || a.applied_position };
   const lead = await admins(db);
-  await deliver(db, { kind: "apply", sentKey: key, url: `/admin.html#app/${a.id}`, label: `리더십 ${lead.length}명`,
+  await deliverOnce(db, key, { kind: "apply", url: `/admin.html#app/${a.id}`, label: `리더십 ${lead.length}명`,
     items: lead.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })) });
   return { ok: true };
 });

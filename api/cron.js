@@ -2,8 +2,9 @@
 //  · 마감 임박: 월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 — 아직 안 끝낸 사람에게
 //  · 수습 기록 차례: 그 주차 기록이 비어 있으면 나눔 리더(없으면 리더십)에게
 //  보낼지는 '공지 · 알림 › 알림 설정'의 시간을 보고 정함. 같은 알림은 한 번만.
+//  020: 보내기 전에 자리를 잡아서(claim) 두 번 불려도 한 번만 · 한 건이 실패해도 나머지는 계속 · 새벽 4시에 오래된 변경 기록 정리
 import { adminClient } from "./_lib.js";
-import { settingOf, fill, deliver, wasSent, markSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf, birthdayIn, GIFT_TEXT,
+import { settingOf, fill, deliverOnce, wasSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf, birthdayIn, GIFT_TEXT,
   pendingForMonth, pendingForMinistry, pollPeople, votePending, traineeWeekOn } from "./_notify.js";
 
 export default async function cron(req, res) {
@@ -16,7 +17,8 @@ export default async function cron(req, res) {
     const override = process.env.PUSH_SINK ? (req.query?.now || req.body?.now) : null;
     const now = kstNow(override);
     const db = adminClient();
-    const out = { at: `${now.date} ${now.hour}:00 KST`, sent: [] };
+    const out = { at: `${now.date} ${now.hour}:00 KST`, sent: [], errors: [] };
+    const fail = (what, e) => { console.error(what, e); out.errors.push(`${what}: ${e.message || e}`); };
 
     // ---------- 마감 임박
     const rm = await settingOf(db, "remind");
@@ -45,10 +47,13 @@ export default async function cron(req, res) {
         else if (d.type === "vote") list = (await votePending(db, d.x)).map((m) => ({ m, left: "아직 투표하지 않았어요" }));
         else list = (await pollPeople(db, d.x)).pending.map((m) => ({ m, left: "연습 시간을 아직 안 골랐어요" }));
         const vars = { "마감일": RELDAY[p.days] || mdw(d.dl), "무엇": d.what };
-        const r = await deliver(db, { kind: "remind", sentKey,
-          items: list.map(({ m, left }) => { const v = { ...vars, "남은 것": left, "이름": m.name }; return { member_id: m.id, title: fill(rm.title, v), body: fill(rm.body, v) }; }),
-          url: d.type === "vote" ? `/me.html#alerts/${d.x.notification_id}` : `/me.html#respond/${d.type === "poll" ? "poll:all" : d.type + ":" + d.id}`, label: `${d.what} 마감 ${p.days ? p.days + "일 전" : "당일"} · 미완료 ${list.length}명` });
-        if (!list.length) await markSent(db, sentKey);
+        let r;
+        try {
+          r = await deliverOnce(db, sentKey, { kind: "remind",
+            items: list.map(({ m, left }) => { const v = { ...vars, "남은 것": left, "이름": m.name }; return { member_id: m.id, title: fill(rm.title, v), body: fill(rm.body, v) }; }),
+            url: d.type === "vote" ? `/me.html#alerts/${d.x.notification_id}` : `/me.html#respond/${d.type === "poll" ? "poll:all" : d.type + ":" + d.id}`, label: `${d.what} 마감 ${p.days ? p.days + "일 전" : "당일"} · 미완료 ${list.length}명` });
+        } catch (e) { fail(`마감 임박 ${d.what}`, e); continue; }
+        if (!r) continue;
         out.sent.push({ kind: "remind", what: d.what, days: p.days, recipients: r.recipients, pushed: r.pushed });
       }
     }
@@ -72,9 +77,13 @@ export default async function cron(req, res) {
         if (await wasSent(db, sentKey)) continue;
         const to = row?.leader_id ? lead.filter((m) => m.id === row.leader_id) : lead;
         const vars = { "수습생": a.name, "주차": String(w) };
-        const r = await deliver(db, { kind: "trainee", sentKey,
-          items: to.map((m) => ({ member_id: m.id, title: fill(tr.title, { ...vars, "이름": m.name }), body: fill(tr.body, { ...vars, "이름": m.name }) })),
-          url: `/admin.html#app/${a.id}/week${w}`, label: `${a.name} ${w}주차 · ${row?.leader_id ? "나눔 리더" : "리더십"}` });
+        let r;
+        try {
+          r = await deliverOnce(db, sentKey, { kind: "trainee",
+            items: to.map((m) => ({ member_id: m.id, title: fill(tr.title, { ...vars, "이름": m.name }), body: fill(tr.body, { ...vars, "이름": m.name }) })),
+            url: `/admin.html#app/${a.id}/week${w}`, label: `${a.name} ${w}주차 · ${row?.leader_id ? "나눔 리더" : "리더십"}` });
+        } catch (e) { fail(`수습 기록 ${a.name}`, e); continue; }
+        if (!r) continue;
         out.sent.push({ kind: "trainee", who: a.name, week: w, recipients: r.recipients, pushed: r.pushed });
       }
     }
@@ -92,9 +101,11 @@ export default async function cron(req, res) {
       if (due && (await weekPrayers()).length && !(await wasSent(db, key))) {
         const vars = { "인원": String(new Set(prayers.map((p) => p.member_id)).size), "개수": String(prayers.length) };
         const people = await activeMembers(db, { trainees: true });
-        const r = await deliver(db, { kind: "prayer", sentKey: key, url: "/me.html#pray", label: `이번 주 기도제목 ${vars["개수"]}개 · 팀원 전체`,
-          items: people.map((m) => ({ member_id: m.id, title: fill(pn.title, { ...vars, "이름": m.name }), body: fill(pn.body, { ...vars, "이름": m.name }) })) });
-        out.sent.push({ kind: "prayer_new", recipients: r.recipients, pushed: r.pushed });
+        try {
+          const r = await deliverOnce(db, key, { kind: "prayer", url: "/me.html#pray", label: `이번 주 기도제목 ${vars["개수"]}개 · 팀원 전체`,
+            items: people.map((m) => ({ member_id: m.id, title: fill(pn.title, { ...vars, "이름": m.name }), body: fill(pn.body, { ...vars, "이름": m.name }) })) });
+          if (r) out.sent.push({ kind: "prayer_new", recipients: r.recipients, pushed: r.pushed });
+        } catch (e) { fail("기도제목 올라옴", e); }
       }
     }
     //  · 주중 함께 기도: 정한 요일·시각에 이번 주 기도제목이 있으면
@@ -105,9 +116,11 @@ export default async function cron(req, res) {
       if ((await weekPrayers()).length && !(await wasSent(db, key))) {
         const vars = { "인원": String(new Set(prayers.map((p) => p.member_id)).size), "개수": String(prayers.length) };
         const people = await activeMembers(db, { trainees: true });
-        const r = await deliver(db, { kind: "prayer", sentKey: key, url: "/me.html#pray", label: `함께 기도 · 기도제목 ${vars["개수"]}개 · 팀원 전체`,
-          items: people.map((m) => ({ member_id: m.id, title: fill(pr.title, { ...vars, "이름": m.name }), body: fill(pr.body, { ...vars, "이름": m.name }) })) });
-        out.sent.push({ kind: "prayer_remind", recipients: r.recipients, pushed: r.pushed });
+        try {
+          const r = await deliverOnce(db, key, { kind: "prayer", url: "/me.html#pray", label: `함께 기도 · 기도제목 ${vars["개수"]}개 · 팀원 전체`,
+            items: people.map((m) => ({ member_id: m.id, title: fill(pr.title, { ...vars, "이름": m.name }), body: fill(pr.body, { ...vars, "이름": m.name }) })) });
+          if (r) out.sent.push({ kind: "prayer_remind", recipients: r.recipients, pushed: r.pushed });
+        } catch (e) { fail("주중 함께 기도", e); }
       }
     }
     // ---------- 생일 (016): 리더십에게 — D-n · 당일. 생일인 리더십 본인은 빼고, 사람마다 해마다 한 번
@@ -125,12 +138,22 @@ export default async function cron(req, res) {
         if (await wasSent(db, key)) continue;
         const vars = { "생일자": m.name, "며칠": `${days}일`, "날짜": mdw(target), "정산": GIFT_TEXT(m.gift_join) };
         const to = lead.filter((x) => x.id !== m.id);
-        const r = await deliver(db, { kind: "birthday", sentKey: key, url: `/admin.html#member/${m.id}`, label: `${m.name} 생일 ${days ? days + "일 전" : "당일"} · 리더십 ${to.length}명`,
-          items: to.map((x) => ({ member_id: x.id, title: fill(bs.title, { ...vars, "이름": x.name }), body: fill(bs.body, { ...vars, "이름": x.name }) })) });
-        if (!to.length) await markSent(db, key);
+        let r;
+        try {
+          r = await deliverOnce(db, key, { kind: "birthday", url: `/admin.html#member/${m.id}`, label: `${m.name} 생일 ${days ? days + "일 전" : "당일"} · 리더십 ${to.length}명`,
+            items: to.map((x) => ({ member_id: x.id, title: fill(bs.title, { ...vars, "이름": x.name }), body: fill(bs.body, { ...vars, "이름": x.name }) })) });
+        } catch (e) { fail(`생일 ${m.name}`, e); continue; }
+        if (!r) continue;
         out.sent.push({ kind, who: m.name, recipients: r.recipients, pushed: r.pushed });
       }
     }
+    // ---------- 정리 (020): 새벽 4시에 1년 지난 변경 기록을 지움
+    if (now.hour === 4) {
+      const cut = new Date(Date.now() - 365 * 864e5).toISOString();
+      const { error } = await db.from("audit_log").delete().lt("at", cut);
+      if (error) fail("변경 기록 정리", error); else out.cleaned = true;
+    }
+    if (!out.errors.length) delete out.errors;
     res.status(200).json(out);
   } catch (e) {
     console.error(e);

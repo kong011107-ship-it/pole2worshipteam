@@ -81,6 +81,41 @@
     if (!error && data) S.logs.push(data);
   }
 
+  // 020: 동시 수정 보호 — 연 때의 값(before)과 저장할 값(after)을 함께 보내 내가 바꾼 칸만 저장
+  //  그 사이 다른 리더가 같은 칸을 고쳤으면 아무것도 저장하지 않고 { conflict: [{ field, label, now }] }
+  async function saveRpc(fn, args) {
+    const { data, error } = await sb.rpc(fn, args);
+    if (!error) return { data };
+    if (error.code === "PT409") { let c = []; try { c = JSON.parse(error.details || "[]"); } catch {} return { conflict: c }; }
+    throw new Error(error.message || "저장하지 못했습니다");
+  }
+  // 칸 값 → 사람이 읽는 글 (충돌 안내 · 변경 기록)
+  const DAYS = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${+v.slice(0, 4)}. ${+v.slice(5, 7)}. ${+v.slice(8, 10)}` : v);
+  function fieldText(field, v) {
+    if (v === null || v === undefined || v === "") return "비어 있음";
+    const f = String(field).replace(/^skill:/, "level");
+    if (f === "gender") return GENDER[v] || v;
+    if (f === "gift_join") return v ? "참여" : "미참여";
+    if (["main_position", "position_code"].includes(f)) return positionName(v);
+    if (f === "role_title") return TITLES[v] || v;
+    if (f === "role") return v === "admin" ? "리더십" : "팀원";
+    if (f === "level") return LEVEL[v] || v;
+    if (f === "status") return ATT[v] || { active: "정식", trainee: "수습" }[v] || v;
+    if (f === "meeting_status") return MEETING[v] || v;
+    if (f === "cohort") return v + "기";
+    if (f === "title_until") return v + "기까지";
+    if (["leader_id", "member_id", "interviewer_id"].includes(f)) return memberName(v);
+    if (f === "stage") return { applied: "접수", interview: "면접", trainee: "수습", member: "정식 전환", closed: "종료" }[v] || v;
+    if (typeof v === "boolean") return v ? "예" : "아니요";
+    if (typeof v === "object") return Array.isArray(v) ? v.map((x) => fieldText(f, x)).join(", ") : "(바뀜)";
+    const s = DAYS(String(v));
+    return s.length > 40 ? s.slice(0, 40) + "…" : s;
+  }
+  const conflictBox = (list, tail) => `<div class="notice warn conflict" role="alert" style="display:flex;flex-direction:column;gap:6px">
+    <b>저장하지 않았어요 · 그 사이 다른 리더가 먼저 고친 칸이 있어요</b>
+    <ul style="margin:0;padding-left:18px;font-weight:500;line-height:1.7">${list.map((c) => `<li>${esc(c.label)} · 지금 <b>${esc(fieldText(c.field, c.now))}</b></li>`).join("")}</ul>
+    <span class="small" style="font-weight:500">${tail}</span></div>`;
+
   async function api(path, payload) {
     const { data: { session } } = await sb.auth.getSession();
     const r = await fetch(path, {
@@ -99,7 +134,7 @@
     routed = location.hash;
     const h = location.hash.slice(1) || "dashboard";
     const [view, id, sub] = h.split("/");
-    const navOf = { app: "pipeline", member: "members", ministry: "schedule" };
+    const navOf = { app: "pipeline", member: "members", ministry: "schedule", audit: "settings" };
     $$(".side nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === (navOf[view] || view)));
     updateTodoCount();
     if (view === "app" && id) return renderDetail(id, sub);
@@ -116,6 +151,7 @@
     if (view === "notify") return renderNotify();
     if (view === "forecast") return renderForecast();
     if (view === "sharing") return renderSharing();
+    if (view === "audit") return renderAudit();
     return renderDashboard();
   }
   // ---------------------------------------------------------------- 뒤로가기 (014)
@@ -771,6 +807,7 @@
             <label class="field" style="font-size:13px">${n === 5 ? "커피챗" : "나눔 리더"}<select class="select" data-field="leader_id" style="min-height:40px;font-size:15px">
               <option value="">선택</option>${leaders.map((m) => `<option value="${m.id}" ${r.leader_id === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select></label>
             <textarea class="input" data-field="note" maxlength="500" placeholder="나눔 후 3줄로 남겨 주세요">${esc(r.note || "")}</textarea>
+            <div data-wconflict></div>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
               <span class="small muted">${r.updated_by ? `${esc(memberName(r.updated_by))} · ${fmtDate(r.updated_at)} 저장` : ""}</span>
               <button type="button" class="btn btn-soft btn-sm" data-save>저장</button></div>
@@ -788,18 +825,28 @@
         const on = b.getAttribute("aria-pressed") !== "true";
         g.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(on && x === b)));
       }));
-      row.querySelector("[data-save]").addEventListener("click", async () => {
+      // 020: 연 때의 값 기준으로 저장 — 같은 주차를 다른 리더가 먼저 고쳤으면 덮어쓰지 않고 알려 줌
+      const r0 = weeks.find((x) => x.week === +row.dataset.week) || {};
+      const wbase = { leader_id: r0.leader_id ?? null, sat_attended: r0.sat_attended ?? null, sun_attended: r0.sun_attended ?? null, note: r0.note ?? null };
+      row.querySelector("[data-save]").addEventListener("click", async (ev) => {
         const val = (f) => { const p = row.querySelector(`.seg[data-field=${f}] [aria-pressed=true]`); return p ? p.dataset.v === "true" : null; };
-        const patch = {
-          application_id: a.id, week: +row.dataset.week,
+        const week = +row.dataset.week;
+        const after = {
           sat_attended: val("sat_attended"), sun_attended: val("sun_attended"),
           leader_id: row.querySelector("[data-field=leader_id]").value || null,
           note: row.querySelector("[data-field=note]").value.trim() || null,
-          updated_by: S.me.id,
         };
-        const { error } = await sb.from("trainee_weeks").upsert(patch);
-        if (error) return toast("저장하지 못했습니다");
-        toast(`${patch.week}주차 기록을 저장했어요`);
+        const btn = ev.currentTarget; btn.disabled = true;
+        let res;
+        try { res = await saveRpc("save_fields", { p_table: "trainee_weeks", p_key: { application_id: a.id, week }, p_before: wbase, p_after: after }); }
+        catch (e) { btn.disabled = false; return toast(e.message || "저장하지 못했습니다"); }
+        btn.disabled = false;
+        if (res.conflict) {
+          res.conflict.forEach((c) => (wbase[c.field] = c.now));
+          row.querySelector("[data-wconflict]").innerHTML = conflictBox(res.conflict, "확인했으면 저장을 한 번 더 누르세요. 내가 적은 값으로 바꿔요.");
+          return;
+        }
+        toast(`${week}주차 기록을 저장했어요`);
         renderDetail(a.id);
       });
     });
@@ -864,13 +911,25 @@
       <dt>지원 동기</dt><dd>${esc(a.motivation) || "—"}</dd><dt>이루고 싶은 것</dt><dd>${esc(a.goal) || "—"}</dd>
       <dt>서약</dt><dd>${esc(a.pledge_title)} · ${fmtDate(a.pledged_at)} 서약
         <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--violet);font-weight:700">원문 보기</summary><div class="pledge-box" style="margin-top:8px">${esc(a.pledge_content)}</div></details></dd>
-      <dt>관리자 메모</dt><dd><textarea class="input" id="memo" maxlength="1000" style="min-height:80px" placeholder="리더십끼리만 보는 메모">${esc(a.admin_memo || "")}</textarea></dd>
+      <dt>관리자 메모</dt><dd><textarea class="input" id="memo" maxlength="1000" style="min-height:80px" placeholder="리더십끼리만 보는 메모">${esc(a.admin_memo || "")}</textarea>
+        <div id="memoConflict" style="margin-top:8px"></div></dd>
     </dl></section>`;
-    $("#memo").addEventListener("change", async (e) => {
-      const { error } = await sb.from("applications").update({ admin_memo: e.target.value.trim() || null }).eq("id", a.id);
-      if (error) return toast("저장하지 못했습니다");
-      a.admin_memo = e.target.value.trim() || null; toast("메모를 저장했어요");
-    });
+    // 020: 연 때의 메모를 기준으로 저장 — 그 사이 다른 리더가 고쳤으면 덮어쓰지 않고 알려 줌
+    let memoBase = a.admin_memo || null;
+    const saveMemo = async () => {
+      const v = $("#memo").value.trim() || null;
+      const r = await saveRpc("save_fields", { p_table: "applications", p_key: { id: a.id }, p_before: { admin_memo: memoBase }, p_after: { admin_memo: v } });
+      if (r.conflict) {
+        memoBase = r.conflict[0]?.now ?? null;
+        $("#memoConflict").innerHTML = conflictBox(r.conflict, `지금 저장된 메모는 아래와 같아요. 내 내용은 칸에 그대로 있어요. 합쳐서 고친 뒤
+          <button type="button" class="btn btn-soft btn-sm" id="memoForce">내 내용으로 저장</button>`)
+          + `<div class="note-box" style="white-space:pre-wrap;margin-top:8px">${esc(memoBase || "(비어 있음)")}</div>`;
+        $("#memoForce").onclick = saveMemo;
+        return;
+      }
+      memoBase = v; a.admin_memo = v; $("#memoConflict").innerHTML = ""; toast("메모를 저장했어요");
+    };
+    $("#memo").addEventListener("change", () => saveMemo().catch((e) => toast(e.message)));
   }
 
   function renderLog(a, body) {
@@ -1664,6 +1723,9 @@
     const ex = extrasOf(m.id);
     // 숙련도: 화면에서 고친 값 (포지션을 바꿔도 유지)
     const lv = Object.fromEntries(S.skills.filter((k) => k.member_id === m.id).map((k) => [k.position_code, k.level]));
+    // 020: 창을 연 때의 값 — 저장할 때 함께 보내서 내가 바꾼 칸만 저장 (다른 리더가 그 사이 고친 칸은 덮어쓰지 않음)
+    const PROF = ["name", "phone", "small_group", "served_since", "main_position", "gender", "cohort", "birth_date", "gift_join", "role_title"];
+    const base = { ...Object.fromEntries(PROF.map((k) => [k, m[k] ?? null])), extras: ex.slice(), skills: { ...lv }, note: noteText || null };
     const curPos = () => {
       const main = $("#eMain [aria-pressed=true]")?.dataset.v || m.main_position;
       return [main, ...$$("#eExtra input:checked").map((x) => x.value).filter((c) => c !== main)];
@@ -1674,7 +1736,7 @@
     };
     modal({
       step: "멤버 정보", title: `${m.name} 정보 수정`,
-      body: `<div class="grid2">
+      body: `<div id="eConflict" style="display:contents"></div><div class="grid2">
           <label class="field"><span class="lrow">이름</span><input type="text" id="eName" maxlength="30" value="${esc(m.name)}"></label>
           <label class="field"><span class="lrow">연락처</span><input type="tel" id="ePhone" maxlength="13" value="${esc(m.phone || "")}" placeholder="010-0000-0000"></label>
           <label class="field"><span class="lrow">순모임</span><input type="text" id="eGroup" maxlength="30" value="${esc(m.small_group || "")}" placeholder="예: OOO순"></label>
@@ -1732,34 +1794,23 @@
         if (coh && +coh > 200) throw new Error("기수를 확인해 주세요.");
         if (birth && (birth < "1940-01-01" || birth > "2020-12-31")) throw new Error("생년월일을 확인해 주세요.");
         const gv = $("#eGift [aria-pressed=true]")?.dataset.v;
-        const patch = { name, phone, small_group: $("#eGroup").value.trim() || null, served_since: $("#eSince").value || null, main_position: main,
-          gender: $("#eGender [aria-pressed=true]")?.dataset.v || null, cohort: coh ? +coh : null, birth_date: birth, gift_join: gv === undefined ? null : gv === "true" };
-        const title = $("#eTitle").value || null;
-        if (title !== (m.role_title || null)) {
-          const holder = title && S.members.find((x) => x.role_title === title && x.id !== m.id);
-          if (holder) { const { error: he } = await sb.from("members").update({ role_title: null }).eq("id", holder.id); if (he) throw new Error("직책을 옮기지 못했습니다"); }
-          patch.role_title = title;
-        }
-        const { error } = await sb.from("members").update(patch).eq("id", m.id);
-        if (error) throw new Error("저장하지 못했습니다");
-        // 추가 포지션 맞추기
         const want = $$("#eExtra input:checked").map((x) => x.value).filter((c) => c !== main);
-        const have = extrasOf(m.id);
-        const add = want.filter((c) => !have.includes(c)), del = have.filter((c) => !want.includes(c));
-        if (add.length) await sb.from("member_extra_positions").insert(add.map((c) => ({ member_id: m.id, position_code: c })));
-        if (del.length) await sb.from("member_extra_positions").delete().eq("member_id", m.id).in("position_code", del);
-        // 숙련도 (지금 포지션만 남김)
+        // 숙련도: 지금 포지션만 남김 (빠진 포지션 · 비운 칸은 null = 지움)
         const keep = [main, ...want];
-        const up = keep.filter((c) => lv[c]).map((c) => ({ member_id: m.id, position_code: c, level: lv[c] }));
-        const drop = S.skills.filter((k) => k.member_id === m.id && (!keep.includes(k.position_code) || !lv[k.position_code])).map((k) => k.position_code);
-        if (up.length) { const { error: se } = await sb.from("member_skills").upsert(up); if (se) throw new Error("숙련도를 저장하지 못했습니다"); }
-        if (drop.length) await sb.from("member_skills").delete().eq("member_id", m.id).in("position_code", drop);
-        // 리더십 메모
-        const nt = $("#eNote").value.trim();
-        if (nt !== noteText) {
-          const { error: ne } = nt ? await sb.from("member_notes").upsert({ member_id: m.id, note: nt, updated_by: S.me.id })
-            : await sb.from("member_notes").delete().eq("member_id", m.id);
-          if (ne) throw new Error("메모를 저장하지 못했습니다");
+        const skills = Object.fromEntries([...new Set([...Object.keys(base.skills), ...keep])].map((c) => [c, keep.includes(c) && lv[c] ? lv[c] : null]));
+        const after = { name, phone, small_group: $("#eGroup").value.trim() || null, served_since: $("#eSince").value || null, main_position: main,
+          gender: $("#eGender [aria-pressed=true]")?.dataset.v || null, cohort: coh ? +coh : null, birth_date: birth, gift_join: gv === undefined ? null : gv === "true",
+          role_title: $("#eTitle").value || null, extras: want, skills, note: $("#eNote").value.trim() || null };
+        // 한 번에 저장 (직책 옮기기 · 추가 포지션 · 숙련도 · 메모까지) — 다른 리더가 먼저 고친 칸이 있으면 아무것도 저장하지 않음
+        const r = await saveRpc("save_member", { p_id: m.id, p_before: base, p_after: after });
+        if (r.conflict) {
+          for (const c of r.conflict) {   // 다음 저장은 지금 값을 기준으로 → 한 번 더 누르면 내가 적은 값으로
+            if (c.field.startsWith("skill:")) base.skills[c.field.slice(6)] = c.now; else base[c.field] = c.now;
+          }
+          $("#eConflict").innerHTML = conflictBox(r.conflict, "확인했으면 저장을 한 번 더 누르세요. 위 칸들도 내가 적은 값으로 바꿔요. 다른 칸은 아직 저장되지 않았어요.");
+          $("#mOk").textContent = "내 값으로 저장";
+          $(".modal")?.scrollTo({ top: 0 }); $(".modal-back")?.scrollTo({ top: 0 });
+          return;
         }
         // 로그인 이메일 (서버에서 계정과 함께 변경)
         if (email !== (m.email || "").toLowerCase()) await api("/api/update-email", { memberId: m.id, email });
@@ -4720,6 +4771,13 @@
     let order = (set.rec_order || ["skill", "balance", "consecutive", "gender"]).slice();
     const orderHTML = () => order.map((k, i) => `<div class="ordrow"><span class="n">${i + 1}</span><span><b>${REC_LABEL[k][0]}</b><br><span class="small muted">${REC_LABEL[k][1]}</span></span>
       <span class="row" style="gap:4px"><button type="button" class="btn btn-ghost btn-sm" data-up="${i}" ${i ? "" : "disabled"} aria-label="${REC_LABEL[k][0]} 위로">↑</button><button type="button" class="btn btn-ghost btn-sm" data-down="${i}" ${i < order.length - 1 ? "" : "disabled"} aria-label="${REC_LABEL[k][0]} 아래로">↓</button></span></div>`).join("");
+    // 020: 마지막 자동 백업
+    const { data: bks } = await sb.from("backup_log").select("*").order("at", { ascending: false }).limit(1);
+    const bk = bks?.[0], bkAge = bk ? Math.floor((Date.now() - Date.parse(bk.at)) / 864e5) : null;
+    const bkChip = !bk ? `<span class="chip chip-warn">백업 기록 없음</span>`
+      : !bk.ok ? `<span class="chip chip-bad">마지막 백업 실패 · ${fmtDate(bk.at, { month: "numeric", day: "numeric" })}</span>`
+      : bkAge > 8 ? `<span class="chip chip-warn">마지막 백업 ${bkAge}일 전</span>`
+      : `<span class="chip chip-ok">마지막 백업 ${fmtDateTime(bk.at)}${bk.size_bytes ? " · " + sizeText(bk.size_bytes) : ""}</span>`;
     const owner = ownerOf();
     const heirs = S.members.filter((m) => m.is_active && m.status === "active" && m.id !== S.me.id).sort((a, b) => (a.role === "admin" ? 0 : 1) - (b.role === "admin" ? 0 : 1) || a.name.localeCompare(b.name, "ko"));
     $("#content").innerHTML = `
@@ -4730,6 +4788,14 @@
           <span class="small muted" style="flex:1 1 260px">리더십 지정·해제와 초기화는 이 사람만 할 수 있어요. 이 계정은 본인만 휴면·탈퇴·비밀번호·이메일을 바꿀 수 있어요.</span>
           ${isOwner() ? `<button type="button" class="btn btn-ghost btn-sm" id="ownerGive">넘기기</button>` : ""}</div>
         ${!owner ? `<p class="notice warn" style="margin:0">최상위 리더십이 정해져 있지 않아요. Supabase SQL Editor에서 <code>update members set is_owner = true where email = '이메일';</code>로 정해 주세요.</p>` : ""}
+      </section>
+      <section class="card bordered" id="safeCard" style="display:flex;flex-direction:column;gap:12px">
+        <h2 style="font-size:17px;font-weight:800">백업 · 변경 기록</h2>
+        <div class="owner-row">${bkChip}
+          <span class="small muted" style="flex:1 1 260px">${bk ? "매주 일요일 새벽, GitHub이 데이터 전체를 암호화해서 백업해요 (90일 보관)." : "자동 백업이 아직 한 번도 돌지 않았어요. 업데이트 안내(UPDATE-020)의 '백업 설정'을 따라 GitHub에 설정해 주세요."}</span></div>
+        <div class="owner-row"><b style="font-size:15px">변경 기록</b>
+          <span class="small muted" style="flex:1 1 260px">누가 언제 무엇을 바꿨는지 1년 동안 남아요. 실수로 지운 출석 · 배치 · 메모는 여기서 되살릴 수 있어요.</span>
+          <a class="btn btn-ghost btn-sm" href="#audit">변경 기록 보기</a></div>
       </section>
       <div class="two">
         <section class="card bordered" style="display:flex;flex-direction:column;gap:14px">
@@ -4885,6 +4951,118 @@
         const r = await api("/api/demo", { action: "clear" });
         await loadAll(); close(); toast(`테스트 계정 ${r.removedMembers}개 · 지원서 ${r.removedApplications}건을 지웠어요`); renderSettings();
       },
+    }));
+  }
+
+  // ---------------------------------------------------------------- 변경 기록 (020)
+  //  audit_log: 바꾼 것은 바뀐 칸만, 지운 것은 줄 전체 → '되살리기'(지운 것) · '되돌리기'(바꾼 것)
+  //  그 뒤에 또 바뀐 칸이 있으면 되돌리지 않아요 (서버 restore_audit이 막음)
+  const sizeText = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + "MB" : Math.max(1, Math.round(b / 1024)) + "KB");
+  const AUD = { group: "all", q: "", limit: 100 };
+  const AUD_TBL = {
+    members: "멤버 정보", member_notes: "리더십 메모", member_skills: "숙련도", member_extra_positions: "추가 포지션",
+    applications: "지원서", interview_evaluations: "면접 평가", trainee_weeks: "수습 기록", trainee_postpones: "수습 미루기",
+    attendance: "출석", practice_attendance: "사역 연습 출석", team_meetings: "토요일 · 팀모임",
+    assignments: "배치", services: "예배 · 배치표", guests: "객원", ministries: "사역",
+    positions: "포지션 인원", team_settings: "설정", forecast_exits: "이탈 가정", forecast_heirs: "승계 후보", reset: "초기화",
+  };
+  const AUD_GROUP = {
+    member: ["members", "member_notes", "member_skills", "member_extra_positions", "forecast_exits", "forecast_heirs"],
+    att: ["attendance", "practice_attendance", "team_meetings"],
+    lineup: ["assignments", "services", "guests"],
+    app: ["applications", "interview_evaluations", "trainee_weeks", "trainee_postpones"],
+    set: ["positions", "team_settings", "ministries", "reset"],
+  };
+  const AUD_GROUP_NAME = { all: "전체", member: "멤버", att: "출석", lineup: "배치", app: "지원 · 수습", set: "일정 · 설정", del: "지운 것" };
+  const AUD_COL = {
+    name: "이름", phone: "연락처", email: "이메일", small_group: "순모임", served_since: "함께한 날", main_position: "주 포지션", gender: "성별",
+    cohort: "기수", birth_date: "생년월일", gift_join: "생일선물 정산", role_title: "직책", title_until: "직책 예상 종료", role: "리더십", is_active: "활동",
+    is_owner: "최상위 리더십", note: "메모", level: "숙련도", reason_tag: "사유", reason: "사유", self_reported_at: "미리 알림", meeting_status: "팀모임",
+    admin_memo: "관리자 메모", stage: "단계", interview_result: "면접 결과", sat_attended: "토 연습", sun_attended: "주일 참관", leader_id: "나눔 리더",
+    position_code: "포지션", slot: "자리", is_singer_leader: "싱어 리더", is_band_master: "밴드 마스터", recommended: "추천", member_id: "사람",
+    base_count: "기본 인원", max_count: "최대 인원", is_recruiting: "모집 중", rec_order: "추천 기준 순서", rec_basis: "골고루 기준", forecast: "인원 전망 기준",
+    practice_start: "연습 시작", practice_end: "연습 끝", sunday_start: "주일 시작", sunday_end: "주일 끝", sat_practice_start: "토요 연습 시작",
+    sat_practice_end: "토요 연습 끝", resend_warn_hours: "다시 보내기 경고", scores: "평가", label: "이름", start_time: "시작", end_time: "끝",
+    response_open: "응답 받기", poll_open: "연습 시간 취합", response_deadline: "응답 마감", poll_deadline: "취합 마감", positions: "포지션",
+    scenario: "시나리오", out_term: "빠지는 기", back_term: "돌아오는 기", former_name: "이름", guest_id: "객원", kind: "종류",
+  };
+  const AUD_UNDO_DEL = ["member_notes", "member_skills", "member_extra_positions", "interview_evaluations", "trainee_postpones", "attendance", "practice_attendance", "assignments", "forecast_exits", "forecast_heirs"];
+  const audWhat = (x) => {
+    const r = x.old_row || x.new_row || {};
+    if (x.tbl === "attendance") return `${ACT_KINDS[r.kind] || "출석"} ${ATT[r.status] || ""}${r.status === "absent" && (r.reason_tag || r.reason) ? " · " + [r.reason_tag, r.reason].filter(Boolean).join(" · ") : ""}`;
+    if (x.tbl === "assignments") return `${positionName(r.position_code)} ${r.slot || ""}${r.is_singer_leader ? " · 싱어 리더" : ""}${r.is_band_master ? " · 밴마" : ""}`;
+    if (x.tbl === "member_notes") return fieldText("note", r.note);
+    if (x.tbl === "member_skills") return `${positionName(r.position_code)} ${LEVEL[r.level] || ""}`;
+    if (x.tbl === "member_extra_positions") return positionName(r.position_code);
+    if (x.tbl === "members" && x.op === "DELETE") return `${positionName(r.main_position)} · 탈퇴·삭제`;
+    if (x.tbl === "forecast_heirs") return `${TITLES[r.role_title] || ""} 후보`;
+    if (x.tbl === "trainee_postpones") return `${r.from_week}주차부터 ${r.weeks}주`;
+    if (x.tbl === "services") return r.status === "published" ? "공개" : "비공개";
+    if (x.tbl === "reset") return "데이터를 모두 비움";
+    return "";
+  };
+  const audChanges = (x) => (x.changed || []).filter((k) => !["updated_by", "hidden_by"].includes(k)).map((k) => {
+    const o = x.old_row?.[k], n = x.new_row?.[k];
+    const big = typeof o === "object" && o !== null || typeof n === "object" && n !== null;
+    return `<span class="aud-ch"><b>${esc(AUD_COL[k] || k)}</b> ${big ? "바뀜" : `${esc(fieldText(k, o))} → ${esc(fieldText(k, n))}`}</span>`;
+  }).join("");
+  const audCanUndo = (x) => !x.restored_at && ((x.op === "DELETE" && AUD_UNDO_DEL.includes(x.tbl)) || (x.op === "UPDATE" && x.tbl !== "reset"));
+
+  async function renderAudit() {
+    $("#content").innerHTML = `<a href="#settings" class="back" style="align-self:flex-start">설정으로 돌아가기</a>
+      <div class="page-head"><h1 class="page-title">변경 기록</h1></div><div class="empty">불러오는 중…</div>`;
+    let q = sb.from("audit_log").select("*").order("id", { ascending: false }).limit(AUD.limit + 1);
+    if (AUD.group === "del") q = q.eq("op", "DELETE");
+    else if (AUD.group !== "all") q = q.in("tbl", AUD_GROUP[AUD.group]);
+    if (AUD.q.trim()) q = q.ilike("label", `%${AUD.q.trim().replace(/[%_]/g, "")}%`);
+    const { data, error } = await q;
+    if (error) { $("#content").innerHTML = `<div class="empty">변경 기록을 불러오지 못했어요. migration_019를 실행했는지 확인해 주세요.</div>`; return; }
+    const rows = (data || []).slice(0, AUD.limit), more = (data || []).length > AUD.limit;
+    const day = (iso) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+    let prevDay = "";
+    $("#content").innerHTML = `<a href="#settings" class="back" style="align-self:flex-start">설정으로 돌아가기</a>
+      <div class="page-head"><h1 class="page-title">변경 기록</h1></div>
+      <p class="lead">누가 언제 무엇을 바꿨는지 1년 동안 남아요. 지운 출석 · 배치 · 메모는 <b>되살리기</b>, 바꾼 칸은 <b>되돌리기</b>로 이전 값으로 돌릴 수 있어요. 탈퇴하거나 지운 사람의 기록은 개인정보 파기를 위해 함께 지워져요.</p>
+      <section class="card bordered aud-tools">
+        <div class="chips2" id="audGroup" role="group" aria-label="종류">${Object.entries(AUD_GROUP_NAME).map(([k, v]) => `<button type="button" data-g="${k}" aria-pressed="${AUD.group === k}">${v}</button>`).join("")}</div>
+        <input type="search" class="search" id="audQ" placeholder="이름으로 찾기" value="${esc(AUD.q)}" aria-label="이름으로 찾기">
+      </section>
+      <section class="aud-list">${rows.map((x) => {
+        const d = day(x.at), head = d !== prevDay ? `<h2 class="aud-day">${fmtDate(d, { month: "long", day: "numeric", weekday: "short" })}</h2>` : "";
+        prevDay = d;
+        const verb = { INSERT: "추가", UPDATE: "수정", DELETE: x.tbl === "reset" ? "" : "삭제" }[x.op];
+        const what = audWhat(x);
+        return `${head}<article class="aud-row ${x.op === "DELETE" ? "del" : ""}" data-aid="${x.id}">
+          <span class="aud-time">${new Date(x.at).toLocaleTimeString("ko-KR", { timeZone: "Asia/Seoul", hour: "numeric", minute: "2-digit" })}</span>
+          <div class="aud-main">
+            <div class="aud-hd"><span class="chip ${x.op === "DELETE" ? "chip-warn" : x.op === "INSERT" ? "chip-ok" : "chip-violet"}">${esc(AUD_TBL[x.tbl] || x.tbl)}${verb ? " " + verb : ""}</span>
+              <b>${esc(x.label || "")}</b>${what ? `<span class="aud-what">${esc(what)}</span>` : ""}</div>
+            ${x.op === "UPDATE" ? `<div class="aud-chs">${audChanges(x)}</div>` : ""}
+            <span class="small muted">${esc(x.actor_name || (x.actor ? "리더십" : "서버 · 자동"))}${x.restored_at ? ` · <b style="color:var(--ok)">${esc(memberName(x.restored_by))}님이 ${x.op === "DELETE" ? "되살림" : "되돌림"}</b>` : ""}</span>
+          </div>
+          ${audCanUndo(x) ? `<button type="button" class="btn btn-ghost btn-sm" data-undo-aid="${x.id}">${x.op === "DELETE" ? "되살리기" : "되돌리기"}</button>` : "<span></span>"}
+        </article>`;
+      }).join("") || `<div class="empty">${AUD.q || AUD.group !== "all" ? "조건에 맞는 기록이 없어요." : "아직 기록이 없어요."}</div>`}</section>
+      ${more ? `<button type="button" class="btn btn-ghost" id="audMore" style="align-self:center">더 보기</button>` : ""}`;
+    $("#audGroup").onclick = (e) => { const b = e.target.closest("[data-g]"); if (b) { AUD.group = b.dataset.g; AUD.limit = 100; renderAudit(); } };
+    let t = null;
+    $("#audQ").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { AUD.q = e.target.value; AUD.limit = 100; renderAudit().then(() => { const i = $("#audQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 350); };
+    $("#audMore")?.addEventListener("click", () => { AUD.limit += 100; renderAudit(); });
+    $$("[data-undo-aid]").forEach((b) => b.addEventListener("click", () => {
+      const x = rows.find((r) => String(r.id) === b.dataset.undoAid);
+      const del = x.op === "DELETE";
+      modal({
+        title: del ? "되살리기" : "되돌리기", confirmLabel: del ? "되살리기" : "되돌리기",
+        body: `<p style="margin:0"><b>${esc(x.label || "")}</b> · ${esc(AUD_TBL[x.tbl] || x.tbl)}${audWhat(x) ? " · " + esc(audWhat(x)) : ""}</p>
+          ${del ? `<p class="small muted" style="margin:0">지운 그대로 다시 넣어요. 같은 자리에 이미 다른 기록이 있으면 되살리지 않아요.</p>`
+            : `<div class="aud-chs">${audChanges(x)}</div><p class="small muted" style="margin:0">바뀐 칸을 화살표 왼쪽(이전 값)으로 돌려요. 그 뒤에 또 바뀐 칸이 있으면 돌리지 않아요.</p>`}`,
+        onConfirm: async (close) => {
+          const { error } = await sb.rpc("restore_audit", { p_id: x.id });
+          if (error) throw new Error(error.message);
+          close(); toast(del ? "되살렸어요" : "되돌렸어요");
+          await loadAll(); renderAudit();
+        },
+      });
     }));
   }
 

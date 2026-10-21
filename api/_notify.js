@@ -138,8 +138,32 @@ export async function wasSent(db, key) {
   return !!data;
 }
 export async function markSent(db, keys) {
-  const list = [].concat(keys).filter(Boolean).map((key) => ({ key, sent_at: new Date().toISOString() }));
+  const list = [].concat(keys).filter(Boolean).map((key) => ({ key, sent_at: new Date().toISOString(), done: true }));
   if (list.length) await db.from("notify_sent").upsert(list);
+}
+// 020: 예약 알림은 보내기 '전에' 자리를 잡음 — 두 번 불려도 한 번만 보내요
+//  잡으면 true. 이미 보냈거나 지금 다른 쪽이 보내는 중이면 false (10분 넘게 멈춘 자리는 다시 잡을 수 있어요)
+export async function claim(db, key) {
+  const { data, error } = await db.rpc("claim_notify", { p_key: key });
+  if (error) throw new Error("알림 자리를 잡지 못했습니다: " + error.message);
+  return data === true;
+}
+// 보내다 실패하면 잡은 자리를 풀어서 다음에 다시 보낼 수 있게
+export async function release(db, keys) {
+  const list = [].concat(keys).filter(Boolean);
+  if (list.length) await db.from("notify_sent").delete().in("key", list).eq("done", false);
+}
+// 자리 잡기 → 보내기 → (실패하면) 풀기
+export async function deliverOnce(db, key, opts) {
+  if (!(await claim(db, key))) return null;
+  try {
+    const r = await deliver(db, { ...opts, sentKey: key });
+    if (!r.id) await markSent(db, key);   // 받을 사람이 없어도 이번 차례는 끝난 것
+    return r;
+  } catch (e) {
+    await release(db, key);
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------- 응답 남은 사람 (마감 임박)
