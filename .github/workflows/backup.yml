@@ -47,8 +47,9 @@ jobs:
           $BIN/pg_dump "$DB_URL" --format=custom --no-owner --no-privileges --schema=public --file="out/public-$D.dump"
           # 2) 로그인 계정 (팀원 계정을 되살릴 때 필요) — 데이터만
           $BIN/pg_dump "$DB_URL" --format=custom --data-only --table=auth.users --table=auth.identities --file="out/auth-$D.dump"
-          # 내용 확인: 표 목록이 읽히는지
-          $BIN/pg_restore --list "out/public-$D.dump" | grep -q "TABLE DATA public members"
+          # 내용 확인: 표 목록이 읽히는지 (파일로 받아서 확인 — 파이프로 grep -q 하면 Broken pipe로 실패)
+          $BIN/pg_restore --list "out/public-$D.dump" > /tmp/list.txt
+          grep "TABLE DATA public members" /tmp/list.txt
           tar -C out -cf "pole2-backup-$D.tar" .
           gpg --batch --yes --pinentry-mode loopback --passphrase "$PASS" --symmetric --cipher-algo AES256 -o "pole2-backup-$D.tar.gpg" "pole2-backup-$D.tar"
           rm -rf out "pole2-backup-$D.tar"
@@ -67,13 +68,13 @@ jobs:
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          /usr/lib/postgresql/17/bin/psql "$DB_URL" -v ON_ERROR_STOP=1 -q \
-            -c "insert into public.backup_log (ok, size_bytes, note) values (true, ${SIZE}, 'GitHub Actions ${GITHUB_RUN_ID}')"
+          SQL="insert into public.backup_log (ok, size_bytes, note) values (true, $SIZE, 'run $GITHUB_RUN_ID')"
+          /usr/lib/postgresql/17/bin/psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c "$SQL"
 
       - name: 실패 기록
         if: failure()
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          [ -n "${DB_URL}" ] && /usr/lib/postgresql/17/bin/psql "$DB_URL" -q \
-            -c "insert into public.backup_log (ok, note) values (false, 'GitHub Actions
+          SQL="insert into public.backup_log (ok, note) values (false, 'run $GITHUB_RUN_ID failed')"
+          if [ -n "$DB_URL" ]; then /usr/lib/postgresql/17/bin/psql "$DB_URL" -q -c "$SQL" || true; fi
