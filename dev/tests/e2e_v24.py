@@ -250,7 +250,7 @@ async def main():
         await pg.locator('.iv-bar [data-iv="done"]').click()
         # 적용찬양 쪽: 메모 안 씀
         await pg.locator(".cvv-jump button.applied").first.click(); await pg.wait_for_timeout(1500)
-        check(await pen.is_disabled() and (await pg.evaluate(ST))["key"] is None, "applied: no memo")
+        check(not await pen.is_disabled() and ((await pg.evaluate(ST))["key"] or "").startswith("a:"), "applied: memo (v25)")
         # 예배 진행곡 쪽: 메모 됨 (p:id)
         await pg.locator(".cvv-jump button.proc").first.click(); await pg.wait_for_timeout(1500)
         check(((await pg.evaluate(ST))["key"] or "").startswith("p:") and not await pen.is_disabled(), "proc page memo key")

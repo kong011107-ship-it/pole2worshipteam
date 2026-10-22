@@ -1910,3 +1910,100 @@ body.cv-open { overflow: hidden; }
   .iv-bar { padding: 5px; gap: 4px; }
 }
 .iv-oldtag { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 14px; background: var(--warn-bg); color: var(--warn); font-size: 12px; font-weight: 800; }
+
+/* =========================================================
+   025 · BPM · 메트로놈 · 공유 필기 · 지난 예배 · 적용찬양 기록 · 섬김이 팀 링크
+   ========================================================= */
+.cv-srow { grid-template-columns: 26px 1fr auto auto auto; }
+.cv-bpm { display: inline-flex; align-items: baseline; gap: 4px; min-height: 28px; padding: 3px 8px; border-radius: 6px; border: 0; background: #EEECF2; color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.cv-bpm:disabled { cursor: default; }
+.cv-bpm.none { background: transparent; border: 1px dashed var(--line-2); color: var(--muted); font-weight: 700; }
+.cv-bpm.sm { min-height: 0; padding: 2px 6px; font-size: 11.5px; cursor: default; }
+.bpm-pop { position: fixed; z-index: 2000; display: flex; flex-direction: column; gap: 10px; padding: 14px; background: #fff; color: var(--ink); border-radius: var(--r-lg); border: 1px solid var(--line-2); box-shadow: 0 16px 40px rgba(23,9,46,.28); }
+.bpm-pop .row { gap: 8px; flex-wrap: nowrap; align-items: center; }
+.bpm-pop .input { width: 90px; min-height: 42px; text-align: center; font-size: 18px; font-weight: 800; }
+.bpm-pop .chips2 button { min-height: 36px; }
+/* 악보 보기: 곡 칩 옆 BPM · 메트로놈 점 */
+.cvv-strip { display: flex; align-items: center; gap: 0; min-width: 0; }
+.cvv-strip .cvv-jump { flex: 1; min-width: 0; }
+.cvv-bpmbox { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 0 10px 14px; }
+.cvv-bpmbox:empty { display: none; }
+.cvv-bpmbox .cvv-bpm { min-height: 34px; padding: 0 12px; border-radius: 17px; background: rgba(255,255,255,.14); color: #fff; font-size: 16px; }
+.cvv-bpmbox .cvv-bpm small { font-size: 11px; color: #C9B2EC; font-weight: 700; }
+.cvv-bpmbox .cvv-bpm.none { background: transparent; border: 1px dashed rgba(255,255,255,.35); color: #C9B2EC; font-size: 13px; }
+.cvv-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); background: transparent; cursor: pointer; padding: 0; position: relative; transition: transform .06s, background .06s; }
+.cvv-dot::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: rgba(255,255,255,.25); }
+.cvv-dot.m1 { border-color: #8FE0BB; } .cvv-dot.m1::after { background: #8FE0BB; opacity: .35; }
+.cvv-dot.m2 { border-color: #3DDC97; background: rgba(61,220,151,.18); } .cvv-dot.m2::after { background: #3DDC97; opacity: .5; }
+.cvv-dot.on::after { opacity: 1; inset: 3px; background: #3DDC97; }
+.cvv-dot.on.acc::after { background: #FFD25A; }
+.cvv-vol { width: 84px; accent-color: #3DDC97; }
+/* 공유 필기 · 내 메모 겹 */
+.iv-stage { isolation: isolate; }
+.iv-stage canvas.iv-tape { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; background: transparent; box-shadow: none; }
+.iv-stage canvas.iv-ink { mix-blend-mode: multiply; }
+.iv-bar.iv-shared { border-color: rgba(61,220,151,.55); background: rgba(61,220,151,.1); }
+.iv-on.sh { color: #8FE0BB; }
+.iv-me.sh { color: #8FE0BB; }
+.iv-name { flex: 1 0 160px; min-width: 140px; min-height: 34px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.95); color: var(--ink); padding: 0 10px; font: inherit; font-size: 14px; font-weight: 700; }
+.iv-bar button.iv-ok { background: #3DDC97; color: #0C3B27; }
+.iv-legend { position: absolute; right: 10px; top: 10px; z-index: 5; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 12px; background: rgba(23,9,46,.82); color: #fff; font-size: 12px; font-weight: 700; max-width: 46%; }
+.iv-legend span { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iv-legend i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.iv-fixing { cursor: crosshair; }
+.cvv-pen.cvv-fix[aria-pressed=true] { background: #3DDC97; border-color: #3DDC97; color: #0C3B27; }
+/* 콘티 쓰기: BPM 칸 */
+.ce-row { grid-template-columns: 28px 26px 1fr 64px 88px 76px 32px; }
+.ce-sh, .ce-more { grid-column: 3 / -1; }
+.ce-bpm { display: flex; flex-direction: column; gap: 2px; }
+.ce-bpm input { width: 100%; min-height: 40px; border: 1px solid var(--line-2); border-radius: 8px; text-align: center; font-weight: 800; color: var(--ink); background: #fff; font-variant-numeric: tabular-nums; }
+.ce-bpm select { width: 100%; min-height: 22px; border: 0; background: transparent; font-size: 11px; font-weight: 800; color: var(--muted); text-align: center; text-align-last: center; padding: 0; }
+.ce-row.ro { grid-template-columns: 0 26px 1fr auto 0 76px 0; }
+.ce-past { line-height: 1.5; }
+@media (max-width: 600px) {
+  .ce-row { grid-template-columns: 22px 22px 60px 64px minmax(0, 1fr) 30px; gap: 6px; grid-template-areas: "g n t t t x" ". . k b m m" "s s s s s s" "o o o o o o"; }
+  .ce-row .ce-tm input { width: 64px; }
+  .ce-bpm { grid-area: b; }
+  .ce-row.ro { grid-template-columns: 0 24px 1fr auto 76px; grid-template-areas: ". n t k b" "s s s s s"; }
+  .ce-row.ro > .ce-t { grid-area: t; } .ce-row.ro > .cv-key { grid-area: k; } .ce-row.ro > .ce-bpm { grid-area: b; } .ce-row.ro > .cv-sn { grid-area: n; } .ce-row.ro > .ce-sh { grid-area: s; }
+  .ce-row.ro > span:empty { display: none; }
+}
+.ap-sug { display: flex; flex-wrap: wrap; gap: 6px; }
+.ap-sug:empty { display: none; }
+/* 리더십 콘티: 탭 · 지난 예배 · 링크 */
+.ca-tabs { margin-bottom: 4px; }
+.ca-mnav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ca-mnav h2 { margin: 0; font-size: 18px; }
+.lk-row.off { opacity: .6; }
+.lk-url { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+/* 기록: 지난 콘티 고치기 · 적용찬양 */
+.hx-acts { display: inline-flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.hx-arow { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 6px 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.hx-arow:first-child { border-top: 0; }
+.hx-arow .d { font-size: 13px; color: var(--muted-2); white-space: nowrap; }
+.hx-arow .t { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .hx-arow { grid-template-columns: auto 1fr auto; } .hx-arow > .muted { grid-column: 2; } }
+/* 백업찬양: 이미지로 곡 더하기 (검색창 옆) */
+.bk-qrow { display: flex; gap: 8px; align-items: center; }
+.bk-qrow .bk-q { flex: 1; min-width: 0; }
+.bk-addbtn { flex: none; min-height: 50px; white-space: nowrap; }
+.bk-addbtn[aria-expanded=true] { background: var(--violet); color: #fff; }
+.bk-codehint b { color: var(--violet); }
+.bk-codehint .bad { color: var(--bad); font-weight: 700; }
+@media (max-width: 480px) { .bk-addrow { flex-wrap: wrap; } .bk-addrow .field { flex: 1 1 40% !important; } }
+.bk-slot.now { border-color: var(--violet); box-shadow: 0 0 0 2px var(--violet) inset; }
+.bk-slot.next { border-style: dashed; border-color: var(--violet-mid); }
+/* 섬김이 팀 공유 화면 */
+.shv-body .m-main { padding-bottom: 40px; }
+.shv-svcs { flex-wrap: nowrap; overflow-x: auto; }
+.shv-foot { text-align: center; margin: 4px 0 0; }
+.shv-band { padding-top: 0; }
+.shv-viewer .bk-pill { margin-left: 4px; }
+@media (max-width: 520px) {
+  .cvv-top { gap: 6px; padding-left: 10px; padding-right: 10px; }
+  .cvv-top .cvv-rt { display: none; }
+  .cvv-top .cvv-pen { padding: 0 10px; }
+  .cvv-top .cvv-pen span { display: none; }
+  .cvv-bpmbox { padding-left: 10px; }
+  .cvv-vol { width: 64px; }
+}

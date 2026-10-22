@@ -128,6 +128,8 @@
     const focus = document.activeElement?.id === "bkQ", pos = focus ? document.activeElement.selectionStart : null;
     const lead = canLead(), live = B.live?.active, T = topics(), cs = cands();
     const slots = Math.max(lead ? 4 : 0, cs.length);
+    // 025: 이미지로 곡 더하기 — 검색창 옆 · 입력 칸은 검색창 바로 아래 (다시 그려도 고른 사진 · 적은 값은 그대로)
+    const keepForm = B.adding ? root.querySelector(".bk-add") : null;
     root.innerHTML = `${B.offline ? `<div class="notice warn">인터넷 연결이 없어 저장해 둔 목록을 보여 줘요.</div>` : ""}
       ${live ? `<button type="button" class="bk-livecard" data-bk="join"><span class="bk-dot"></span><span><b>백업찬양 진행 중</b><small>${esc(B.live.leader || "인도자")} 인도${B.live.now ? ` · 지금 ${esc(refInfo(B.live.now)?.code || "")} ${esc(refInfo(B.live.now)?.title || "")}` : ""}</small></span><span class="btn btn-primary btn-sm">${amLeader() ? "진행 화면" : "참여"}</span></button>` : ""}
       <div class="bk-head"><h2>백업찬양 후보</h2><span class="small muted">${B.book ? `악보집 ${esc(B.book.label)} · ${B.songs.filter((s) => s.book_id).length}곡 · <span id="bkSaved">${savedHTML()}</span>` : "악보집이 아직 없어요"}</span></div>
@@ -135,30 +137,62 @@
           return s ? `<button type="button" class="bk-slot" data-bk-view="${s.id}"><span class="h">${codeHTML(s.code)}<span class="n">${i + 1}</span></span><b>${esc(s.title)}</b></button>` : `<div class="bk-slot empty">${i + 1}</div>`; }).join("")}</div>`
         : `<p class="muted small" style="margin:0">아직 후보가 없어요. 이번 주 인도자가 고르면 여기에 보여요.</p>`}
       ${lead ? `<span class="small muted">누른 순서대로 1 · 2 · 3번 후보가 돼요. 다시 누르면 빠져요 · 고르는 즉시 팀원 화면에도 보여요</span>` : ""}
-      ${B.songs.length ? `<input class="input bk-q" id="bkQ" value="${esc(B.q)}" placeholder="코드나 곡 이름 (예: g5, 성령)" autocomplete="off" aria-label="백업찬양 찾기">
+      ${B.songs.length || lead ? `<div class="bk-qrow">${B.songs.length ? `<input class="input bk-q" id="bkQ" value="${esc(B.q)}" placeholder="코드나 곡 이름 (예: g5, 성령)" autocomplete="off" aria-label="백업찬양 찾기">` : ""}${lead ? `<button type="button" class="btn btn-soft btn-sm bk-addbtn" data-bk="add" aria-expanded="${B.adding}">+ 이미지로 곡 더하기</button>` : ""}</div>` : ""}
+      ${lead && B.adding ? `<div id="bkAddSlot">${keepForm ? "" : addHTML()}</div>` : ""}
+      ${B.songs.length ? `
         <div class="bk-kchips" role="group" aria-label="키">${KEYS.map((k) => `<button type="button" data-bk-key="${k}" aria-pressed="${B.keys.has(k)}">${k}</button>`).join("")}</div>
         <div class="bk-tchips" role="group" aria-label="주제"><button type="button" data-bk-topic="" aria-pressed="${!B.topics.size}">전체</button>${Object.entries(T).map(([k, v]) => `<button type="button" data-bk-topic="${k}" aria-pressed="${B.topics.has(k)}">${esc(v)}</button>`).join("")}${B.songs.some((s) => !s.book_id) ? `<button type="button" data-bk-topic="x" aria-pressed="${B.topics.has("x")}">직접 더한 곡</button>` : ""}</div>
         ${listHTML(lead)}` : `<div class="empty">${B.book ? "곡 목록이 비어 있어요." : "리더십이 관리자 화면 찬양 › 곡에서 악보집을 올리면 여기에 보여요."}</div>`}
-      ${lead ? addHTML() : ""}
       ${lead ? `<div class="bk-foot"><span>후보는 팀원 화면에 바로 보여요 · 기록은 남기지 않아요</span>${live ? `<button type="button" class="btn btn-primary" data-bk="join">진행 화면</button>` : `<button type="button" class="btn btn-primary" data-bk="start" ${cs.length ? "" : "disabled"}>기도회 시작</button>`}</div>` : ""}`;
+    if (keepForm) root.querySelector("#bkAddSlot")?.replaceChildren(keepForm);
     if (focus) { const q = root.querySelector("#bkQ"); q?.focus(); try { q?.setSelectionRange(pos, pos); } catch {} }
     root.onclick = onHomeClick; root.oninput = onHomeInput; root.onchange = onHomeChange;
   }
+  // 코드 자동 추천: 키 · 주제를 고르면 그 키 · 주제에서 비어 있는 다음 번호 (예: g51 · g54 · g56 → g57)
+  //  키나 주제를 '모름'으로 두면 비워서 x1, x2 … 로
+  function suggestCode(k, t) {
+    if (!k || t === "" || t == null) return "";
+    const re = new RegExp(`^${k}${t}([0-9]{1,3})$`), used = B.songs.map((x) => x.code.match(re)?.[1]).filter((x) => x != null).map(Number);
+    if (!used.length) return `${k}${t}0`;
+    const max = Math.max(...used);
+    if (max + 1 <= 9) return `${k}${t}${max + 1}`;
+    for (let n = 0; n <= 9; n++) if (!used.includes(n)) return `${k}${t}${n}`;
+    return `${k}${t}${max + 1}`;
+  }
+  function codeHint(form) {
+    const k = form.querySelector("#bkAK").value, t = form.querySelector("#bkATp").value, c = form.querySelector("#bkAC").value.trim().toLowerCase();
+    const re = k && t !== "" ? new RegExp(`^${k}${t}[0-9]{1,3}$`) : null;
+    const same = re ? B.songs.filter((x) => re.test(x.code)).map((x) => x.code).sort() : [];
+    const dup = c && B.songs.some((x) => x.code === c);
+    form.querySelector("#bkACh").innerHTML = dup ? `<span class="bad">이미 있는 코드예요 (${esc(c)})</span>`
+      : !k || t === "" ? "키 · 주제를 모르면 비워 두세요 · x1, x2 …로 붙어요"
+      : same.length ? `${k.toUpperCase()} · ${esc(topics()[t] || t)}: ${same.slice(-4).map(esc).join(" · ")}${same.length > 4 ? " …" : ""} → <b>${esc(suggestCode(k, t))}</b> 추천` : `${k.toUpperCase()} · ${esc(topics()[t] || t)}의 첫 곡 → <b>${esc(suggestCode(k, t))}</b>`;
+  }
   function addHTML() {
-    if (!B.adding) return `<button type="button" class="btn btn-soft btn-sm" data-bk="add" style="align-self:flex-start">+ 이미지로 곡 더하기</button>`;
-    return `<section class="card bk-add"><div class="card-title cv-ct">이미지로 곡 더하기 <small>악보집에 없는 곡</small></div>
+    const T = topics();
+    return `<section class="card bk-add"><div class="card-title cv-ct">이미지로 곡 더하기 <small>악보집에 없는 곡 · 더하면 바로 후보에 들어가요</small></div>
       <label class="field">곡 이름<input class="input" id="bkAT" maxlength="80"></label>
-      <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:1">키<select class="select" id="bkAK"><option value="">모름</option>${KEYS.map((k) => `<option value="${k}">${k.toUpperCase()}</option>`).join("")}</select></label>
-        <label class="field" style="flex:1">코드 <span class="hint">· 비우면 x1, x2 …</span><input class="input" id="bkAC" maxlength="6" placeholder="예: x1"></label></div>
+      <div class="row bk-addrow" style="gap:10px;align-items:flex-end"><label class="field" style="flex:1">키<select class="select" id="bkAK"><option value="">모름</option>${KEYS.map((k) => `<option value="${k}">${k.toUpperCase()}</option>`).join("")}</select></label>
+        <label class="field" style="flex:1.4">주제<select class="select" id="bkATp"><option value="">모름</option>${Object.entries(T).map(([k, v]) => `<option value="${k}">${k} ${esc(v)}</option>`).join("")}</select></label>
+        <label class="field" style="flex:1">코드<input class="input" id="bkAC" maxlength="6" placeholder="자동" autocomplete="off"></label></div>
+      <span class="small muted bk-codehint" id="bkACh">키 · 주제를 고르면 다음 번호를 추천해요</span>
       <label class="btn btn-ghost btn-sm cv-upl" style="align-self:flex-start">악보 사진 고르기<input type="file" accept="image/*" multiple id="bkAF" hidden></label>
       <span class="small muted" id="bkAP">고른 사진 없음</span>
       <div class="row"><button type="button" class="btn btn-primary btn-sm" data-bk="add-save">더하고 후보에 넣기</button><button type="button" class="btn btn-ghost btn-sm" data-bk="add-cancel">취소</button></div></section>`;
   }
   let candT = null;
   function onHomeInput(e) {
+    if (e.target.id === "bkAC") { e.target.dataset.touched = e.target.value ? "1" : ""; return codeHint(e.target.closest(".bk-add")); }
     if (e.target.id === "bkQ") { B.q = e.target.value; const box = B.root.querySelector(".bk-list"); if (box) box.outerHTML = listHTML(canLead()); }
   }
-  function onHomeChange(e) { if (e.target.id === "bkAF") B.root.querySelector("#bkAP").textContent = e.target.files.length ? `사진 ${e.target.files.length}장` : "고른 사진 없음"; }
+  function onHomeChange(e) {
+    if (e.target.id === "bkAF") B.root.querySelector("#bkAP").textContent = e.target.files.length ? `사진 ${e.target.files.length}장` : "고른 사진 없음";
+    if (e.target.id === "bkAK" || e.target.id === "bkATp") {
+      const f = e.target.closest(".bk-add"), c = f.querySelector("#bkAC");
+      if (!c.dataset.touched) c.value = suggestCode(f.querySelector("#bkAK").value, f.querySelector("#bkATp").value);
+      codeHint(f);
+    }
+  }
   async function onHomeClick(e) {
     const k = e.target.closest("[data-bk-key]"); if (k) { const v = k.dataset.bkKey; B.keys.has(v) ? B.keys.delete(v) : B.keys.add(v); return drawHome(); }
     const t = e.target.closest("[data-bk-topic]"); if (t) { const v = t.dataset.bkTopic; if (!v) B.topics.clear(); else B.topics.has(v) ? B.topics.delete(v) : B.topics.add(v); return drawHome(); }
@@ -186,19 +220,23 @@
       else b.disabled = false;
       return;
     }
-    if (a === "add") { B.adding = true; drawHome(); return B.root.querySelector("#bkAT")?.focus(); }
+    if (a === "add") { B.adding = !B.adding; drawHome(); return B.root.querySelector("#bkAT")?.focus(); }
     if (a === "add-cancel") { B.adding = false; return drawHome(); }
     if (a === "add-save") {
       const title = B.root.querySelector("#bkAT").value.trim(), files = [...(B.root.querySelector("#bkAF").files || [])];
       if (!title) return toast("곡 이름을 적어 주세요");
       if (!files.length) return toast("악보 사진을 골라 주세요");
       if (files.length > 12) return toast("사진은 12장까지예요");
+      const code = B.root.querySelector("#bkAC").value.trim().toLowerCase();
+      if (code && !/^[a-z0-9+]{1,6}$/.test(code)) return toast("코드는 영문 소문자 · 숫자 6자까지예요");
+      if (code && B.songs.some((x) => x.code === code)) return toast(`이미 있는 코드예요 (${code})`);
       b.disabled = true;
       try {
         const images = await L().uploadImages(files, "backup/", (n, t2) => (b.textContent = `올리는 중 ${n}/${t2}…`));
-        const { data, error } = await sb.rpc("backup_add_custom", { p_title: title, p_key: B.root.querySelector("#bkAK").value || null, p_code: B.root.querySelector("#bkAC").value || null, p_images: images });
+        const tp = B.root.querySelector("#bkATp").value;
+        const { data, error } = await sb.rpc("backup_add_custom", { p_title: title, p_key: B.root.querySelector("#bkAK").value || null, p_code: B.root.querySelector("#bkAC").value.trim().toLowerCase() || null, p_images: images, p_topic: tp === "" ? null : +tp });
         if (error) throw new Error(error.message || "더하지 못했어요");
-        B.songs.push(data); B.adding = false;
+        B.songs.push(data); B.adding = false; B.root.querySelector(".bk-add")?.remove();
         await update({ candidates: [...(B.live?.candidates || []).map(Number), data.id] });
         toast(`${data.code} ${data.title}을 더했어요`);
       } catch (err) { toast(err.message || "더하지 못했어요", 4000); b.disabled = false; b.textContent = "더하고 후보에 넣기"; }
@@ -220,8 +258,8 @@
       <div class="bk-stage" id="bkStage"><canvas id="bkCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="bkBlank"></div>
         <button type="button" class="cvv-tap l" data-bkl="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-bkl="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="bkLoad">불러오는 중…</div><div class="bk-toast hidden" id="bkToast"></div></div>
-      <div class="bk-dock" id="bkDock"></div>`, () => { B.iv?.destroy(); B.iv = null; B.layer = null; document.removeEventListener("keydown", onKey); watch(false); if (B.root?.offsetParent) drawHome(); });
-    B.layer = el;
+      <div class="bk-dock" id="bkDock"></div>`, () => { L().wake?.(false); B.iv?.destroy(); B.iv = null; B.layer = null; document.removeEventListener("keydown", onKey); watch(false); if (B.root?.offsetParent) drawHome(); });
+    B.layer = el; L().wake?.(true);
     // 024: 내 메모 · 확대 — 따라가는 중에도 쓸 수 있고, 인도자가 넘기면 쓰던 메모를 먼저 저장하고 같이 넘어감
     B.iv = window.INK ? INK.view({ stage: $("#bkStage", el), canvas: $("#bkCanvas", el), root: el, bar: $("#bkInk", el), onTurn: (d) => turn(d) }) : null;
     el._iv = B.iv;

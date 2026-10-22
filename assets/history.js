@@ -20,11 +20,15 @@
     const T = today();
     const st = {}; (raw.songs || []).forEach((s) => (st[s.id] = s.title));
     const mainKey = {}; (raw.songs || []).forEach((s) => (mainKey[s.id] = s.main_key));
-    const svc = {}, plays = [];
+    const svc = {}, plays = [], sids = {};
     (raw.setlists || []).forEach((sl) => {
       svc[sl.d] = [sl.leaders || [], sl.note || ""];
-      (sl.items || []).forEach(([ord, sid, key, medley, refs]) => plays.push([sl.d, ord, sid, st[sid] || "", key || "", refs || [], medley ? 1 : 0]));
+      // 025: 플랫폼 콘티 — 그 예배 · 고칠 수 있는지 (콘티 e · 악보 es)
+      if (sl.sid) sids[sl.d] = { sid: sl.sid, e: !!sl.e, es: !!sl.es };
+      (sl.items || []).forEach(([ord, sid, key, medley, refs, bpm]) => plays.push([sl.d, ord, sid, st[sid] || "", key || "", refs || [], medley ? 1 : 0, bpm || null]));
     });
+    // 025: 적용찬양 [id, 날짜, 곡 이름, 키, 사진, 묶음 이름, 예배, 사역 이름]
+    const applied = (raw.applied || []).map(([id, d, title, key, images, norm, sid, min]) => ({ id, date: d, title, key: key || "", images: images || [], norm: norm || "", sid, min: min || "" }));
     const lrows = {};
     (raw.lineup || []).forEach(([d, pos, slot, name, guest]) => { (lrows[d] = lrows[d] || []).push({ pos, slot, name, guest }); if (!svc[d]) svc[d] = [[], ""]; });
     const DATES = Object.keys(svc).sort();
@@ -97,7 +101,7 @@
     return {
       summary: { services: DATES.length, conti: CD.length, plays: plays.length, unique: songs.length, once: songs.filter((s) => s.count === 1).length,
         avg: CD.length ? Math.round(100 * plays.length / CD.length) / 100 : 0, from: DATES[0], to: LTO, lineup: list.filter((l) => !l.partial).length },
-      songs, plays, years, keys, leaders, st, svc, multi: Object.keys(ytSongs).filter((id) => ytSongs[id].size > 1),
+      songs, plays, years, keys, leaders, st, svc, sids, applied, multi: Object.keys(ytSongs).filter((id) => ytSongs[id].size > 1),
       lineup: { services: DATES.length, from: DATES[0], to: LTO, years: lyears, list, people },
     };
   }
@@ -123,7 +127,7 @@
   const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
   const yt = (id, t, label, cls) => { if (!/^[A-Za-z0-9_-]{11}$/.test(id || "")) return null; const a = el("a", cls || "hx-yt", label || "▶ 영상"); a.href = `https://youtu.be/${id}` + (t ? `?t=${t}` : ""); a.target = "_blank"; a.rel = "noopener"; return a; };
   const WD = ["일", "월", "화", "수", "목", "금", "토"];
-  const TABS = [["ov", "통계"], ["lib", "곡"], ["his", "콘티"], ["lin", "라인업"]];
+  const TABS = [["ov", "통계"], ["lib", "곡"], ["his", "콘티"], ["app", "적용찬양"], ["lin", "라인업"]];
   const state = { tab: "ov" };
 
   async function mount(root, opts = {}) {
@@ -135,7 +139,7 @@
     const H = root.querySelector(".hx");
     H.innerHTML = `
       <div class="tabs hx-tabs" role="tablist">${TABS.map(([k, l]) => `<button type="button" role="tab" data-hx="${k}" aria-selected="${state.tab === k}">${l}</button>`).join("")}</div>
-      <section data-page="ov"></section><section data-page="lib" hidden></section><section data-page="his" hidden></section><section data-page="lin" hidden></section>
+      <section data-page="ov"></section><section data-page="lib" hidden></section><section data-page="his" hidden></section><section data-page="app" hidden></section><section data-page="lin" hidden></section>
       <p class="hx-foot">카카오톡 콘티방(${dot(D.summary.from).slice(0, 7)} ~) 기록에서 정리 · 모든 기록은 그 주의 주일 날짜로 맞춤 · 주일 ${D.summary.services}번 중 콘티 ${D.summary.conti}번 · 라인업 ${D.summary.lineup}번</p>`;
     const $ = (s) => H.querySelector(s);
     const pages = {};
@@ -143,10 +147,19 @@
       state.tab = k;
       H.querySelectorAll("[data-hx]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.hx === k)));
       H.querySelectorAll("[data-page]").forEach((s) => (s.hidden = s.dataset.page !== k));
-      if (!pages[k]) { pages[k] = true; ({ ov: drawOv, lib: drawLib, his: drawHis, lin: drawLin })[k](H.querySelector(`[data-page="${k}"]`), D); }
+      if (!pages[k]) { pages[k] = true; ({ ov: drawOv, lib: drawLib, his: drawHis, app: drawApp, lin: drawLin })[k](H.querySelector(`[data-page="${k}"]`), D); }
       try { sessionStorage.setItem("pole2.hx", k); } catch {}
     };
     H.querySelector(".hx-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-hx]"); if (b) { show(b.dataset.hx); H.scrollIntoView({ block: "start" }); } });
+    // 025: 지난 예배 콘티 보기 · 고치기 (리더십 · 그 예배 인도자 · 밴드 마스터 · 밴드는 악보만) — 고치면 기록을 다시 불러옴
+    H.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-hxc]"); if (!b || !window.CONTI) return;
+      const sid = b.dataset.sid, a = b.dataset.hxc;
+      const remount = () => { cache = null; mount(root, { ...opts, tab: state.tab }); };
+      if (a === "view") { try { CONTI.openViewer(await CONTI.loadOne(sid), {}); } catch (err) { toast(err.message, 3500); } return; }
+      if (a === "edit") return CONTI.openEditor(sid, { after: remount });
+      if (a === "applied") { try { CONTI.openApplied(await CONTI.loadOne(sid), { after: remount }); } catch (err) { toast(err.message, 3500); } return; }
+    });
     if (!opts.tab) { try { const k = sessionStorage.getItem("pole2.hx"); if (TABS.some((t) => t[0] === k)) state.tab = k; } catch {} }
     show(state.tab);
   }
@@ -222,7 +235,7 @@
 
   // ---------- 곡 · 콘티 공통: 주일 조건
   function ctx(D) {
-    const P = D.plays.map((p) => ({ date: p[0], order: p[1], sid: p[2], title: p[3], key: p[4], refs: p[5], medley: !!p[6] }));
+    const P = D.plays.map((p) => ({ date: p[0], order: p[1], sid: p[2], title: p[3], key: p[4], refs: p[5], medley: !!p[6], bpm: p[7] }));
     const SV = D.svc, DATES = Object.keys(SV).sort();
     const KEYS = Object.entries(P.reduce((a, p) => { const k = startKey(p.key); if (k) a[k] = (a[k] || 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
     const LEADS = Object.entries(DATES.reduce((a, d) => { SV[d][0].forEach((n) => { a[n] = (a[n] || 0) + 1; }); return a; }, {})).sort((a, b) => b[1] - a[1]);
@@ -450,12 +463,22 @@
         h.append(el("b", null, `${dot(d)} (${WD[new Date(d + "T00:00:00").getDay()]})`));
         if (C.SV[d][0].length) h.append(el("span", "chip chip-gray", "인도 " + C.SV[d][0].join(" · ")));
         if (C.SV[d][1]) h.append(el("span", "chip chip-violet", C.SV[d][1]));
+        const sx = D.sids[d];
+        if (sx) {
+          const acts = el("span", "hx-acts");
+          const btn = (t, a, cls) => { const b = el("button", `btn ${cls || "btn-ghost"} btn-sm`, t); b.type = "button"; b.dataset.hxc = a; b.dataset.sid = sx.sid; return b; };
+          acts.append(btn("악보", "view"));
+          if (sx.e) acts.append(btn("콘티 고치기", "edit", "btn-soft"), btn("적용찬양", "applied"));
+          else if (sx.es) acts.append(btn("악보 고치기", "edit", "btn-soft"));
+          h.append(acts);
+        }
         const ol = el("ol");
         songs.forEach((x) => {
           const on = (qs.length && hit(x)) || (HF.keys.length && HF.keys.includes(startKey(x.key)));
           const li = el("li", on ? "hit" : ""), rw = el("div", "row");
           rw.append(el("span", null, C.ST[x.sid] || x.title));
           if (x.key) rw.append(el("span", "chip chip-violet", x.key));
+          if (x.bpm) rw.append(el("span", "chip chip-gray", `♩=${x.bpm}`));
           x.refs.forEach((rf, i) => { const a = yt(rf[0], rf[1], (x.refs.length > 1 ? `▶ ${i + 1}` : "▶ 영상") + (rf[2] && rf[2] !== "메들리" ? ` ${rf[2]}` : ""), "hx-yt"); if (a) rw.append(a); });
           li.append(rw); ol.append(li);
         });
@@ -467,6 +490,71 @@
       }) : [el("p", "muted", "조건에 맞는 콘티가 없어요.")]));
       more.hidden = rows.length <= lim;
     }
+    draw();
+  }
+
+  // ---------- 025: 적용찬양 (날짜별 목록 · 곡별 횟수) — 같은 곡은 이름으로 묶음 (띄어쓰기 · 문장부호 무시)
+  function drawApp(Pg, D) {
+    const A = D.applied || [];
+    const c = card("적용찬양", "지난 예배에 올린 적용찬양 · 사진을 누르면 악보가 열려요 (내 메모도 써져요)");
+    Pg.append(c);
+    if (!A.length) { c.append(el("p", "muted", "아직 기록된 적용찬양이 없어요. 예배가 지나면 여기에 쌓여요.")); return; }
+    const groups = new Map();
+    A.forEach((x) => { const g = groups.get(x.norm) || { norm: x.norm, list: [], keys: {} }; g.list.push(x); if (x.key) g.keys[x.key] = (g.keys[x.key] || 0) + 1; groups.set(x.norm, g); });
+    const G = [...groups.values()].map((g) => { g.list.sort((a, b) => b.date.localeCompare(a.date)); g.title = g.list[0].title; g.n = new Set(g.list.map((x) => x.date)).size; g.last = g.list[0].date; return g; });
+    const hero = el("div", "hx-fsum");
+    hero.append(el("b", null, `적용찬양 ${fmt(A.length)}번 · ${fmt(G.length)}곡`), el("span", "muted", `${dot(A[0].date)} ~ ${dot(A[A.length - 1].date)}`));
+    const mode = segOf([["date", "날짜별"], ["song", "곡별 횟수"]]);
+    const q = el("input", "hx-search"); q.type = "search"; q.placeholder = "곡 이름"; q.setAttribute("aria-label", "적용찬양 곡 이름");
+    const list = el("div", "hx-list hx-app"), more = el("button", "hx-more", "더 보기"); more.type = "button";
+    c.append(hero, row("보기", mode, q), list, more);
+    const F = { mode: "date", lim: 30 };
+    const photoBtn = (x) => { const b = el("button", "btn btn-ghost btn-sm", `사진 ${x.images.length}장`); b.type = "button"; b.dataset.apOpen = x.id; return b; };
+    const qn = () => q.value.toLowerCase().replace(/[\s()[\]·.,!?'"-]/g, "");
+    function draw(keep) {
+      if (!keep) F.lim = 30;
+      press(mode, (v) => v === F.mode);
+      const s = qn();
+      if (F.mode === "date") {
+        const rows = A.filter((x) => !s || x.norm.includes(s)).slice().reverse();
+        list.replaceChildren(...(rows.length ? rows.slice(0, F.lim).map((x) => {
+          const r = el("div", "hx-arow");
+          r.append(el("b", "d", `${dot(x.date).slice(2)}${x.min ? ` ${x.min}` : ""}`));
+          const t = el("span", "t", x.title); r.append(t);
+          if (x.key) r.append(el("span", "chip chip-violet", x.key));
+          const gl = groups.get(x.norm)?.list || [];
+          r.append(el("span", "muted small", gl.length > 1 ? `${gl.filter((y) => y.date <= x.date).length}번째 · 모두 ${gl.length}번` : "처음"), photoBtn(x));
+          return r;
+        }) : [el("p", "muted", "찾는 적용찬양이 없어요.")]));
+        more.hidden = rows.length <= F.lim;
+      } else {
+        const rows = G.filter((g) => !s || g.norm.includes(s)).sort((a, b) => b.n - a.n || b.last.localeCompare(a.last));
+        list.replaceChildren(...(rows.length ? rows.slice(0, F.lim).map((g) => {
+          const r = el("div", "hx-sc"), head = el("div", "hx-sch");
+          head.append(el("div", "t", g.title));
+          const tot = el("div", "tot"); tot.append(el("span", null, `${g.n}번`), el("small", null, `마지막 ${dot(g.last).slice(2)}`)); head.append(tot); r.append(head);
+          const kv = el("div", "hx-kv"), kk = el("span"); kk.append(el("em", null, "키"));
+          Object.entries(g.keys).sort((a, b) => b[1] - a[1]).forEach(([k, n]) => kk.append(el("span", "chip chip-violet", `${k} ${n}`)));
+          if (!Object.keys(g.keys).length) kk.append(el("span", "chip chip-gray", "기록 없음"));
+          kv.append(kk); r.append(kv);
+          const det = el("details", "hx-refs"); det.append(el("summary", null, `부른 날 ${g.list.length}번`));
+          const ul = el("ul");
+          g.list.forEach((x) => { const li = el("li"); li.append(el("b", null, dot(x.date).slice(2))); if (x.title !== g.title) li.append(el("span", "muted small", x.title)); if (x.key) li.append(el("span", "chip chip-violet", x.key)); li.append(photoBtn(x)); ul.append(li); });
+          det.append(ul); r.append(det);
+          return r;
+        }) : [el("p", "muted", "찾는 적용찬양이 없어요.")]));
+        more.hidden = rows.length <= F.lim;
+      }
+    }
+    mode.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; F.mode = b.dataset.v; draw(); });
+    q.addEventListener("input", () => draw());
+    more.addEventListener("click", () => { F.lim += 40; draw(true); });
+    list.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-ap-open]"); if (!b || !window.CONTI) return;
+      const x = A.find((y) => y.id === +b.dataset.apOpen); if (!x) return;
+      CONTI.openViewer(null, { title: `${dot(x.date)} 적용찬양 · ${x.title}`, items: [{ id: `a:${x.id}`, tag: "적용", kind: "applied", title: x.title, key: x.key,
+        src: x.images.map((img, k) => ({ img, ink: { key: `a:${x.id}`, page: k + 1, anorm: x.norm } })) }] });
+    });
     draw();
   }
 

@@ -5332,7 +5332,7 @@
   // ---------------------------------------------------------------- 찬양 › 곡 (021)
   const SG = { q: "", sort: "n", lim: 60 };
   async function renderSongs() {
-    const [sr, D, shr] = await Promise.all([sb.from("songs").select("id, title, main_key, memo, team_sec").order("title"), HISTORY.load().catch(() => null), sb.from("sheet_versions").select("song_id")]);
+    const [sr, D, shr] = await Promise.all([sb.from("songs").select("id, title, main_key, memo, team_sec, team_bpm, team_meter").order("title"), HISTORY.load().catch(() => null), sb.from("sheet_versions").select("song_id")]);
     const shN = {}; (shr.data || []).forEach((r) => (shN[r.song_id] = (shN[r.song_id] || 0) + 1));
     if (sr.error) { $("#content").innerHTML = `<div class="empty">곡 목록을 불러오지 못했어요. migration_020을 실행했는지 확인해 주세요.</div>`; return console.error(sr.error); }
     const stat = new Map((D?.songs || []).map((x) => [x.id, x]));
@@ -5387,6 +5387,8 @@
         body: `<label class="field">곡 이름 *<input type="text" id="sgTitle" maxlength="80" value="${esc(x?.title || "")}" autocomplete="off"></label>
           <label class="field">대표 키 <span class="hint">· 비우면 가장 많이 부른 키로 보여요</span><input type="text" id="sgKey" maxlength="12" value="${esc(x?.main_key || "")}" placeholder="예: G" autocomplete="off"></label>
           <label class="field">곡 시간 (팀 기준) <span class="hint">· 4:30처럼 · 비우면 레퍼런스 영상 길이로 셈</span><input type="text" id="sgSec" maxlength="5" inputmode="numeric" value="${x?.team_sec ? `${Math.floor(x.team_sec / 60)}:${String(x.team_sec % 60).padStart(2, "0")}` : ""}" placeholder="예: 4:30" autocomplete="off"></label>
+          <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:1">BPM (팀 기준) <span class="hint">· 콘티에 넣으면 자동으로 채워져요</span><input type="text" id="sgBpm" maxlength="3" inputmode="numeric" value="${x?.team_bpm || ""}" placeholder="예: 72" autocomplete="off"></label>
+            <label class="field" style="flex:0 0 110px">박자<select class="select" id="sgMeter">${["4/4", "3/4", "6/8"].map((m) => `<option ${(x?.team_meter || "4/4") === m ? "selected" : ""}>${m}</option>`).join("")}</select></label></div>
           <label class="field">메모<textarea id="sgMemo" maxlength="300" rows="3" placeholder="예: 후렴 두 번 반복">${esc(x?.memo || "")}</textarea></label>
           ${x && x.st.count ? `<p class="small muted" style="margin:0">콘티 ${x.st.count}번에 쓰인 곡이에요. 이름을 바꾸면 지난 기록에도 바뀐 이름으로 보여요.</p>` : ""}
           <span class="small bk-err" id="sgErr"></span>`,
@@ -5396,6 +5398,9 @@
           const tv = $("#sgSec").value.trim(), tm = tv.match(/^(\d{1,2}):([0-5]\d)$/);
           if (tv && !tm) { $("#sgErr").textContent = "곡 시간은 4:30처럼 적어 주세요"; return; }
           v.team_sec = tm ? +tm[1] * 60 + +tm[2] : null;
+          const bv = $("#sgBpm").value.trim();
+          if (bv && !(/^\d{2,3}$/.test(bv) && +bv >= 20 && +bv <= 320)) { $("#sgErr").textContent = "BPM은 20~320 사이 숫자로 적어 주세요"; return; }
+          v.team_bpm = bv ? +bv : null; v.team_meter = bv ? $("#sgMeter").value : null;
           const r = x ? await sb.from("songs").update(v).eq("id", x.id) : await sb.from("songs").insert(v);
           if (r.error) { $("#sgErr").textContent = r.error.code === "23505" ? "같은 이름의 곡이 이미 있어요 (띄어쓰기 · 대소문자는 같게 봐요)" : "저장하지 못했어요"; return; }
           close(); HISTORY.reset(); toast(x ? "곡을 고쳤어요" : "곡을 추가했어요"); renderSongs();

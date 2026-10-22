@@ -111,7 +111,25 @@ async function asUser(claims, sql) {
   } catch (e) { await c.query("rollback"); throw e; } finally { c.release(); }
 }
 const readRaw = (req) => new Promise((ok) => { const b = []; req.on("data", (c) => b.push(c)); req.on("end", () => ok(Buffer.concat(b))); });
+// 025: 서명된 주소 (공유 링크) — service_role만 만들고, 주소를 가진 누구나 받음
+const signTok = (p, exp) => crypto.createHmac("sha256", SECRET).update(`sign:${p}:${exp}`).digest("base64url") + "." + exp;
+async function signed(req, res, url) {
+  const m = url.pathname.match(/^\/storage\/v1\/object\/sign\/sheets\/?(.*)$/);
+  if (req.method === "POST") {
+    if (verify(bearer(req))?.role !== "service_role") return send(res, 400, { statusCode: "403", error: "Unauthorized", message: "service role only" });
+    const body = JSON.parse((await readRaw(req)).toString() || "{}"), exp = Math.floor(Date.now() / 1000) + (+body.expiresIn || 60);
+    const one = (p) => ({ path: p, error: null, signedURL: `/object/sign/sheets/${p}?token=${signTok(p, exp)}` });
+    if (m[1]) return send(res, 200, { signedURL: one(decodeURIComponent(m[1])).signedURL });
+    return send(res, 200, (body.paths || []).map(one));
+  }
+  const rel = decodeURIComponent(m[1] || ""), tok = url.searchParams.get("token") || "", exp = +tok.split(".")[1] || 0;
+  if (tok !== signTok(rel, exp) || exp < Date.now() / 1000) return send(res, 400, { statusCode: "403", error: "InvalidSignature", message: "invalid signature" });
+  const f = path.join(STORE, "sheets", rel);
+  if (!f.startsWith(path.join(STORE, "sheets") + "/") || !fs.existsSync(f)) return send(res, 400, { statusCode: "404", error: "not_found", message: "Object not found" });
+  res.writeHead(200, { "Content-Type": { ".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" }[path.extname(f)] || "application/pdf" }); return res.end(fs.readFileSync(f));
+}
 async function storage(req, res, url) {
+  if (url.pathname.startsWith("/storage/v1/object/sign/")) return signed(req, res, url);
   const claims = verify(bearer(req));
   if (!claims?.sub) return send(res, 400, { statusCode: "403", error: "Unauthorized", message: "로그인이 필요해요" });
   const m = url.pathname.match(/^\/storage\/v1\/object\/(?:authenticated\/)?([a-z-]+)\/?(.*)$/);

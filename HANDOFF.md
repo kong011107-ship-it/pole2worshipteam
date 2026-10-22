@@ -1,6 +1,6 @@
 # Pole2 찬양팀 운영 플랫폼 — 개발 인계 문서
 
-마지막 갱신: 2026-10-22 (Claude 세션, 023 백업찬양 · 적용찬양 · 예배 진행곡 · 밴드 악보 · 토요 연습 투표/취소). 새 세션은 이 문서부터 읽고, 코드는 프로젝트 문서 `worship-platform/` 아래에서 가져오면 됩니다.
+마지막 갱신: 2026-10-22 (Claude 세션, 025 지난 예배 콘티 · 적용찬양 기록 · 악보 공유 필기 · BPM/메트로놈 · 섬김이 팀 링크 · 백업 코드 추천). 새 세션은 이 문서부터 읽고, 코드는 프로젝트 문서 `worship-platform/` 아래에서 가져오면 됩니다.
 
 ## 1. 무엇인가
 - 폴투공동체 찬양팀(약 25명) 운영 웹. 팀장 공준혁, 리더십 = 관리자(admin). 배포 주소 pole2worshipteam.vercel.app
@@ -9,6 +9,7 @@
 - 011: 섬김 일정 · 사역 · 객원 · 숙련도 · 배치 자동 추천 · 라인업 카톡 복사
 - 012: 배치표 개편(파트 탭 · 사역 열 · 성비 · 연습 시간 맞추기) · 멤버 연습 시간 고르기 · 성별 · 파비콘
 - 013: PWA(홈 화면에 추가) · 웹 푸시 알림 9종 · 알림함 · 리더 공지 · 알림 설정(문구·시간) · 예약 알림(pg_cron) · 배치표 표 보기 + PNG 저장(관리자·팀원)
+- **024**: 내 메모(sheet_notes, assets/ink.js) · 악보 보기 확대/축소 · 여백 필기 · 성찬 찬양(worship_proc communion · communion2, services.communion)
 - **023**: 백업찬양(backup_books · backup_songs · backup_live, assets/backup.js) · 적용찬양(applied_songs) · 예배 진행곡(worship_proc) · 밴드 악보 권한(save_setlist_sheets) · 토요 연습 시간 투표/취소(practice_votes · team_meetings.practice_cancelled · polls.results_hidden)
 - **022**: 콘티 작성·보기·RT·마감 알림·악보 저장(sheet_versions · Storage 'sheets' · assets/conti.js · api/conti.js) · 팀원 화면 태블릿 레이아웃
 - **021**: 메뉴 그룹핑 · 팀원 탭 홈/섬김/찬양/나눔/내 정보 · 찬양 기록(songs · setlists · setlist_items · lineup_history, history_bundle()) · 예배MC/교역자(status mc/pastor) · 어쿠스틱(base 0)
@@ -24,7 +25,7 @@
 - Vercel 정적 HTML + `api/*.js`(Node ESM, supabase-js). `api/_lib.js` 공용. `api/_notify.js`(013) 푸시 공용(밑줄 파일은 Vercel 라우트 아님).
 - Supabase Postgres + RLS + Auth. 브라우저 anon 키(`assets/config.js`), 서버만 service_role.
 - 바닐라 JS, 해시 라우팅, supabase-js CDN UMD, Pretendard CDN.
-- 캐시 무효화: asset 참조 `?v=25`(023, 5개 HTML 모두). **asset 바꾸면 5개 HTML의 v 숫자 올리기.**
+- 캐시 무효화: asset 참조 `?v=26`(024, 5개 HTML 모두). **asset 바꾸면 5개 HTML의 v 숫자 올리기.**
 - 사용자 `assets/config.js`는 덮어쓰지 말 것.
 - 013 의존성: `web-push` (package.json). Vercel 환경변수: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `CRON_SECRET` (값은 v13-update.zip의 `환경변수.txt`로만 전달, 프로젝트 문서엔 없음).
 
@@ -99,13 +100,33 @@ UI 시안 캔버스(Design): https://claude.ai/artifact/DKhSZDRdW1zArQ9GmyjCUi �
 4. 안내 슬라이드(https://claude.ai/artifact/5uqR2ivFkRkT3QXx1Si9Mp) — 011·012·013 장 없음.
 5. 예약은 pg_cron 매시. pg_net 호출이 실패하면 `cron.job_run_details`에서 확인.
 
+## 10-12. 025 상태 (지난 예배 콘티 · 적용찬양 기록 · 악보 공유 필기 · 필기 도구 · BPM/메트로놈 · 섬김이 팀 링크 · 백업 코드 추천)
+- 2026-10-22 v25-update.zip 전달(사용자 취침 중 한 번에 구현 · 테스트): migration_024, HTML 5(?v=27) + share.html(새), assets conti · ink · backup · history · admin · app.css · share.js(새), api conti.js(share · share-live 액션, 함수 11개 그대로), UPDATE-025.
+- 결정(사용자): 지난 예배 콘티는 관리자 '지난 예배' 탭(달별) + 팀원 기록에서 그 예배 인도자 · 밴마(밴드는 악보만), 알림 없음, 기록 반영, 이전 버전 보관. 적용찬양 기록 목록 + 횟수 통계(이름 추천으로 같은 곡 묶기), 적용찬양 사진에도 내 메모 + 같은 곡 지난 메모. 악보 공유 필기 B안(원본 위 필기 층 · PDF 재저장 없음), 고치는 사람 = 인도자 · 밴마 · 리더십 · 그 예배 밴드, **저장된 악보에 반영**(다음 콘티에도) · 지난 예배는 그때 모습, 획 단위 저장(쓴 사람 · 시각)으로 동시 편집 합침, 수정 테이프, 고친 사람 보기, 지우기 = 인도자 · 밴마 · 리더십 전부 / 밴드 자기 것만, 알림 없이 '악보 바뀜', 내 메모는 같은 원래 악보면 이어짐, 초안 PDF · 노트 앱 방식 유지. 필기 도구: 형광펜 굵기 3, 직선 = 긋고 0.5초 멈추기(토글 없음), 펜 · 형광펜 곱하기, 테이프만 위. 백업 사진 곡: 키 · 주제 → 다음 번호 추천(모름이면 x), 검색창 옆으로. 섬김이 팀 링크: 팀별 고정(리더십이 만들고 끊기 · 새로), 로그인 없음, 악보 포함, 백업 지금/다음 실시간, 라인업 · 멤버 · 내 메모 · 고치기 숨김, 홈 화면 추가, 푸시 없음. BPM: 콘티 곡마다(쓰기 · 곡 보기 · 악보 보기), 인도자 · 밴마 · 리더십 · 그 예배 밴드, 알림 없음, 팀 기준 저장 · 자동 채움, 부른 기록에 날짜별, 박자 4/4 · 3/4 · 6/8(기본 4/4) 팀 기준, 악보 보기 ♩=72, 점 = 깜빡임 → 깜빡임+소리 → 끄기, 첫 박 높은 소리, 음량, Web Audio, 화면 켜 두기, 무음 모드 · 이어폰 안내.
+- 설계 판단(사용자 확인 전 내가 정함 — 다음 세션에 확인): ① 공유 필기 날짜 기준 = 획마다 valid_from(고친 예배 날짜) · deleted_from(지운 예배 날짜). 그 날짜 이후 예배에 보이고, 지난 예배 화면에서 고치면 그 날짜부터 이후 예배에도 반영. ② '새 악보로 저장'은 자동 강제가 아니라 막대의 버튼(원본 악보만 처음 쓸 때 이름을 먼저 물음). 처음 대화의 '다른 콘티에서 쓴 악보는 항상 새로' 대신 '저장된 악보에 반영'이 마지막 결정이라 그쪽을 따름. ③ 공유 필기는 쪽 안에만(여백 필기는 내 메모만). ④ 섬김이 링크는 오늘~13일 공개 예배 최대 6개, 15초(기도회 중 3초)마다 확인.
+- DB(migration_024, 재실행 안전): setlists_quiet_past 트리거(지난 예배 version 바뀌면 notified_version = version). songs.team_bpm · team_meter / setlist_items.bpm · meter, set_bpm(svc, ord, bpm, meter)(can_edit_sheets, 팀 기준 갱신, 버전 안 올림). save_setlist(021 그대로 + bpm/meter, 팀 기준, 바뀐 것에 'BPM 수정', 반환 past). sheet_versions.base_id + path 검사에 `#구분자` 허용(필기본은 같은 파일). sheet_ink(sheet_id, page, cid unique, stroke{t p|h|t, c, w, p}, author, author_name, valid_from, deleted_from/at/by) RLS 읽기 팀원 · 쓰기 함수만. sheet_in_service · sheet_ink_put(svc, sheet, {add, del, undel}: 권한 can_edit_sheets, 원본 막음, 남의 획 지우기는 can_edit_conti만(아니면 skipped), 쓰는 악보의 그 날짜 이후 published 콘티에 sheet_changes) · sheet_fork(svc, ord, name: 같은 파일 path#랜덤, base_id = 원래 악보, 그 날짜에 보이는 획 복사(valid_from 1900-01-01), 항목 교체, version+1 = notified_version) · edit_sheet(필기본 · 같은 파일이면 path null) · song_sheets에 base_id · ink 수. applied_songs.norm(생성 칸, backup_songs와 같은 규칙) · sheet_notes key에 `a:<applied id>` · anorm(트리거가 채움). conti_one: past · items에 bpm/meter/team_bpm/team_meter/sheet_base · applied에 norm. history_bundle: setlists에 sid · e(can_edit_conti) · es(can_edit_sheets) · items 6번째 bpm, applied [id, 날짜, 이름, 키, 사진, norm, 예배, 사역 이름](지난 공개 예배). share_links(token, label, active, last_seen_at) 리더십만. backup_add_custom(+p_topic, 4인자 함수는 지움).
+- api/conti.js: notify — 지난 예배면 skipped(past), 바뀐 것이 악보 PDF 교체 · BPM 수정뿐이면 푸시 없음(bpmOnly). share(t): service role로 공개 예배 · 올라온 콘티(곡 · 키 · BPM · 메모 · 악보 + 그 날짜 공유 필기) · 적용찬양 · 진행곡(성찬 · 등단 규칙) · 백업(상태 · 후보 곡 · 악보집) + createSignedUrls(6시간) · last_seen_at(10분마다). 라인업 · 이름 · sheet_changes.by는 안 보냄. share-live(t): 백업 상태 + 콘티 버전(version + sheet_changes.at) 문자열.
+- 화면: ink.js 재작성 — 쪽 그림 = 원래 악보(V.base) + 공유 필기(쓴 차례대로, 펜 · 형광 multiply, 테이프 덮기) → canvas, 내 메모 = .iv-tape(테이프, 보통) + .iv-ink(CSS mix-blend-mode multiply). pg.shared {sheet, page, date, svc, canEdit, canEraseAll, kind, name, defName, fork}. 막대 [data-iv=fix](악보 고치기, 초록 .iv-shared), 도구 펜 · 형광펜 · 수정 테이프 · 지우개, 굵기 3씩(pref sz · hsz · tsz), 고친 사람(pref.who, .iv-legend), 새 악보로 저장(#ivForkName), 직선(HOLD 500ms), 저장 localStorage `pole2.ink.<uid>.shpend` → sheet_ink_put(0.35초), 4초 · 16초 폴링, INK.sharedFor(초안 PDF). conti.js: METRO(Web Audio 예약 · rAF 깜빡임 · mode 0/1/2 · 음량 저장) · wake(Wake Lock) · bpmPop · saveBpm, viewerItems(ink 키 = s:sheet_base, shared, 적용찬양 ink a:id + anorm), 보기 상단 .cvv-strip(#cvvBpm + 칩), forkItem, 편집기 BPM 칸(.ce-bpm) · 밴드 BPM(set_bpm) · 지난 예배 모드(E.past: 알림 안 부름 · 문구) · 초안 PDF 필기 래스터, openApplied 이름 추천(appliedNames · anorm), 곡 상세 BPM, mountAdmin = 탭(CA.tab up|past|share) · mountPast(conti_week 직접) · mountShare. history.js: 적용찬양 탭(drawApp), 콘티 탭 '악보 · 콘티 고치기 · 적용찬양'([data-hxc]), plays 8번째 bpm. backup.js: .bk-qrow(검색 + 추가 버튼) · #bkAddSlot(다시 그려도 폼 유지) · suggestCode · 주제 select #bkATp · 중복 경고. admin.js: 곡 고치기 창 BPM · 박자. share.html + share.js(공용 함수 없이 단독, pdf.js만, 서명 주소 · Cache API, 뷰어 · 백업 따라 보기). app.css 끝 '025' 블록(.sh-* 는 나눔 관리와 겹쳐서 .shv-* · .lk-*).
+- 로컬: server.mjs에 서명 주소(POST /storage/v1/object/sign/sheets · GET …?token=) 흉내. reset_stack 기본 migration_024까지.
+- 테스트: e2e_v25.py 161 + 회귀 e2e_v24 95/96 · v23 134 · v22 104/105 · v21 66/67(실패 3개는 의도: 적용찬양 메모 가능 · 기록 탭 5개).
+- 남은 확인: 실제 아이패드 공유 필기(펜 · 손바닥 · 동시 편집), 곱하기 섞기 체감, 메트로놈 소리(무음 · 이어폰) · Wake Lock, 자막팀 폰에서 링크 · 홈 화면 추가 · 실시간, 실제 Supabase Storage 서명 주소.
+
+## 10-11. 024 상태 (내 메모 · 확대/축소 · 성찬 찬양 · 탭 가운데)
+- 2026-10-22 v24-update.zip 전달: migration_023, HTML 5(?v=26 · me/admin에 ink.js 추가), assets ink.js(새) · conti.js · backup.js · app.css, api notify.js, UPDATE-024. Vercel 함수 11개 그대로.
+- 결정(사용자): 성찬식 주일(보통 첫째 주)에 성찬 찬양 2곡, 봉헌송처럼 한동안 고정, 순서 축복–성찬–봉헌–축도, 매주 뜰 필요 없음 → 주일마다 성찬식 여부(첫째 주 자동, 리더십이 주별로 넣기/빼기), 목표 RT도 같은 기준. 내 메모: 펜 색 다양하게(8색 · 굵기 3 · 형광 4색, 마지막 도구 기억), 펜슬만 + '손가락으로 쓰기', 획 단위 지우개, 이름 붙인 악보 × 쪽에 붙음, 백업찬양은 곡 코드 기준 + '이전 판 메모', 적용찬양엔 메모 없음, 글자 입력 메모 없음, 확대/축소 + 악보 밖 여백 필기(필기 중 축소하면 쪽 너비 절반씩 여백, 여백 메모 있으면 맞춤에 포함, 숨기면 여백도 숨김). 태블릿 찬양 탭 위 탭 가운데.
+- DB(migration_023, 재실행 안전): services.communion(null = 자동: 날짜 ≤ 7) · has_communion(svc)(사역은 false) · communion_on(date)(그날~다가오는 주일 기준, 백업찬양용) · set_communion(svc, bool)(admin, 자동과 같으면 null로) · worship_proc.kind에 communion · communion2 · proc_list(date, communion) · proc_on(date) = proc_list(date, communion_on(date)) · backup_live ref에 p:communion(2) · conti_target이 has_communion 사용 · conti_one에 communion · communion_set, proc = proc_list(그날, has_communion). sheet_notes(member_id default auth.uid(), key `s:<sheet_versions.id>|p:<worship_proc.id>|b:<코드>`, page, ver(백업: 악보집 id · 사진 곡 c<id>), song_id, strokes jsonb[{t p|h, c, w, p[x,y..]}] 쪽 너비 10000 기준 정수, pk(member,key,page), RLS 본인만).
+- 화면: assets/ink.js `INK.view({stage, canvas, root, bar, onTurn})` → show(pg, stale)/clear/prefetch/sync/destroy, state(테스트용). 페이지 캔버스를 절대 위치(left/top/width/height = 보기 변환)로 두고 메모는 무대 전체 크기 캔버스(.iv-ink)에 다시 그림, 여백 종이 div(.iv-paper), 확대가 멈추면 더 선명하게 다시 그림(최대 16M px). 펜 막대는 host의 `.iv-host`, 버튼 `[data-iv=pen]` · `[data-iv=hide]`. 확대 · 필기 중엔 `.cvv-tap` 막음(.iv-zoom/.iv-pen). 밀어 넘기기 · 크기 맞춤도 INK가 맡음(ResizeObserver). 저장: localStorage `pole2.ink.<uid>.pending/cache` → 0.9초 뒤 upsert(빈 획이면 delete), online 이벤트에 다시. 지난 메모: 같은 song_id의 다른 s: 키 → sheet_versions로 옆 패널(.iv-ref). 설정 `pole2.ink.pref`(tool · pc · hc · sz · finger · hide).
+- conti.js: PROC/PROC_ORDER 6종, procPages에 ink(p:id), viewerItems 쪽에 ink(s:sheet_id + song), single.ink(곡 상세 sheet), 보기 상단 메모 · 숨기기 버튼, 콘티 현황 '성찬식 빼기/넣기'(data-ca=communion) · 성찬식 칩, 설정 '성찬식 주일'. backup.js: pagesOf에 ink(b:코드, ver), 진행 화면 B.iv(el._iv), 바 버튼, 진행곡 관리 6줄. app.css 끝 '024' 블록 + `.m-subnav` 가운데(≥700px).
+- 테스트: e2e_v24.py 96(성찬 DB · 권한 · 자동 복귀 · proc_on 주 기준 · 백업 ref · 메모 RLS · 탭 가운데 · 진행곡 카드 순서 · 리더십 넣기/빼기 · 펜/색/굵기/형광/지우개/되돌리기 · 필기 중 끝 탭 · 확대 · 맞춤 · 여백 쓰기 · 여백 맞춤 · 숨기기 · 도구 기억 · 오프라인 동기화 · 적용찬양 없음 · 진행곡 키 · 다른 사람 안 보임 · 지난 메모 패널 · 백업 따라가며 쓰기 · 이전 판 메모 · 폰 손가락(CDP 터치) 쓰기 · 핀치 · 두 번 톡 · 밀기) + e2e_v23 134 · e2e_v22 105 · e2e_v21 67 회귀. 테스트 파일 dev/tests/mkfx.py(fixture 생성) 추가.
+- 남은 확인: 실제 아이패드 + 애플펜슬 필기감 · 손바닥 무시 · 핀치, 실제 첫째 주 성찬 찬양.
+
 ## 10-10. 023 상태 (백업찬양 · 적용찬양 · 예배 진행곡 · 밴드 악보 · 토요 연습 투표/취소)
 - 2026-10-22 v23-update.zip 전달: migration_022, HTML 5(?v=25), assets backup.js(새) · conti.js · admin.js · app.css, api conti · notify · _notify, UPDATE-023. Vercel 함수 11개 그대로. 객원 전화번호 로그인은 사용자가 보류(잊어도 됨).
 - 결정(사용자): 토요 연습 시간을 바꾸면 대상(배치 인원 → 배치 전이면 월말 응답 토요 '가능')에게 가능/불가 투표, 대상 수정 가능, 결과는 리더십만, 불가 사유 없음. 결정 = 확정 / 원래 시간 / 취소(당일 리허설만). 취소 주: 토요 연습 출석 · 통계 · 지각 제외, 리허설 유지, 취소 알림에 주일 리허설 시간(주일 시간 함께 수정 가능), '토 연습 불가 → 섬김 불가' 규칙 미적용. 팀모임은 별개. '불가'는 월말 응답을 안 바꾸고 배치표 경고만(확정 시 유지, 되돌림·취소 시 제거). 밴드 라인업도 악보만 수정, 악보만 바뀌면 푸시 없음 '악보 바뀜'. 적용찬양 = 교역자에게 받아 리더십이 사진으로 업로드(콘티와 백업 사이). 백업찬양도 사진으로 곡 추가.
 - DB(migration_022, 재실행 안전): team_meetings.practice_cancelled · polls.results_hidden(poll_view: show = admin 또는 (마감 and not hidden), hidden이면 voters null) · practice_votes(meeting_date pk, poll_id, prev/new start·end, state voting|confirmed|reverted|cancelled) · attendance_practice_guard 트리거 · practice_vote_board(dates[]) · decide_practice(date, confirm|revert|cancel|restore, sun_start, sun_end). is_band_of · can_edit_sheets · can_upload_sheet(밴드 포함) · add_song(밴드 제외 유지) · setlists.sheet_changes · save_setlist_sheets(svc, data, base: 곡 순서 같아야, version+1 = notified_version). paths_ok · applied_songs(service_id, ord, title, key, note, images[] `applied/{svc}/{uuid}.jpg`) · worship_proc(kind, title, key, path pdf|images[], start_date) · proc_on(date) · conti_one에 can_edit_sheets · can_applied · practice_cancelled · applied · proc · setlist.sheet_changes. backup_books(label, path `book/{uuid}.pdf`, pages, topics, active 하나) · backup_songs(book_id null = 사진 곡, code `^[a-z0-9+]{1,6}$`, key a-g, topic, page, pages, images, norm 생성 칸 → 다른 키) · backup_live(id=1, active, leader_id, candidates[], now_ref/next_ref `b:id|p:kind`, seq; supabase_realtime 등록) · can_lead_backup(admin · 어제~7일 인도자) · backup_update(jsonb) · backup_state_live · backup_add_custom · backup_book_save. can_upload_object(name) = Storage 경로별 권한, 버킷 mime PDF+JPEG/PNG/WebP. notify_settings sat_vote · sat_decide · proc(알림 종류는 notice로 저장).
 - api/notify.js: sat_vote(시간 바꾸고 · 투표(results_hidden) 만들고 · notice 전달 · practice_votes upsert, 진행 중이면 이전 투표 마감 · prev 유지) · sat_decide(투표 대상 또는 member_ids) · proc. api/conti.js notify: 바뀐 것이 '악보 PDF 교체'뿐이면 푸시 없이 sheet_changes.
 - 화면: admin.js 섬김 일정 openSatTime · openSatDecision · openSatCancel(popWait로 창 이어 열기), 배치표 B.satNo · B.satOff · ans(sat)=취소 주 true, 출석(주간 · 월간 · 통계 · 멤버 상세 · 대시보드) 취소 반영, 곡 페이지 #songExtra → BACKUP.mountAdmin. conti.js: viewerItems(콘티 → 적용 → 진행곡 → CONTI.onBackup 칩) · drawPageInto(PDF 쪽/그림) · sheetImage · compressImage · uploadImages · openApplied · 편집기 sheetsOnly(밴드) · CONTI.lib 공개. backup.js: mount(후보) · openLive(인도자 조작판/팀원 따라가기, Realtime + 3초 확인) · liveBanner · mountAdmin(악보집 읽기 readBook: 첫 두 줄 CODE_RE, 코드 여러 개 줄은 제외) · openProcEdit. me.html: #worshipNav 콘티|백업찬양|기록, #wsLive 띠, CONTI.onBackup.
-- 로컬: server.mjs Storage가 can_upload_object + 이미지 mime. reset_stack 기본 migration_022까지. 테스트 fixture는 /home/claude/tests/mkfx.py · mkfx2.py(크롬 PDF 출력이라 글자 레이어 있음).
+- 로컬: server.mjs Storage가 can_upload_object + 이미지 mime. reset_stack 기본 migration_022까지(024부터 migration_023까지). 테스트 fixture는 /home/claude/tests/mkfx.py · mkfx2.py(크롬 PDF 출력이라 글자 레이어 있음).
 - 테스트: e2e_v23.py 134(투표 권한 · 숨김 · 재질문 · 배치표 경고 · 결정 · 취소(출석 지움 · 막힘 · 주일 시간 · 알림) · 다시 열기 · 밴드 권한/저장/409/푸시 없음 · 적용찬양/진행곡 Storage 권한 · 백업 권한 · 악보집 읽기/저장 · 진행곡 UI · 적용찬양 UI · 밴드 편집기 · 보기 칩 · 백업 후보/검색/키/사진 곡/시작/따라가기/예약/코드/진행곡/미리보기/끝내기) + e2e_v22 · e2e_v21 회귀.
 - 남은 확인: 실제 악보집 PDF 글자 레이어(스캔이면 수동 입력) · Supabase Realtime 동작 · 아이패드에서 진행 화면 크기.
 
@@ -195,7 +216,9 @@ UI 시안 캔버스(Design): https://claude.ai/artifact/DKhSZDRdW1zArQ9GmyjCUi �
 - 기도 탭 다음 후보(사용자 보류): QT 나눔 · 성경읽기.
 
 ## 10. 다음 세션 시작점
-- **최신(023)**: v23 적용 여부 · 실제 악보집 PDF 읽기 결과 · 백업찬양 실사용 피드백 확인 → v24(내 메모 필기) 또는 v21.5(라인업 이름 매칭).
+- **최신(025)**: v25 적용 여부(migration_024 · share.html) · 10-12의 설계 판단 4가지 확인 · 아이패드 공유 필기 · 메트로놈 · 섬김이 링크 실사용 → 다음 요청(v21.5 라인업 이름 매칭 등).
+- 이전(024): v24 적용 여부 · 아이패드 필기 · 성찬 찬양 확인.
+- 이전(023): v23 적용 여부 · 실제 악보집 PDF 읽기 결과 · 백업찬양 실사용 피드백 확인 → v24(내 메모 필기) 또는 v21.5(라인업 이름 매칭).
 - 현재 상태: v14 구현·테스트 완료, v14-update.zip 전달(2026-10-15). v13은 사용자 사이트에 적용 확인됨. v14 적용 여부와 실제 폰 뒤로가기·보내기 동작을 첫 질문으로 확인.
 - 다음 후보: 안내 슬라이드 013·014 장, 사역 연습 출석 통계 반영, 사역 상세 응답 탭에도 연습 칸.
 - 이전처럼 요청을 모으고 → 목업(캔버스에 v14 줄) → 확정 → 구현 → zip + UPDATE-0NN.md.
