@@ -440,7 +440,8 @@
   // ---------------------------------------------------------------- 푸시 알림 (013)
   const NOTIFY_NAME = { open: "섬김 응답 열림", minopen: "사역 응답 열림", poll: "연습 시간 요청", remind: "마감 임박", lineup: "배치표 공개", practice: "연습 시간 확정", apply: "새 지원서", trainee: "수습 기록 차례", notice: "리더 공지",
     prayer_new: "기도제목 올라옴", prayer_remind: "주중 함께 기도", prayer_urgent: "급한 기도", birthday_soon: "생일 다가옴", birthday_today: "생일 당일",
-    conti_open: "콘티 준비 안내", conti_remind: "콘티 마감 임박", conti_up: "콘티 올라옴", conti_edit: "콘티 수정됨" };
+    conti_open: "콘티 준비 안내", conti_remind: "콘티 마감 임박", conti_up: "콘티 올라옴", conti_edit: "콘티 수정됨",
+    sat_vote: "연습 시간 변경 투표", sat_decide: "연습 시간 결정 · 취소", proc: "예배 진행곡 바뀜" };
   async function notifyEnabled(kind) {
     const { data } = await sb.from("notify_settings").select("enabled").eq("kind", kind).maybeSingle();
     return data ? data.enabled : true;
@@ -986,7 +987,7 @@
   const ACT_KINDS = { practice: "토요 연습", meeting: "팀모임", rehearsal: "주일 리허설" };
   async function loadActivity(fromDate) {
     const [tm, sv] = await Promise.all([
-      sb.from("team_meetings").select("id, meeting_date, meeting_status, attendance(*)").gte("meeting_date", fromDate).order("meeting_date"),
+      sb.from("team_meetings").select("id, meeting_date, meeting_status, practice_cancelled, attendance(*)").gte("meeting_date", fromDate).order("meeting_date"),
       sb.from("services").select("service_date, status, assignments(member_id, position_code, slot, is_singer_leader, is_band_master)").is("ministry_id", null).gte("service_date", fromDate).order("service_date"),
     ]);
     if (tm.error || sv.error) console.error(tm.error || sv.error);
@@ -1642,6 +1643,7 @@
       const row = mt(d);
       if (!row) return `<span class="c o" title="${md(d)} 기록 없음">·</span>`;
       if (kind === "meeting" && row.meeting_status === "no") return `<span class="c o">없음</span>`;
+      if (kind === "practice" && row.practice_cancelled) return `<span class="c o" title="${md(d)} 토요 연습 취소 · 당일 리허설만">취소</span>`;
       if (kind !== "meeting" && !servedOnSun(d) && !recOf(row, id, kind)) return `<span class="c o">·</span>`;
       const r = recOf(row, id, kind);
       if (!r) return `<span class="c n" title="${md(d)} ${ACT_KINDS[kind]} 미기록">–</span>`;
@@ -2322,15 +2324,19 @@
     if (V.view !== "month" && !multis.some((mi) => mi.id === V.view)) V.view = "month";
     const minSids = mins.flatMap((mi) => mi.svs.map((s) => s.id));
     const pollIds = mins.filter((mi) => mi.practice_mode === "poll").map((mi) => mi.id);
-    const [{ avail }, sv, hist, tm, mav, poll] = await Promise.all([
+    const [{ avail }, sv, hist, tm, mav, poll, pv] = await Promise.all([
       loadMonth(month),
       sb.from("services").select("*, assignments(*)").is("ministry_id", null).gte("service_date", sundays[0]).lte("service_date", sundays[sundays.length - 1]),
       sb.from("services").select("service_date, ministry_id, assignments(member_id)").gte("service_date", histFrom).lt("service_date", month),
-      sb.from("team_meetings").select("meeting_date, practice_start, practice_end").in("meeting_date", sundays.map((d) => addDays(d, -1))),
+      sb.from("team_meetings").select("meeting_date, practice_start, practice_end, practice_cancelled").in("meeting_date", sundays.map((d) => addDays(d, -1))),
       minSids.length ? sb.from("ministry_availability").select("service_id, member_id, available").in("service_id", minSids) : { data: [] },
       pollIds.length ? sb.from("ministry_poll").select("ministry_id, member_id, slots").in("ministry_id", pollIds) : { data: [] },
+      sb.rpc("practice_vote_board", { p_dates: sundays.map((d) => addDays(d, -1)) }),
     ]);
     const services = sv.data || [];
+    // 023: 토요 연습 취소한 주는 '토 연습 불가 → 섬김 불가'를 쓰지 않음 · 바뀐 시간에 '불가'라고 한 사람은 경고만
+    const satCancelled = (sun) => !!(tm.data || []).find((x) => x.meeting_date === addDays(sun, -1))?.practice_cancelled;
+    const satVoteNo = (sun, mid) => { const v = (pv.data || []).find((x) => x.date === addDays(sun, -1)); return !!v && ["voting", "confirmed"].includes(v.state) && v.no.includes(mid); };
     const sunCols = sundays.map((d) => {
       const col = { key: d, type: "sun", date: d, title: `${md(d)} 주일` };
       Object.defineProperty(col, "svc", { get: () => services.find((s) => s.service_date === d) });
@@ -2356,7 +2362,10 @@
       polls: poll.data || [],
       ans: (m, col, k) => col.type === "min"
         ? (k === "sun" ? (isTarget(col.mi, m) ? mAns(col.svc.id, m.id) : false) : undefined)
+        : k === "sat" && satCancelled(col.date) ? true
         : answerOf(avail, m.id, k === "sat" ? addDays(col.date, -1) : col.date, k === "sat" ? "sat_practice" : "sunday"),
+      satNo: (m, col) => col.type === "sun" && satVoteNo(col.date, m.id),
+      satOff: (col) => col.type === "sun" && satCancelled(col.date),
       notTarget: (m, col) => col.type === "min" && !isTarget(col.mi, m),
       reload: renderLineupAdmin,
     };
@@ -2536,7 +2545,8 @@
       const pr = practiceOf(col), sg = V.sugg[col.key];
       const prac = isPollCol(col) ? (pr ? `<span class="pchip ok">연습 ${md(pr.practice_date)} ${hm(pr.start_time)} 확정</span>`
         : sg ? `<span class="pchip sug">추천 연습 ${md(sg.d)} ${sg.s}</span>` : `<span class="pchip warn">연습 미정</span>`)
-        : col.type === "min" && pr ? `<span class="pchip ok">연습 ${md(pr.practice_date)} ${hm(pr.start_time)}</span>` : "";
+        : col.type === "min" && pr ? `<span class="pchip ok">연습 ${md(pr.practice_date)} ${hm(pr.start_time)}</span>`
+        : B.satOff(col) ? `<span class="pchip">토 연습 없음 · 당일 리허설</span>` : "";
       return `<div class="lu-date ${V.sel === i ? "on" : ""} ${col.type === "min" ? "min" : ""}"><button type="button" class="lu-sel" data-sel="${i}">
           <b>${esc(col.title)}${col.type === "min" && !B.curMi ? ` <i class="mtag">사역</i>` : ""}</b><span>${col.type === "min" ? col.sub : (time ? hm(time) : "")} · 가능 ${n}명</span>${prac}</button>
         <button type="button" class="lu-pub" data-pub="${i}" aria-pressed="${pub}" ${has || pub ? "" : "disabled"} title="${pub ? "누르면 비공개" : has ? "누르면 공개" : "배치한 뒤 공개할 수 있어요"}">${pub ? "공개" : "비공개"}</button></div>`;
@@ -2579,6 +2589,7 @@
           const pr = practiceOf(col), sg = V.sugg[col.key];
           warn = dup ? "같은 날 중복 배치" : B.notTarget(m, col) ? "응답 대상 아님" : B.ans(m, col, "sun") === false ? "불가로 응답함"
             : col.type === "sun" && B.ans(m, col, "sat") === false ? "토 연습 불가"
+            : B.satNo(m, col) ? "바뀐 연습 시간 불가"
             : isPollCol(col) && pr && !canPractice(m, col, winOf(pr)) ? "연습 불가"
             : isPollCol(col) && !pr && sg && !canPractice(m, col, sg) ? "추천 연습 불가"
             : isPollCol(col) && !hasPoll(col.mi, m.id) ? "연습 시간 안 냄" : "";
@@ -2618,6 +2629,7 @@
       if (sun === undefined) tags.push(`<span class="chip chip-warn">미응답</span>`);
       if (sun === false) tags.push(`<span class="chip chip-gray">불가</span>`);
       if (sat === false) tags.push(`<span class="chip chip-warn">토 연습 불가</span>`);
+      if (B.satNo(m, selCol)) tags.push(`<span class="chip chip-warn">바뀐 시간 불가</span>`);
       if (placedPart === part) tags.push(`<span class="chip chip-violet">배치됨</span>`);
       else if (placedPart) tags.push(`<span class="chip chip-gray">${placedPart === "band" ? "밴드" : "싱어"} 배치</span>`);
       if (isPollCol(selCol) && !placedPart && sun !== false) {
@@ -3238,6 +3250,7 @@
       const sub = { practice: "연습", meeting: "모임", rehearsal: "리허설" };
       const short = { present: "출", late: "지", absent: "결" };
       const target = (s, kind, m) => kind === "meeting" ? mt(s).meeting_status !== "no" && meetingPeople(s).some((x) => x.id === m.id)
+        : kind === "practice" && mt(s).practice_cancelled ? false
         : servePeople(s, services, mt(s).attendance, kind).list.some((x) => x.m.id === m.id);
       const cell = (s, kind, m, first) => {
         const bl = first ? ` style="border-left:1px solid var(--line)"` : "";
@@ -3252,7 +3265,7 @@
         .sort((a, b) => b.s.localeCompare(a.s));
       $("#content").innerHTML = `${head}${tabsHTML}
         <div class="evaltable"><table class="att-table">
-          <thead><tr><th rowspan="2">이름</th>${sats.map((s) => `<th colspan="${kinds.length}" style="text-align:center;border-left:1px solid var(--line)">${md(s)} 주 ${kinds.includes("meeting") ? `<span class="chip ${MS_CHIP[mt(s).meeting_status]}" style="margin-left:4px">모임 ${MEETING[mt(s).meeting_status]}</span>` : ""}</th>`).join("")}
+          <thead><tr><th rowspan="2">이름</th>${sats.map((s) => `<th colspan="${kinds.length}" style="text-align:center;border-left:1px solid var(--line)">${md(s)} 주 ${kinds.includes("meeting") ? `<span class="chip ${MS_CHIP[mt(s).meeting_status]}" style="margin-left:4px">모임 ${MEETING[mt(s).meeting_status]}</span>` : ""}${kinds.includes("practice") && mt(s).practice_cancelled ? `<span class="chip chip-gray" style="margin-left:4px">연습 취소</span>` : ""}</th>`).join("")}
             <th rowspan="2" style="border-left:1px solid var(--line)">지각</th><th rowspan="2">결석</th></tr>
             <tr>${sats.map(() => kinds.map((k, i) => `<th style="${i === 0 ? "border-left:1px solid var(--line);" : ""}font-size:12px">${sub[k]}</th>`).join("")).join("")}</tr></thead>
           <tbody>${everyone.map((m) => {
@@ -3284,7 +3297,7 @@
       const p = servePeople(s, services, r.attendance).list.length;
       const c = (k) => r.attendance.filter((x) => x.kind === k).length;
       const info = s > today ? `팀모임 ${MEETING[r.meeting_status]}${preN(r) ? ` · 불참 ${preN(r)}` : ""}`
-        : `연습 ${c("practice")}/${p} · 모임 ${r.meeting_status === "no" ? "없음" : c("meeting") + "/" + meetingPeople(s).length} · 리허설 ${c("rehearsal")}/${p}`;
+        : `연습 ${r.practice_cancelled ? "취소" : c("practice") + "/" + p} · 모임 ${r.meeting_status === "no" ? "없음" : c("meeting") + "/" + meetingPeople(s).length} · 리허설 ${c("rehearsal")}/${p}`;
       return `<button type="button" class="sat-tab ${s === d ? "on" : ""} ${s === lastSaturday() ? "today" : ""}" data-sat="${s}"><b>${md(s)} – ${md(addDays(s, 1))}</b><span>${info}</span></button>`;
     }).join("");
 
@@ -3333,7 +3346,9 @@
       </section>
       ${futureSat ? `<p class="notice ok" style="margin:0">아직 오지 않은 주예요. 출석은 그날부터 체크할 수 있어요.${ms === "yes" ? " 팀모임 불참은 팀원이 그날 낮 12시까지 미리 알릴 수 있고, 미리 알린 사람은 결석으로 들어가 있어요." : ""}</p>` : ""}
       <div class="att-cols att3">
-        ${col("practice", "토요 연습", `${timeRange(...satTime(row, S.settings))} · ${md(sun)} 섬김 ${prac.list.filter((x) => !x.off).length}명${prac.status === "draft" ? " · 배치 임시저장" : ""}`, prac.list, futureSat, noLineup(sun))}
+        ${row.practice_cancelled
+          ? `<section class="att-col off" aria-label="토요 연습"><div class="dcard-head"><h2>토요 연습</h2><span class="small muted">취소 · 당일 리허설만</span></div><div class="empty" style="padding:20px">이번 주는 토요 연습이 없어요.<br>리허설 출석만 체크해 주세요. <a href="#schedule">섬김 일정</a></div></section>`
+          : col("practice", "토요 연습", `${timeRange(...satTime(row, S.settings))} · ${md(sun)} 섬김 ${prac.list.filter((x) => !x.off).length}명${prac.status === "draft" ? " · 배치 임시저장" : ""}`, prac.list, futureSat, noLineup(sun))}
         ${meetCol}
         ${col("rehearsal", "주일 리허설", `${md(sun)} (주일) · 섬김 ${reh.list.filter((x) => !x.off).length}명`, reh.list, futureSun, noLineup(sun))}
       </div>`;
@@ -3442,7 +3457,7 @@
     const prevWeeks = weeks.map((d) => addDays(d, -7 * n));
     const act = await loadActivity(prevWeeks[0]);
     const mt = (d) => act.meetings.find((x) => x.meeting_date === d);
-    const counted = (ws) => ws.filter((d) => kind !== "meeting" || mt(d)?.meeting_status === "yes");
+    const counted = (ws) => ws.filter((d) => kind === "meeting" ? mt(d)?.meeting_status === "yes" : !(kind === "practice" && mt(d)?.practice_cancelled));
     const recsIn = (ws) => counted(ws).flatMap((d) => (mt(d)?.attendance || []).filter((r) => r.kind === kind).map((r) => ({ ...r, d })));
     const cur = recsIn(weeks), prev = recsIn(prevWeeks);
     const rate = (rs) => rs.length ? Math.round(100 * rs.filter((r) => r.status !== "absent").length / rs.length) : null;
@@ -3489,6 +3504,7 @@
         const row = mt(d);
         if (!row) return { c: "o", t: `${md(dayOf(d))} 기록 없음` };
         if (kind === "meeting" && row.meeting_status === "no") return { c: "o", t: `${md(d)} 팀모임 없음` };
+        if (kind === "practice" && row.practice_cancelled) return { c: "o", t: `${md(d)} 토요 연습 취소` };
         const r = recOf(row, m.id, kind);
         if (!r) return { c: kind !== "meeting" && !servedList(act.services, m.id).some((s) => s.date === addDays(d, 1)) ? "x" : "n", t: `${md(dayOf(d))} 미기록` };
         return { c: r.status[0], t: `${md(dayOf(d))} ${ATT[r.status]}${r.status === "absent" ? " · " + reasonText(r) : ""}` };
@@ -3611,7 +3627,7 @@
       const p = servePeople(lastSat, services, r.attendance).list.length;
       const c = (k) => r.attendance.filter((x) => x.kind === k).length;
       const mtot = meetingPeople(lastSat).length;
-      const gaps = [p > c("practice") && `연습 ${c("practice")}/${p}`, r.meeting_status === "yes" && mtot > c("meeting") && `모임 ${c("meeting")}/${mtot}`,
+      const gaps = [!r.practice_cancelled && p > c("practice") && `연습 ${c("practice")}/${p}`, r.meeting_status === "yes" && mtot > c("meeting") && `모임 ${c("meeting")}/${mtot}`,
         addDays(lastSat, 1) <= today && p > c("rehearsal") && `리허설 ${c("rehearsal")}/${p}`, r.meeting_status === "tbd" && "팀모임 여부 미정"].filter(Boolean);
       if (gaps.length) todos.push(item("", `${md(lastSat)} 출석 기록 마저 하기`, gaps.join(" · "), "#attendance", `data-sat="${lastSat}"`));
       else done.push(`${md(lastSat)} 출석 기록`);
@@ -3730,12 +3746,15 @@
     const sundays = sundaysOf(month), sats = sundays.map((d) => addDays(d, -1));
     await ensureSaturdays(sats);
     const [tm, sv, ms, mo] = await Promise.all([
-      sb.from("team_meetings").select("id, meeting_date, practice_start, practice_end").in("meeting_date", sats),
+      sb.from("team_meetings").select("id, meeting_date, practice_start, practice_end, practice_cancelled").in("meeting_date", sats),
       sb.from("services").select("id, service_date, start_time, end_time, status").is("ministry_id", null).in("service_date", sundays),
       sb.from("services").select("ministry_id").not("ministry_id", "is", null).gte("service_date", month).lt("service_date", next),
       sb.from("availability_months").select("*").eq("month", month).maybeSingle(),
     ]);
     if (ms.error) { $("#content").innerHTML = `<div class="empty">섬김 일정을 불러오지 못했어요. migration_010을 실행했는지 확인해 주세요.</div>`; return console.error(ms.error); }
+    // 023: 토요 연습 시간 변경 투표
+    const { data: votes } = await sb.rpc("practice_vote_board", { p_dates: sats });
+    const voteOf = (d) => (votes || []).find((v) => v.date === d);
     const ids = [...new Set((ms.data || []).map((x) => x.ministry_id))];
     const { data: mins } = ids.length ? await sb.from("ministries").select("*, services(id, service_date, label, start_time, end_time, status, sort_order), ministry_practices(*), ministry_poll(member_id)").in("id", ids) : { data: [] };
     const sids = (mins || []).flatMap((m) => m.services.map((s) => s.id));
@@ -3756,6 +3775,13 @@
       if (m.practice_mode === "poll" && m.poll_open) return `<span class="chip chip-warn">가능 시간 취합 중 · ${m.ministry_poll.length}/${availN(m)}</span>`;
       return `<span class="chip chip-gray">연습 미정</span>`;
     };
+    const voteChip = (d, mt) => {
+      const v = voteOf(d);
+      if (!v) return mt?.practice_cancelled ? `<span class="chip chip-bad">연습 취소</span>` : `<span class="small muted">—</span>`;
+      if (v.state === "voting") return `<button type="button" class="chip chip-warn chipbtn" data-vote="${d}">${v.ended ? "투표 마감 · 결정 필요" : "투표 중"} · 가능 ${v.yes.length} · 불가 ${v.no.length}${v.pending.length ? ` · 미응답 ${v.pending.length}` : ""}</button>`;
+      const t = { confirmed: ["chip-ok", "바꾼 시간 확정"], reverted: ["chip-gray", "원래 시간으로"], cancelled: ["chip-bad", "연습 취소"] }[v.state];
+      return `<button type="button" class="chip ${t[0]} chipbtn" data-vote="${d}">${t[1]}${v.poll_id ? ` · 가능 ${v.yes.length} · 불가 ${v.no.length}` : ""}</button>`;
+    };
     const timeBtn = (kind, d, [a, b], edited) => `<button type="button" class="tm ${edited ? "edited" : ""}" data-time="${kind}" data-d="${d}" title="눌러서 이날 시간 바꾸기">${hm(a)} – ${hm(b)}${edited ? ` <u>수정됨</u>` : ""}</button>`;
     const minRow = (m) => `<tr class="mrowx"><td>${m.first === m.last ? mdw(m.first) : `${md(m.first)} – ${md(m.last)}`}</td>
       <td><span class="kind"><i class="dot m"></i>${esc(m.name)}</span> <span class="chip chip-violet">사역${m.svs.length > 1 ? ` · 예배 ${m.svs.length}` : ""}</span></td>
@@ -3767,8 +3793,9 @@
       const these = list.filter((m) => !used.has(m.id) && m.first > addDays(sun, -7) && m.first <= sun);
       these.forEach((m) => used.add(m.id));
       return `<tr class="wk"><td colspan="6">${fmtDate(sun, { month: "long", day: "numeric" })} 주일 주간</td></tr>
-        <tr><td>${mdw(sat)}</td><td><span class="kind"><i class="dot"></i>토요 연습</span></td><td>${timeBtn("sat", sat, satTime(mt, st), !!mt?.practice_start)}</td>
-          <td><span class="chip chip-gray">${monthLabel(month)} 월말 응답</span></td><td class="small muted">—</td><td></td></tr>
+        <tr><td>${mdw(sat)}</td><td><span class="kind"><i class="dot"></i>토요 연습</span></td><td>${mt?.practice_cancelled
+            ? `<button type="button" class="tm edited" data-time="sat" data-d="${sat}" title="눌러서 바꾸기">연습 없음 <u>당일 리허설</u></button>` : timeBtn("sat", sat, satTime(mt, st), !!mt?.practice_start)}</td>
+          <td><span class="chip chip-gray">${monthLabel(month)} 월말 응답</span></td><td>${voteChip(sat, mt)}</td><td></td></tr>
         ${these.filter((m) => m.first < sun).map(minRow).join("")}
         <tr><td>${mdw(sun)}</td><td><span class="kind"><i class="dot"></i>주일 섬김</span></td><td>${timeBtn("sun", sun, sunTime(sv1, st), !!sv1?.start_time)}</td>
           <td><span class="chip chip-gray">${monthLabel(month)} 월말 응답</span></td><td class="small muted">${md(sat)} 토요 연습</td><td></td></tr>
@@ -3797,21 +3824,23 @@
     $("#scDefaults").onclick = () => openDefaultTimes(() => renderSchedule());
     $$("[data-time]").forEach((b) => b.addEventListener("click", () => {
       const d = b.dataset.d, sat = b.dataset.time === "sat";
-      const cur = sat ? satTime(meet(d), st) : sunTime(svcOf(d), st);
+      if (sat) return openSatTime(d, { mt: meet(d), vote: voteOf(d), svc: svcOf(addDays(d, 1)), after: renderSchedule });
+      const cur = sunTime(svcOf(d), st);
       modal({
-        step: sat ? "토요 연습 시간" : "주일 섬김 시간", title: `${mdw(d)} ${sat ? "토요 연습" : "주일 섬김"}`,
+        step: "주일 섬김 시간", title: `${mdw(d)} 주일 섬김`,
         body: `<div class="row"><label class="field">시작<input type="time" id="tA" value="${hm(cur[0])}" step="600"></label><label class="field">끝<input type="time" id="tB" value="${hm(cur[1])}" step="600"></label></div>
-          <p class="small muted" style="margin:0">이날만 바뀌어요. 기본 시간: ${sat ? `${hm(st.sat_practice_start)}–${hm(st.sat_practice_end)}` : `${hm(st.sunday_start)}–${hm(st.sunday_end)}`}</p>
+          <p class="small muted" style="margin:0">이날만 바뀌어요. 기본 시간: ${hm(st.sunday_start)}–${hm(st.sunday_end)}</p>
           <button type="button" class="btn btn-ghost btn-sm" id="tReset" style="align-self:flex-start">기본 시간으로 되돌리기</button>`,
         confirmLabel: "저장",
         onConfirm: async (close) => {
           const a = $("#tA").value, z = $("#tB").value;
           if (!a || !z || z <= a) throw new Error("끝나는 시간이 시작보다 늦어야 해요.");
-          await setDayTime(sat, d, a, z); close(); toast("시간을 바꿨어요"); renderSchedule();
+          await setDayTime(false, d, a, z); close(); toast("시간을 바꿨어요"); renderSchedule();
         },
       });
-      $("#tReset").onclick = async () => { await setDayTime(sat, d, null, null); curClose?.(); toast("기본 시간으로 되돌렸어요"); renderSchedule(); };
+      $("#tReset").onclick = async () => { await setDayTime(false, d, null, null); curClose?.(); toast("기본 시간으로 되돌렸어요"); renderSchedule(); };
     }));
+    $$("[data-vote]").forEach((b) => b.addEventListener("click", () => openSatDecision(b.dataset.vote, { mt: meet(b.dataset.vote), vote: voteOf(b.dataset.vote), svc: svcOf(addDays(b.dataset.vote, 1)), after: renderSchedule })));
     async function setDayTime(sat, d, a, z) {
       if (sat) {
         const { error } = await sb.from("team_meetings").update({ practice_start: a, practice_end: z }).eq("meeting_date", d);
@@ -3822,6 +3851,152 @@
         if (s) { const { error } = await sb.from("services").update({ start_time: a, end_time: z }).eq("id", s.id); if (error) throw new Error("저장하지 못했습니다"); }
       }
     }
+  }
+
+  // ---------------------------------------------------------------- 023: 토요 연습 시간 변경 · 투표 · 취소
+  //  대상(자동): 다음 날 주일 배치 인원 → 배치 전이면 월말 응답에서 그 토요일 연습 '가능'인 사람. 고칠 수 있어요
+  async function satTargets(d) {
+    const sun = addDays(d, 1), act = new Set(S.members.filter((m) => m.is_active).map((m) => m.id));
+    const { data: sv } = await sb.from("services").select("id, assignments(member_id)").is("ministry_id", null).eq("service_date", sun).maybeSingle();
+    const ids = [...new Set((sv?.assignments || []).map((a) => a.member_id).filter((id) => id && act.has(id)))];
+    if (ids.length) return { ids, basis: `${md(sun)} 주일 배치 인원` };
+    const { data: av } = await sb.from("availability").select("member_id").eq("date", d).eq("kind", "sat_practice").eq("available", true);
+    return { ids: [...new Set((av || []).map((x) => x.member_id))].filter((id) => act.has(id)), basis: `배치 전 · 월말 응답에서 ${md(d)} 토요 연습 '가능'` };
+  }
+  const localDT = (dt) => { const k = new Date(dt.getTime() - dt.getTimezoneOffset() * 60e3); return k.toISOString().slice(0, 16); };
+  const rangeTxt = (a, z) => `${hm(a)}–${hm(z)}`;
+
+  async function openSatTime(d, { mt, vote, after }) {
+    const st = S.settings, cur = satTime(mt, st);
+    const T = await satTargets(d);
+    const pick = new Set(T.ids);
+    const others = () => S.members.filter((m) => m.is_active && !pick.has(m.id)).sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    const fri = new Date(`${addDays(d, -1)}T22:00:00+09:00`);
+    const dl = fri.getTime() > Date.now() + 3600e3 ? fri : new Date(Math.ceil((Date.now() + 2 * 3600e3) / 1800e3) * 1800e3);
+    const listHTML = () => [...pick].map((id) => `<button type="button" data-tm="${id}" aria-pressed="true">${esc(memberName(id))} ✕</button>`).join("") || `<span class="small muted">아직 아무도 없어요</span>`;
+    modal({
+      step: "토요 연습 시간", title: `${mdw(d)} 토요 연습`,
+      body: `<div class="row"><label class="field">시작<input type="time" id="tA" value="${hm(cur[0])}" step="600"></label><label class="field">끝<input type="time" id="tB" value="${hm(cur[1])}" step="600"></label></div>
+        <p class="small muted" style="margin:0">이날만 바뀌어요. 기본 시간: ${hm(st.sat_practice_start)}–${hm(st.sat_practice_end)}${vote?.state === "voting" ? ` · 지금 '${rangeTxt(vote.new_start, vote.new_end)}'로 묻는 중이에요` : ""}</p>
+        ${mt?.practice_cancelled ? `<div class="notice warn" style="margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="flex:1">이 주는 토요 연습이 취소됐어요 (당일 리허설만).</span><button type="button" class="btn btn-ghost btn-sm" id="tRestore">연습 다시 열기</button></div>` : ""}
+        <label class="checkrow"><input type="checkbox" id="tAsk"><span><b>대상자에게 가능 여부 묻기</b><small>투표(가능 / 불가)로 보내요 · 결과는 리더십만 봐요 · 불가 사유는 묻지 않아요</small></span></label>
+        <div id="tAskBox" class="hidden" style="display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;background:var(--bg)">
+          <span class="small"><b id="tAskN">${pick.size}명</b> <span class="muted">· 자동: ${esc(T.basis)} · 누르면 빠져요</span></span>
+          <div class="pick-chips" id="tAskList">${listHTML()}</div>
+          <select class="select" id="tAskAdd"><option value="">+ 다른 팀원 더하기</option>${others().map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("")}</select>
+          <label class="field">투표 마감<input type="datetime-local" id="tAskDl" class="input" value="${localDT(dl)}"></label>
+        </div>
+        <div class="row" style="justify-content:space-between"><button type="button" class="btn btn-ghost btn-sm" id="tReset">기본 시간으로 되돌리기</button>
+          ${mt?.practice_cancelled ? "" : `<button type="button" class="btn btn-ghost btn-sm" id="tCancel" style="color:var(--bad)">이 주 연습 취소 · 당일 리허설만</button>`}</div>`,
+      confirmLabel: "저장",
+      onInput: (e) => {
+        const ask = $("#tAsk")?.checked;
+        $("#tAskBox")?.classList.toggle("hidden", !ask);
+        if ($("#mOk")) $("#mOk").textContent = ask ? `저장하고 ${pick.size}명에게 묻기` : "저장";
+        const x = e?.target?.closest?.("[data-tm]");
+        if (x && e.type === "click") { pick.delete(x.dataset.tm); redraw(); }
+        if (e?.target?.id === "tAskAdd" && e.type === "input" && e.target.value) { pick.add(e.target.value); redraw(); }
+      },
+      onConfirm: async (close) => {
+        const a = $("#tA").value, z = $("#tB").value;
+        if (!a || !z || z <= a) throw new Error("끝나는 시간이 시작보다 늦어야 해요.");
+        if ($("#tAsk").checked) {
+          if (!pick.size) throw new Error("물어볼 사람을 골라 주세요.");
+          const dlv = $("#tAskDl").value; if (!dlv) throw new Error("투표 마감을 골라 주세요.");
+          const r = await api("/api/notify", { kind: "sat_vote", date: d, start: a, end: z, member_ids: [...pick], deadline: new Date(dlv).toISOString() });
+          close(); toast(`시간을 바꾸고 ${r.recipients}명에게 물었어요${r.noPushReady ? " · 푸시는 아직 설정 전" : ""}`, 3500);
+        } else {
+          const { error } = await sb.from("team_meetings").update({ practice_start: a, practice_end: z }).eq("meeting_date", d);
+          if (error) throw new Error("저장하지 못했습니다");
+          close(); toast("시간을 바꿨어요");
+        }
+        after?.();
+      },
+    });
+    function redraw() {
+      $("#tAskList").innerHTML = listHTML(); $("#tAskN").textContent = `${pick.size}명`;
+      $("#tAskAdd").innerHTML = `<option value="">+ 다른 팀원 더하기</option>${others().map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("")}`;
+      if ($("#mOk")) $("#mOk").textContent = `저장하고 ${pick.size}명에게 묻기`;
+    }
+    $("#tReset").onclick = async () => {
+      const { error } = await sb.from("team_meetings").update({ practice_start: null, practice_end: null }).eq("meeting_date", d);
+      if (error) return toast("저장하지 못했습니다");
+      curClose?.(); toast("기본 시간으로 되돌렸어요"); after?.();
+    };
+    $("#tCancel")?.addEventListener("click", async () => { curClose?.(); await (popWait || Promise.resolve()); openSatCancel(d, { vote, after }); });
+    $("#tRestore")?.addEventListener("click", async () => {
+      const { error } = await sb.rpc("decide_practice", { p_date: d, p_decision: "restore" });
+      if (error) return toast(error.message || "바꾸지 못했어요", 4000);
+      curClose?.(); toast("토요 연습을 다시 열었어요"); after?.();
+    });
+  }
+
+  async function openSatDecision(d, { mt, vote, after }) {
+    if (!vote) return;
+    const names = (ids) => ids.map((id) => esc(memberName(id))).sort((a, b) => a.localeCompare(b, "ko")).join(", ") || "—";
+    const cancelled = vote.state === "cancelled" || mt?.practice_cancelled;
+    const stTxt = { voting: vote.ended ? "투표 마감 · 결정해 주세요" : "투표 중", confirmed: "바꾼 시간으로 확정했어요", reverted: "원래 시간으로 되돌렸어요", cancelled: "연습을 취소했어요 · 당일 리허설만" }[vote.state];
+    modal({
+      step: "토요 연습 시간 변경", title: `${mdw(d)} 토요 연습`, cancelLabel: "닫기",
+      body: `<div style="display:flex;flex-direction:column;gap:4px">
+          <span><b>${vote.poll_id ? `${rangeTxt(vote.prev_start || S.settings.sat_practice_start, vote.prev_end || S.settings.sat_practice_end)} → ${rangeTxt(vote.new_start, vote.new_end)}` : "투표 없이 취소"}</b></span>
+          <span class="small muted">${stTxt}${vote.poll_id && vote.deadline ? ` · 투표 마감 ${fmtDateTime(vote.deadline)}` : ""}${vote.decided_at ? ` · ${fmtDateTime(vote.decided_at)} 결정` : ""}</span></div>
+        ${vote.poll_id ? `<div class="pv-res">
+          <div><span class="chip chip-ok">가능 ${vote.yes.length}</span><span class="small">${names(vote.yes)}</span></div>
+          <div><span class="chip chip-bad">불가 ${vote.no.length}</span><span class="small">${names(vote.no)}</span></div>
+          <div><span class="chip chip-gray">미응답 ${vote.pending.length}</span><span class="small muted">${names(vote.pending)}</span></div></div>
+          <p class="small muted" style="margin:0">결과는 리더십만 봐요. '불가'는 월말 응답을 바꾸지 않고, 배치표에 경고로만 보여요 (확정하면 경고 유지, 되돌리거나 취소하면 사라져요).</p>` : ""}
+        <div class="row" style="flex-wrap:wrap;gap:8px">
+          ${vote.poll_id && vote.state !== "confirmed" ? `<button type="button" class="btn btn-primary btn-sm" data-dec="confirm">바꾼 시간 확정</button>` : ""}
+          ${vote.poll_id && vote.state !== "reverted" ? `<button type="button" class="btn btn-ghost btn-sm" data-dec="revert">원래 시간으로 되돌리기</button>` : ""}
+          ${cancelled ? `<button type="button" class="btn btn-ghost btn-sm" data-dec="restore">연습 다시 열기</button>` : `<button type="button" class="btn btn-ghost btn-sm" data-dec="cancel" style="color:var(--bad)">연습 취소 · 당일 리허설만</button>`}</div>
+        ${vote.poll_id ? `<label class="checkrow"><input type="checkbox" id="dNotify" checked><span><b>결정을 대상자에게 알리기</b><small>투표 대상 ${vote.targets.length}명에게 알림</small></span></label>` : ""}`,
+    });
+    $("#mBody").addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-dec]"); if (!b) return;
+      const dec = b.dataset.dec;
+      if (dec === "cancel") { curClose?.(); await (popWait || Promise.resolve()); return openSatCancel(d, { vote, after }); }
+      b.disabled = true;
+      const { error } = await sb.rpc("decide_practice", { p_date: d, p_decision: dec });
+      if (error) { b.disabled = false; return toast(error.message || "바꾸지 못했어요", 4000); }
+      let msg = { confirm: "바꾼 시간으로 확정했어요", revert: "원래 시간으로 되돌렸어요", restore: "토요 연습을 다시 열었어요" }[dec];
+      if ($("#dNotify")?.checked) {
+        try { const r = await api("/api/notify", { kind: "sat_decide", date: d, decision: dec }); if (r.recipients) msg += ` · ${r.recipients}명에게 알렸어요`; }
+        catch (err) { msg += ` · 알리지 못했어요 (${err.message})`; }
+      }
+      curClose?.(); toast(msg, 3500); after?.();
+    });
+  }
+
+  async function openSatCancel(d, { vote, after }) {
+    const sun = addDays(d, 1);
+    const { data: svc } = await sb.from("services").select("id, start_time, end_time").is("ministry_id", null).eq("service_date", sun).maybeSingle();
+    const cur = sunTime(svc, S.settings);
+    const T = vote?.poll_id ? { ids: vote.targets, basis: "투표 대상" } : await satTargets(d);
+    modal({
+      step: "토요 연습 취소", title: `${mdw(d)} 토요 연습 취소`, danger: true, confirmLabel: "연습 취소",
+      body: `<p style="margin:0">${mdw(d)} 토요 연습 없이 <b>${mdw(sun)} 당일 리허설</b>로만 해요.</p>
+        <ul class="small" style="margin:0;padding-left:18px;line-height:1.7">
+          <li>이 주 토요 연습 출석은 체크하지 않아요 (통계 · 지각에서 빠져요). 적어 둔 기록이 있으면 지워요</li>
+          <li>리허설 출석은 그대로예요. 팀모임은 따로예요</li>
+          <li>이 주는 배치표의 '토 연습 불가 → 섬김 불가' 규칙을 쓰지 않아요</li></ul>
+        <div class="field"><span>${md(sun)} 주일(리허설) 시간 <span class="hint">· 바꾸면 그 주일 섬김 시간이 함께 바뀌어요</span></span>
+          <div class="row"><input type="time" id="cA" class="input" value="${hm(cur[0])}" step="600" style="width:auto"><span>–</span><input type="time" id="cB" class="input" value="${hm(cur[1])}" step="600" style="width:auto"></div></div>
+        <label class="checkrow"><input type="checkbox" id="cNotify" checked><span><b>대상자에게 알리기</b><small>${T.ids.length}명 · ${esc(T.basis)} · 리허설 시간 포함</small></span></label>`,
+      onConfirm: async (close) => {
+        const a = $("#cA").value, z = $("#cB").value;
+        if (!a || !z || z <= a) throw new Error("주일 끝나는 시간이 시작보다 늦어야 해요.");
+        const changed = a !== hm(cur[0]) || z !== hm(cur[1]);
+        const { data, error } = await sb.rpc("decide_practice", { p_date: d, p_decision: "cancel", p_sun_start: changed ? a : null, p_sun_end: changed ? z : null });
+        if (error) throw new Error(error.message || "취소하지 못했어요");
+        let msg = `토요 연습을 취소했어요${data?.removed ? ` · 출석 기록 ${data.removed}건 지움` : ""}`;
+        if ($("#cNotify").checked && T.ids.length) {
+          try { const r = await api("/api/notify", { kind: "sat_decide", date: d, decision: "cancel", member_ids: T.ids }); if (r.recipients) msg += ` · ${r.recipients}명에게 알렸어요`; }
+          catch (err) { msg += ` · 알리지 못했어요 (${err.message})`; }
+        }
+        close(); toast(msg, 4000); after?.();
+      },
+    });
   }
 
   function openDefaultTimes(after) {
@@ -4455,7 +4630,7 @@
   const NV = { tab: "send", sel: "remind", draft: null, target: "all", date: null, pick: new Set(), title: "", body: "", vote: null };
   // 016: 공지에 붙이는 투표 (기본: 하나만 · 실명 · 사흘 뒤 밤 9시 마감)
   const newVote = () => ({ on: false, options: ["", ""], multi: false, anonymous: false, date: addDays(todayISO(), 3), hour: 21 });
-  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent", "birthday_soon", "birthday_today", "conti_open", "conti_remind", "conti_up", "conti_edit"];
+  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent", "birthday_soon", "birthday_today", "conti_open", "conti_remind", "conti_up", "conti_edit", "sat_vote", "sat_decide", "proc"];
   const NINFO = {
     open: { who: "정식 팀원 전체", when: "리더가 월말 응답을 열 때 (확인 창에서 고름)", vars: ["월", "마감일", "이름"] },
     minopen: { who: "그 사역 응답 대상", when: "따로 받는 사역을 만들거나 응답을 다시 열 때 (확인 창에서 고름)", vars: ["사역", "마감일", "이름"] },
@@ -4474,13 +4649,17 @@
     conti_open: { who: "그 예배 인도자 · 밴드 마스터", when: "", vars: ["예배", "마감", "인원", "이름"] },
     conti_remind: { who: "콘티를 아직 안 올린 예배의 인도자 · 밴드 마스터", when: "", vars: ["예배", "마감", "마감일", "이름"] },
     conti_up: { who: "그 예배 섬김자 (올린 사람 빼고)", when: "인도자가 콘티를 처음 올릴 때", vars: ["예배", "곡", "올린 사람", "이름"] },
-    conti_edit: { who: "그 예배 섬김자 (올린 사람 빼고)", when: "올라온 콘티를 고쳐서 다시 올릴 때", vars: ["예배", "바뀐 것", "올린 사람", "이름"] },
+    conti_edit: { who: "그 예배 섬김자 (올린 사람 빼고)", when: "올라온 콘티를 고쳐서 다시 올릴 때 (악보만 바뀌면 보내지 않아요)", vars: ["예배", "바뀐 것", "올린 사람", "이름"] },
+    sat_vote: { who: "시간을 바꿀 때 고른 대상 (그 주 섬김 인원 · 배치 전이면 토요 연습 '가능' 응답자)", when: "섬김 일정에서 토요 연습 시간을 바꾸며 '가능 여부 묻기'를 고를 때", vars: ["날짜", "시간", "마감", "원래 시간", "이름"] },
+    sat_decide: { who: "그 투표 대상 (투표 없이 취소하면 그 주 대상)", when: "바꾼 시간 확정 · 원래 시간으로 · 연습 취소를 고를 때 (확인 창에서 고름)", vars: ["날짜", "결정", "내용", "이름"] },
+    proc: { who: "팀원 전체", when: "찬양 › 곡에서 예배 진행곡을 바꿀 때 (확인 창에서 고름)", vars: ["곡", "이름"] },
   };
   const NSAMPLE = { "월": "11월", "마감일": "10/31(토)", "사역": "원스텝", "무엇": "11월 섬김 응답", "남은 것": "3개 남았어요", "이름": "이은혜",
     "내 섬김": "11/8 싱어 리더 · 11/15 섬겨요", "연습 일시": "11/10(화) 19:00–21:00", "지원자": "이도현", "포지션": "싱어", "수습생": "이도현", "주차": "3",
     "제목": "이번 주 팀모임은 없어요", "내용": "토요 연습은 그대로 11:00에 있어요", "인원": "12", "개수": "12", "대상": "김하늘",
     "생일자": "김하늘", "며칠": "3일", "날짜": "10/23(금)", "정산": "생일선물 정산 참여 · 선물 준비해요",
-    "예배": "11/8 주일", "마감": "11/4(수) 22:00", "곡": "주님 다시 오실 때까지 · 은혜 · 송축해 내 영혼", "바뀐 것": "키 A → Bb · 곡 추가: 은혜", "올린 사람": "이은혜" };
+    "예배": "11/8 주일", "마감": "11/4(수) 22:00", "곡": "주님 다시 오실 때까지 · 은혜 · 송축해 내 영혼", "바뀐 것": "키 A → Bb · 곡 추가: 은혜", "올린 사람": "이은혜",
+    "시간": "14:00–17:00", "원래 시간": "13:00–16:00", "결정": "없어요" };
   const NDEF = {
     open: ["{월} 섬김 응답을 받고 있어요", "{마감일}까지 토요 연습·주일 가능 여부를 체크해 주세요"],
     minopen: ["{사역} 섬김 응답을 받고 있어요", "{마감일}까지 가능 여부를 체크해 주세요"],
@@ -4500,6 +4679,9 @@
     conti_remind: ["[{마감일} 마감] {예배} 콘티", "아직 콘티가 올라오지 않았어요. {마감}까지 올려 주세요"],
     conti_up: ["{예배} 콘티가 올라왔어요", "{곡}"],
     conti_edit: ["{예배} 콘티가 수정됐어요", "{바뀐 것}"],
+    sat_vote: ["[투표] {날짜} 토요 연습 시간이 바뀌었어요", "{시간}에 연습할 수 있는지 알려 주세요 · {마감} 마감"],
+    sat_decide: ["{날짜} 토요 연습 {결정}", "{내용}"],
+    proc: ["예배 진행곡이 바뀌었어요", "{곡}"],
   };
   const NSCHED = { remind: [{ days: 1, hour: 18 }, { days: 0, hour: 10 }], trainee: { dow: 6, hour: 18 }, prayer_new: { dow: 6, hour: 21 }, prayer_remind: { days: [2, 4], hour: 20 }, birthday_soon: { days: 3, hour: 9 }, birthday_today: { hour: 9 },
     conti_open: { days: 7, hour: 18 }, conti_remind: [{ days: 1, hour: 18 }, { days: 0, hour: 18 }] };
@@ -5158,6 +5340,7 @@
     $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">곡</h1>
         <div class="row"><button type="button" class="btn btn-ghost btn-sm" id="songYt">영상 길이 채우기</button><button type="button" class="btn btn-primary btn-sm" id="songAdd">곡 추가</button></div></div>
       <p class="lead">콘티에 쓰는 곡 목록이에요. 곡 이름을 누르면 악보 · 레퍼런스 · 부른 기록을 봐요. 곡 시간(팀 기준)은 콘티 RT 계산에 써요. 콘티에서 시간을 직접 고치면 그 값이 팀 기준이 돼요.</p>
+      <div id="songExtra" style="display:contents"></div>
       <section class="panel">
         <div class="hx-fr"><input type="search" class="hx-search" id="songQ" placeholder="곡 이름 찾기" aria-label="곡 이름 찾기" value="${esc(SG.q)}">
           <div class="hx-seg" id="songSort">${[["n", "많이 부른 순"], ["last", "최근 순"], ["name", "가나다 순"]].map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${SG.sort === k}">${l}</button>`).join("")}</div></div>
@@ -5165,6 +5348,8 @@
         <div class="song-wrap"><table class="hx-lead song-table"><thead><tr><th>곡</th><th>대표 키</th><th class="n">부른 횟수</th><th>마지막</th><th class="n">곡 시간</th><th class="n">악보</th><th class="wide">쓴 키</th><th class="wide">메모</th><th></th></tr></thead><tbody id="songBody"></tbody></table></div>
         <button type="button" class="hx-more" id="songMore">더 보기</button>
       </section>`;
+    // 023: 백업찬양 악보집 · 예배 진행곡
+    if (window.BACKUP) BACKUP.mountAdmin($("#songExtra"));
     const draw = () => {
       const q = SG.q.toLowerCase().replace(/\s/g, "");
       let rows = all.filter((x) => !q || x.title.toLowerCase().replace(/\s/g, "").includes(q));

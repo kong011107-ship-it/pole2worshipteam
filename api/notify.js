@@ -1,6 +1,6 @@
 // 리더십이 보내는 알림: 응답 열림 · 사역 응답 열림 · 연습 시간 요청 · 배치표 공개 · 연습 확정 · 공지 · 테스트
 import { adminClient, requireAdmin, requireMember, handler, HttpError } from "./_lib.js";
-import { settingOf, fill, deliver, activeMembers, targetsOf, pollPeople, wasSent, claim, release, markSent, md, mdw, hm, monthLabel } from "./_notify.js";
+import { settingOf, fill, deliver, activeMembers, targetsOf, pollPeople, wasSent, claim, release, markSent, md, mdw, hm, monthLabel, addDays } from "./_notify.js";
 
 // 알림을 누르면 열리는 곳 (015: 그 항목을 바로 처리할 수 있는 화면)
 export const ME_URL = /^\/me\.html(#[a-z]+(\/[A-Za-z0-9:_.-]{1,80})?)?$/;
@@ -12,6 +12,7 @@ const SAMPLE = {
   "인원": "12", "개수": "12", "대상": "김하늘",
   "예배": "11/8 주일", "마감": "11/4(수) 22:00", "곡": "주님 다시 오실 때까지 · 은혜", "바뀐 것": "키 A → Bb", "올린 사람": "이은혜",
   "생일자": "김하늘", "며칠": "3일", "날짜": "10/23(금)", "정산": "생일선물 정산 참여 · 선물 준비해요",
+  "시간": "14:00–17:00", "결정": "없어요", "내용": "토요 연습 없이 11/9(주일) 리허설만 해요 · 리허설 09:30",
 };
 
 export default handler(async (req, body) => {
@@ -36,13 +37,14 @@ export default handler(async (req, body) => {
 
   const st = await settingOf(db, kind === "test" ? body.test_kind : kind);
   if (!st.kind || !st.title) throw new HttpError(400, "알 수 없는 알림이에요.");
-  if (kind !== "test" && kind !== "notice" && !st.enabled) return { skipped: true, recipients: 0, pushed: 0 };
+  // 공지 · 연습 시간 투표 · 결정은 알림을 꺼도 알림함에는 남기고 푸시만 보내지 않음
+  if (kind !== "test" && !["notice", "sat_vote", "sat_decide"].includes(kind) && !st.enabled) return { skipped: true, recipients: 0, pushed: 0 };
 
   // ---------- 나에게 테스트 (설정 화면에서 아직 저장 안 한 문구로)
   if (kind === "test") {
     const vars = { ...SAMPLE, "이름": user.email };
     const t = fill(body.title ?? st.title, vars), b = fill(body.body ?? st.body, vars);
-    return deliver(db, { kind: String(body.test_kind).startsWith("prayer") ? "prayer" : String(body.test_kind).startsWith("birthday") ? "birthday" : String(body.test_kind).startsWith("conti") ? "conti" : body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
+    return deliver(db, { kind: String(body.test_kind).startsWith("prayer") ? "prayer" : String(body.test_kind).startsWith("birthday") ? "birthday" : String(body.test_kind).startsWith("conti") ? "conti" : /^(sat_|proc)/.test(body.test_kind) ? "notice" : body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
   }
 
   // ---------- 월말 응답 열림
@@ -159,8 +161,102 @@ export default handler(async (req, body) => {
     return { ...r, poll_id: pollId };
   }
 
+  if (kind === "sat_vote") return satVote(db, user, st, body);
+  if (kind === "sat_decide") return satDecide(db, user, st, body);
+  if (kind === "proc") return procChanged(db, user, st, body);
+
   throw new HttpError(400, "알 수 없는 알림이에요.");
 });
+
+// ---------- 023: 토요 연습 시간 변경 → 대상자에게 가능 여부 묻기
+//  { kind: "sat_vote", date, start, end, member_ids, deadline: ISO }
+//  시간을 바꾸고(team_meetings) · 투표(결과는 리더십만)를 붙인 알림을 보내고 · practice_votes에 남김
+//  같은 토요일에 진행 중인 투표가 있으면 그 투표는 마감하고 새로 물어요 (원래 시간은 처음 것 그대로)
+const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
+async function satVote(db, user, st, body) {
+  const date = String(body.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date + "T00:00:00Z").getUTCDay() !== 6) throw new HttpError(400, "토요일을 골라 주세요.");
+  const a = String(body.start || "").slice(0, 5), z = String(body.end || "").slice(0, 5);
+  if (!HM.test(a) || !HM.test(z) || z <= a) throw new HttpError(400, "끝나는 시간이 시작보다 늦어야 해요.");
+  const t = Date.parse(body.deadline || "");
+  if (!t || t < Date.now() + 10 * 60e3) throw new HttpError(400, "투표 마감은 지금부터 10분 뒤 이후로 골라 주세요.");
+  const ids = new Set([].concat(body.member_ids || []));
+  const people = (await activeMembers(db, { trainees: true, observers: true })).filter((m) => ids.has(m.id));
+  if (!people.length) throw new HttpError(400, "물어볼 사람을 골라 주세요.");
+  await db.from("team_meetings").upsert({ meeting_date: date }, { onConflict: "meeting_date", ignoreDuplicates: true });
+  const [{ data: tm }, { data: old }, { data: ts }] = await Promise.all([
+    db.from("team_meetings").select("id, practice_start, practice_end, practice_cancelled").eq("meeting_date", date).single(),
+    db.from("practice_votes").select("*").eq("meeting_date", date).maybeSingle(),
+    db.from("team_settings").select("sat_practice_start, sat_practice_end").eq("id", 1).maybeSingle(),
+  ]);
+  const keepPrev = old && old.state === "voting";
+  const prev = keepPrev ? [old.prev_start, old.prev_end] : [tm.practice_start, tm.practice_end];
+  const range = `${a}–${z}`;
+  const question = `${mdw(date)} ${range} 연습에 올 수 있나요?`;
+  const { data: poll, error } = await db.from("polls").insert({ question, multi: false, anonymous: false, results_hidden: true, deadline: new Date(t).toISOString(), created_by: user.id }).select("id").single();
+  if (error) throw new HttpError(500, "투표를 만들지 못했어요: " + error.message);
+  const { error: e2 } = await db.from("poll_options").insert([{ poll_id: poll.id, label: "가능", sort_order: 0 }, { poll_id: poll.id, label: "불가", sort_order: 1 }]);
+  if (e2) { await db.from("polls").delete().eq("id", poll.id); throw new HttpError(500, "투표 선택지를 저장하지 못했어요: " + e2.message); }
+  const vars = { "날짜": mdw(date), "시간": range, "마감": dlLabel(new Date(t).toISOString()), "원래 시간": `${hm(prev[0] || ts?.sat_practice_start)}–${hm(prev[1] || ts?.sat_practice_end)}` };
+  let r;
+  try {
+    r = await deliver(db, { kind: "notice", url: "/me.html#alerts/{id}", label: `토요 연습 시간 투표 · ${mdw(date)} · ${people.length}명`, by: user.id, push: st.enabled,
+      items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })) });
+  } catch (e) { await db.from("polls").delete().eq("id", poll.id); throw e; }
+  await db.from("polls").update({ notification_id: r.id }).eq("id", poll.id);
+  if (keepPrev && old.poll_id) await db.from("polls").update({ closed_at: new Date().toISOString() }).eq("id", old.poll_id).is("closed_at", null);
+  await db.from("team_meetings").update({ practice_start: a, practice_end: z, practice_cancelled: false }).eq("id", tm.id);
+  const { error: e3 } = await db.from("practice_votes").upsert({ meeting_date: date, poll_id: poll.id, prev_start: prev[0], prev_end: prev[1], new_start: a, new_end: z,
+    state: "voting", decided_at: null, decided_by: null, created_by: user.id, created_at: new Date().toISOString() });
+  if (e3) throw new HttpError(500, "투표 기록을 남기지 못했어요: " + e3.message);
+  return { ...r, poll_id: poll.id };
+}
+
+// ---------- 023: 결정 알림 (decide_practice를 부른 뒤)
+//  { kind: "sat_decide", date, decision, member_ids? } — 투표가 있었으면 투표 대상에게, 없으면 member_ids(그 주 대상)에게
+async function satDecide(db, user, st, body) {
+  const date = String(body.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpError(400, "토요일을 골라 주세요.");
+  const [{ data: v }, { data: tm }, { data: ts }, { data: sun }] = await Promise.all([
+    db.from("practice_votes").select("*, polls(notification_id)").eq("meeting_date", date).maybeSingle(),
+    db.from("team_meetings").select("practice_start, practice_end, practice_cancelled").eq("meeting_date", date).maybeSingle(),
+    db.from("team_settings").select("sat_practice_start, sat_practice_end, sunday_start, sunday_end").eq("id", 1).maybeSingle(),
+    db.from("services").select("start_time, end_time").eq("service_date", addDays(date, 1)).is("ministry_id", null).maybeSingle(),
+  ]);
+  let ids;
+  if (v?.polls?.notification_id) {
+    const { data: inbox } = await db.from("notification_inbox").select("member_id").eq("notification_id", v.polls.notification_id);
+    ids = new Set((inbox || []).map((x) => x.member_id));
+  } else ids = new Set([].concat(body.member_ids || []));
+  const people = (await activeMembers(db, { trainees: true, observers: true })).filter((m) => ids.has(m.id));
+  if (!people.length) return { skipped: true, recipients: 0, pushed: 0 };
+  const sat = `${hm(tm?.practice_start || ts?.sat_practice_start)}–${hm(tm?.practice_end || ts?.sat_practice_end)}`;
+  const reh = hm(sun?.start_time || ts?.sunday_start);
+  const restore = body.decision === "restore";
+  const [word, text] = tm?.practice_cancelled
+    ? ["없어요", `토요 연습 없이 ${mdw(addDays(date, 1))} 리허설만 해요 · 리허설 ${reh}`]
+    : restore ? ["다시 있어요", `${sat}에 연습해요`]
+    : v?.state === "reverted" ? ["원래 시간으로 해요", `원래대로 ${sat}에 연습해요`]
+    : ["시간 확정", `${sat}에 연습해요`];
+  const vars = { "날짜": mdw(date), "결정": word, "내용": text };
+  const key = `sat_decide:${date}:${tm?.practice_cancelled ? "cancel" : restore ? "restore" : v?.state}:${v?.decided_at || Date.now()}`;
+  const r = await deliver(db, { kind: "notice", url: "/me.html#alerts/{id}", label: `토요 연습 · ${mdw(date)} ${word} · ${people.length}명`, by: user.id, push: st.enabled, sentKey: key,
+    items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })) });
+  return r;
+}
+
+// ---------- 023: 예배 진행곡이 바뀜 → 팀원 전체 (리더십이 고를 때만)
+//  { kind: "proc", ids: [worship_proc id] }
+const PROC = { blessing: "축복송", offering: "봉헌송", benediction: "축도송", entrance: "등단송" };
+async function procChanged(db, user, st, body) {
+  const ids = [].concat(body.ids || []).map(Number).filter(Boolean).slice(0, 8);
+  const { data: rows } = ids.length ? await db.from("worship_proc").select("kind, title, key, start_date").in("id", ids) : { data: [] };
+  if (!rows?.length) throw new HttpError(400, "예배 진행곡을 찾을 수 없어요.");
+  const text = rows.map((x) => `${PROC[x.kind]} ${x.title}${x.key ? ` (${x.key})` : ""}`).join(" · ") + ` · ${mdw(rows[0].start_date)}부터`;
+  const people = await activeMembers(db, { trainees: true, observers: true });
+  return deliver(db, { kind: "notice", url: "/me.html#worship", label: `예배 진행곡 · 팀원 전체 ${people.length}명`, by: user.id,
+    items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { "곡": text, "이름": m.name }), body: fill(st.body, { "곡": text, "이름": m.name }) })) });
+}
 
 // ---------- 투표 (016): { options: [..2~10], multi, anonymous, deadline: ISO }
 const KDOW = ["일", "월", "화", "수", "목", "금", "토"];

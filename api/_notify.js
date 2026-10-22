@@ -55,6 +55,10 @@ export const DEFAULTS = {
   conti_edit: { title: "{예배} 콘티가 수정됐어요", body: "{바뀐 것}" },
   conti_open: { title: "{예배} 콘티를 준비해 주세요", body: "{마감}까지 올려 주세요 · 섬김자 {인원}명", schedule: { days: 7, hour: 18 } },
   conti_remind: { title: "[{마감일} 마감] {예배} 콘티", body: "아직 콘티가 올라오지 않았어요. {마감}까지 올려 주세요", schedule: [{ days: 1, hour: 18 }, { days: 0, hour: 18 }] },
+  // 023: 토요 연습 시간 변경 투표 · 결정 · 예배 진행곡
+  sat_vote: { title: "[투표] {날짜} 토요 연습 시간이 바뀌었어요", body: "{시간}에 연습할 수 있는지 알려 주세요 · {마감} 마감" },
+  sat_decide: { title: "{날짜} 토요 연습 {결정}", body: "{내용}" },
+  proc: { title: "예배 진행곡이 바뀌었어요", body: "{곡}" },
 };
 // 생일 (016 · 양력): 그해 생일 날짜 — 2/29는 평년이면 2/28
 export function birthdayIn(birth, year) {

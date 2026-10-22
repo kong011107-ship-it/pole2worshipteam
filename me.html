@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=24" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=24" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=24" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=25" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=25" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=25" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=24">
-  <link rel="stylesheet" href="assets/app.css?v=24">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=25">
+  <link rel="stylesheet" href="assets/app.css?v=25">
 </head>
 <body>
 <div class="m-wrap">
@@ -26,7 +26,7 @@
   <div class="m-subnav hidden" id="serveNav"><div class="segbar" role="tablist" aria-label="섬김">
     <button type="button" data-sv="lineup" aria-pressed="false">배치표</button><button type="button" data-sv="respond" aria-pressed="false">섬김 응답</button></div></div>
   <div class="m-subnav hidden" id="worshipNav"><div class="segbar" role="tablist" aria-label="찬양">
-    <button type="button" data-ws="conti" aria-pressed="true">콘티</button><button type="button" data-ws="history" aria-pressed="false">기록</button></div></div>
+    <button type="button" data-ws="conti" aria-pressed="true">콘티</button><button type="button" data-ws="backup" aria-pressed="false">백업찬양</button><button type="button" data-ws="history" aria-pressed="false">기록</button></div></div>
 
   <main class="m-main" id="view-home"></main>
 
@@ -35,7 +35,7 @@
   <main class="m-main hidden" id="view-alerts"></main>
   <main class="m-main hidden" id="view-install"></main>
   <main class="m-main hidden" id="view-pray"></main>
-  <main class="m-main hidden" id="view-worship"><div id="wsConti"></div><div id="wsHist" class="hidden"></div></main>
+  <main class="m-main hidden" id="view-worship"><div id="wsLive" style="display:contents"></div><div id="wsConti"></div><div id="wsBackup" class="hidden"></div><div id="wsHist" class="hidden"></div></main>
 
   <main class="m-main hidden" id="view-info">
     <section class="card">
@@ -58,11 +58,12 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=24"></script>
+<script src="assets/config.js?v=25"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=24"></script>
-<script src="assets/history.js?v=24"></script>
-<script src="assets/conti.js?v=24"></script>
+<script src="assets/common.js?v=25"></script>
+<script src="assets/history.js?v=25"></script>
+<script src="assets/conti.js?v=25"></script>
+<script src="assets/backup.js?v=25"></script>
 <script>
   let ctx, me, app, extras = [], ST;
   // 021: 예배MC · 교역자 — 리더십 권한으로 보기만 (섬김 응답 없음)
@@ -177,10 +178,22 @@
     if (deep?.v === "worship") { focus = deep.arg; deep = null; wsSeg = "conti"; }
     $$("#worshipNav [data-ws]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ws === wsSeg)));
     $("#wsConti").classList.toggle("hidden", wsSeg !== "conti");
+    $("#wsBackup").classList.toggle("hidden", wsSeg !== "backup");
     $("#wsHist").classList.toggle("hidden", wsSeg !== "history");
+    $("#wsLive").innerHTML = "";
     if (wsSeg === "history") { if (!$("#wsHist").dataset.on) { $("#wsHist").dataset.on = "1"; HISTORY.mount($("#wsHist")); } return; }
+    if (wsSeg === "backup") return BACKUP.mount($("#wsBackup"), { me });
     CONTI.mountWeek($("#wsConti"), { me, focus });
+    // 023: 백업찬양이 진행 중이면 콘티 칸 위에도 띠
+    BACKUP.liveBanner().then((h) => { if (wsSeg === "conti") $("#wsLive").innerHTML = h; });
   }
+  // 023: 악보 보기의 '백업찬양 ›' → 백업찬양 칸 (진행 중이면 진행 화면)
+  CONTI.onBackup = async () => {
+    wsSeg = "backup"; try { sessionStorage.setItem("pole2.worship", wsSeg); } catch {}
+    if (location.hash !== "#worship") go("worship"); else showWorship();
+    if ((await sb.rpc("backup_state_live")).data?.active) BACKUP.openLive();
+  };
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-bk-join]")) BACKUP.openLive(); });
   $("#worshipNav").addEventListener("click", (e) => {
     const b = e.target.closest("[data-ws]"); if (!b || b.dataset.ws === wsSeg) return;
     wsSeg = b.dataset.ws; try { sessionStorage.setItem("pole2.worship", wsSeg); } catch {}
@@ -329,13 +342,20 @@
     (data || []).forEach((p) => (voteState[p.id] = p));
     const todo = (data || []).filter((p) => !p.ended && p.eligible && !p.my.length).sort((a, b) => a.deadline.localeCompare(b.deadline));
     return `<div id="voteBanners" style="display:contents">${todo.map((p) => `<a class="notice-link vote-link" href="#alerts/${p.notification_id}">
-        <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span class="small" style="font-weight:800;color:var(--violet)">투표에 참여해 주세요</span><b>${esc(p.question)}</b><span class="muted small">${dlHour(p.deadline)} 마감 · ${p.voters}/${p.targets}명 참여</span></span>
+        <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span class="small" style="font-weight:800;color:var(--violet)">투표에 참여해 주세요</span><b>${esc(p.question)}</b><span class="muted small">${dlHour(p.deadline)} 마감${p.voters == null ? "" : ` · ${p.voters}/${p.targets}명 참여`}</span></span>
         <span class="chip chip-solid" style="border-radius:999px;padding:6px 12px">투표</span></a>`).join("")}</div>`;
   }
   // 홈으로 돌아오면 투표 배너를 다시 (다른 화면에서 투표했을 수 있음)
   async function refreshVoteBanners() { const el = $("#voteBanners"); if (el) el.outerHTML = await voteBanners(); }
   function voteCard(p) {
     const mine = new Set(p.my);
+    // 023: 결과를 리더십만 보는 투표 (토요 연습 시간 변경)
+    if (p.ended && !p.show_results) {
+      const my = p.options.filter((o) => mine.has(o.id)).map((o) => esc(o.label)).join(", ");
+      return `<section class="vote ended" data-poll="${p.id}"><div class="vhd"><span class="ktag vtag">투표 마감</span><b>${esc(p.question)}</b></div>
+        <span class="small muted">${p.closed_at && Date.parse(p.closed_at) < Date.parse(p.deadline) ? "리더가 마감했어요" : dlHour(p.deadline) + " 마감"} · 결과는 리더십이 보고 정해서 알려 드려요</span>
+        <span class="small ${my ? "vsaved" : "muted"}">${my ? `내 답: ${my}` : "이 투표에는 참여하지 않았어요."}</span></section>`;
+    }
     if (p.ended) {
       const max = Math.max(1, ...p.options.map((o) => o.count || 0));
       return `<section class="vote ended" data-poll="${p.id}"><div class="vhd"><span class="ktag vtag">투표 결과</span><b>${esc(p.question)}</b></div>
@@ -346,9 +366,9 @@
         ${!p.my.length ? `<span class="small muted">이 투표에는 참여하지 않았어요.</span>` : ""}</section>`;
     }
     return `<section class="vote" data-poll="${p.id}"><div class="vhd"><span class="ktag vtag">투표</span><b>${esc(p.question)}</b></div>
-      <span class="small muted">${p.multi ? "여러 개 고를 수 있어요" : "하나만 골라요"}${p.anonymous ? " · 익명" : ""} · ${dlHour(p.deadline)} 마감 · ${p.voters}/${p.targets}명 참여</span>
+      <span class="small muted">${p.multi ? "여러 개 고를 수 있어요" : "하나만 골라요"}${p.anonymous ? " · 익명" : ""} · ${dlHour(p.deadline)} 마감${p.voters == null ? "" : ` · ${p.voters}/${p.targets}명 참여`}</span>
       <div class="vchoices" role="group" aria-label="${esc(p.question)}">${p.options.map((o) => `<button type="button" class="vchoice ${p.multi ? "multi" : ""}" data-opt="${o.id}" aria-pressed="${mine.has(o.id)}"><i aria-hidden="true"></i><span>${esc(o.label)}</span></button>`).join("")}</div>
-      <span class="small ${p.my.length ? "vsaved" : "muted"}">${p.my.length ? "투표했어요 · 마감 전까지 바꿀 수 있어요" : "누르면 바로 저장돼요"} · 결과는 마감 뒤에 공개돼요</span></section>`;
+      <span class="small ${p.my.length ? "vsaved" : "muted"}">${p.my.length ? "투표했어요 · 마감 전까지 바꿀 수 있어요" : "누르면 바로 저장돼요"} · ${p.hidden ? "결과는 리더십만 봐요" : "결과는 마감 뒤에 공개돼요"}</span></section>`;
   }
   document.addEventListener("click", async (e) => {
     const b = e.target.closest(".vote .vchoice"); if (!b || b.disabled) return;
@@ -441,9 +461,11 @@
   const svcTime = (r) => r.ministry_id ? timeRange(r.start_time, r.end_time) : timeRange(...sunTime(r, ST));
   async function satRows(sundays) {
     if (!sundays.length) return [];
-    const { data } = await sb.from("team_meetings").select("meeting_date, practice_start, practice_end").in("meeting_date", sundays.map((d) => addDays(d, -1)));
+    const { data } = await sb.from("team_meetings").select("meeting_date, practice_start, practice_end, practice_cancelled").in("meeting_date", sundays.map((d) => addDays(d, -1)));
     return data || [];
   }
+  // 023: 토요 연습 시작 시간 · 취소한 주는 '없음 · 당일 리허설'
+  const satStart = (sr) => (sr?.practice_cancelled ? "없음 · 당일 리허설" : hm(satTime(sr, ST)[0]));
 
   // ---------- 멤버 홈 ----------
   async function renderMemberHome() {
@@ -476,7 +498,7 @@
         if (p) pills.push(`연습 ${mdw(p.practice_date)} ${hm(p.start_time)}`);
       } else {
         const sat = addDays(next.service_date, -1), sr = sats.find((x) => x.meeting_date === sat);
-        pills.push(`토요 연습 ${md(sat)} ${hm(satTime(sr, ST)[0])}`);
+        pills.push(`토요 연습 ${md(sat)} ${satStart(sr)}`);
       }
       if (lead || bm) pills.push([lead && "인도 " + esc(lead), bm && "밴마 " + esc(bm.member_name)].filter(Boolean).join(" · "));
       hero = `<section class="hero"><p class="eyebrow">${next.service_date <= addDays(today, 7) ? "이번 주" : "다음"} 나의 섬김</p>
@@ -706,7 +728,7 @@
       ${sundaysOf(m.month).map((sun) => `<section class="card" style="display:flex;flex-direction:column;gap:12px;padding:16px 18px">
         <h2 style="font-size:15px;font-weight:800">${fmtDate(sun, { month: "long", day: "numeric" })} 주일 주간</h2>
         ${slots.filter((s) => s.sun === sun).map((s) => ansRow(`data-date="${s.date}" data-kind="${s.kind}"`, s.kind === "sunday" ? "주일 예배" : "토요 연습",
-          `${fmtDate(s.date, { month: "long", day: "numeric", weekday: "short" })} ${s.kind === "sunday" ? hm(ST.sunday_start) : hm(satTime(sats.find((x) => x.meeting_date === s.date), ST)[0])}`, val(s))).join("")}</section>`).join("")}
+          `${fmtDate(s.date, { month: "long", day: "numeric", weekday: "short" })} ${s.kind === "sunday" ? hm(ST.sunday_start) : satStart(sats.find((x) => x.meeting_date === s.date))}`, val(s))).join("")}</section>`).join("")}
       ${mins.map((x) => `<section class="card" style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border:1px solid var(--violet-soft)">
         <h2 style="font-size:15px;font-weight:800">${esc(x.name)} <span class="chip chip-violet">사역</span></h2>
         ${minRows(D, x)}</section>`).join("")}
@@ -933,7 +955,7 @@
       ${groups.length ? groups.map((list) => {
         const h = list[0], d = h.service_date;
         const mine = list.some((r) => r.member_id === me.id);
-        const sub = h.ministry_id ? `${mdw(d)} · ${svcTime(h)}` : `${svcTime(h).split("–")[0]} · 토요 연습 ${md(addDays(d, -1))} ${hm(satTime(sats.find((x) => x.meeting_date === addDays(d, -1)), ST)[0])}`;
+        const sub = h.ministry_id ? `${mdw(d)} · ${svcTime(h)}` : `${svcTime(h).split("–")[0]} · 토요 연습 ${md(addDays(d, -1))} ${satStart(sats.find((x) => x.meeting_date === addDays(d, -1)))}`;
         return `<section class="card ${mine ? "bordered" : ""}" data-date="${d}" style="display:flex;flex-direction:column;gap:6px;${mine ? "border-color:var(--violet-soft)" : ""}">
           <div class="card-head" style="margin-bottom:4px;flex-wrap:wrap"><h2 class="card-title">${h.ministry_id ? `${esc(svcTitle(h, multi(h)))} <span class="chip chip-violet">사역</span>` : `${fmtDate(d, { month: "long", day: "numeric" })} 주일`}</h2>
             <span class="muted small">${sub}</span></div>

@@ -1,6 +1,7 @@
 // 콘티 (022)
 //  { action: "notify", service_id }  — 콘티를 올린(다시 올린) 사람이 부름 → 그 예배 섬김자에게 '올라옴' / '수정됨'
 //      올린 버전마다 한 번만 (setlists.notified_version). 알림 설정에서 꺼 두면 알림함에만 남지 않고 건너뜀
+//      023: 다시 올렸는데 악보만 바뀌었으면 알림 없이 '악보 바뀜'(sheet_changes)만 남김
 //  { action: "yt", ids: [...] }        — 레퍼런스 영상 길이 (YouTube Data API · 환경변수 YOUTUBE_API_KEY). 한 번 가져오면 저장
 //  { action: "yt-fill" }               — 리더십: 지난 기록의 레퍼런스 영상 길이를 한 번에 채움
 import { adminClient, requireAdmin, requireMember, handler, HttpError } from "./_lib.js";
@@ -29,6 +30,12 @@ async function notify(req, db, body) {
   const st = await settingOf(db, kind);
   const done = async () => { await db.from("setlists").update({ notified_version: sl.version }).eq("id", sl.id).lt("notified_version", sl.version); };
   if (!st.enabled) { await done(); return { skipped: true, recipients: 0, pushed: 0, kind }; }
+  // 023: 다시 올렸는데 악보만 바뀌었으면 알림 없이 '악보 바뀜'만
+  const txt = [].concat(sl.changes?.text || []);
+  if (kind === "conti_edit" && txt.length && txt.every((t) => t === "악보 PDF 교체")) {
+    await db.from("setlists").update({ sheet_changes: { at: new Date().toISOString(), by: me.name } }).eq("id", sl.id);
+    await done(); return { skipped: true, sheetOnly: true, recipients: 0, pushed: 0, kind };
+  }
   const { count: sibs } = s.ministry_id ? await db.from("services").select("id", { count: "exact", head: true }).eq("ministry_id", s.ministry_id) : { count: 1 };
   const name = serviceName(s, (sibs || 1) > 1);
   const songs = (sl.setlist_items || []).sort((a, b) => a.ord - b.ord).map((x) => x.songs?.title).filter(Boolean);
