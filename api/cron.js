@@ -4,7 +4,7 @@
 //  보낼지는 '공지 · 알림 › 알림 설정'의 시간을 보고 정함. 같은 알림은 한 번만.
 //  020: 보내기 전에 자리를 잡아서(claim) 두 번 불려도 한 번만 · 한 건이 실패해도 나머지는 계속 · 새벽 4시에 오래된 변경 기록 정리
 import { adminClient } from "./_lib.js";
-import { settingOf, fill, deliverOnce, wasSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf, birthdayIn, GIFT_TEXT,
+import { settingOf, fill, deliverOnce, wasSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf, birthdayIn, GIFT_TEXT, serviceName, deadlineLabel,
   pendingForMonth, pendingForMinistry, pollPeople, votePending, traineeWeekOn } from "./_notify.js";
 
 export default async function cron(req, res) {
@@ -146,6 +146,43 @@ export default async function cron(req, res) {
         if (!r) continue;
         out.sent.push({ kind, who: m.name, recipients: r.recipients, pushed: r.pushed });
       }
+    }
+    // ---------- 콘티 (022): 인도자에게 — 안내(예배 n일 전) · 독촉(마감 전날 · 당일). 배치표가 공개된 예배만, 콘티가 올라오면 안 보냄
+    const co = await settingOf(db, "conti_open"), cr = await settingOf(db, "conti_remind");
+    const coS = co.schedule || { days: 7, hour: 18 };
+    const crS = [].concat(cr.schedule || []).slice(0, 2).filter((x) => Number.isInteger(x?.days) && Number.isInteger(x?.hour));
+    const wantOpen = co.enabled && Number.isInteger(coS.days) && coS.hour === now.hour;
+    const wantRemind = cr.enabled && crS.some((x) => x.hour === now.hour);
+    if (wantOpen || wantRemind) {
+      try {
+        const { data: svs } = await db.from("services").select("id, service_date, ministry_id, label, status, ministries(name), assignments(member_id, position_code), setlists(status)")
+          .eq("status", "published").gte("service_date", now.date).lte("service_date", addDays(now.date, 21));
+        const multi = new Set((svs || []).filter((s) => s.ministry_id).map((s) => s.ministry_id).filter((id, i, a) => a.indexOf(id) !== i));
+        for (const s of svs || []) {
+          if ([].concat(s.setlists || []).some((x) => x.status === "published")) continue;
+          const leadIds = (s.assignments || []).filter((a) => a.position_code === "leader" && a.member_id).map((a) => a.member_id);
+          if (!leadIds.length) continue;
+          const { data: leads } = await db.from("members").select("id, name").in("id", leadIds).eq("is_active", true);
+          if (!leads?.length) continue;
+          const { data: dl } = await db.rpc("conti_deadline", { p_service: s.id });
+          const dlDate = kstNow(dl).date;
+          const vars = { "예배": serviceName(s, multi.has(s.ministry_id)), "마감": deadlineLabel(dl), "인원": String(new Set((s.assignments || []).map((a) => a.member_id).filter(Boolean)).size) };
+          const send = async (kind, st, key, extra) => {
+            const r = await deliverOnce(db, key, { kind: "conti", url: `/me.html#worship/${s.id}`, label: `${vars["예배"]} 콘티 ${kind === "conti_open" ? "안내" : "독촉"} · 인도자 ${leads.length}명`,
+              items: leads.map((m) => { const v = { ...vars, ...extra, "이름": m.name }; return { member_id: m.id, title: fill(st.title, v), body: fill(st.body, v) }; }) });
+            if (r) out.sent.push({ kind, what: vars["예배"], recipients: r.recipients, pushed: r.pushed });
+          };
+          if (wantOpen && addDays(s.service_date, -coS.days) === now.date && !(await wasSent(db, `conti_open:${s.id}`)))
+            await send("conti_open", co, `conti_open:${s.id}`, {});
+          if (wantRemind) for (const p of crS) {
+            if (p.hour !== now.hour || addDays(dlDate, -p.days) !== now.date) continue;
+            if (new Date(dl).getTime() <= (override ? new Date(override) : new Date()).getTime()) continue;   // 마감이 이미 지남
+            const key = `conti_remind:${s.id}:${dlDate}:${p.days}`;
+            if (await wasSent(db, key)) continue;
+            await send("conti_remind", cr, key, { "마감일": RELDAY[p.days] || mdw(dlDate) });
+          }
+        }
+      } catch (e) { fail("콘티 알림", e); }
     }
     // ---------- 정리 (020): 새벽 4시에 1년 지난 변경 기록을 지움
     if (now.hour === 4) {

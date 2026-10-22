@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=22" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=22" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=22" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=24" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=24" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=24" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=22">
-  <link rel="stylesheet" href="assets/app.css?v=22">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=24">
+  <link rel="stylesheet" href="assets/app.css?v=24">
 </head>
 <body>
 <div class="m-wrap">
@@ -25,6 +25,8 @@
 
   <div class="m-subnav hidden" id="serveNav"><div class="segbar" role="tablist" aria-label="섬김">
     <button type="button" data-sv="lineup" aria-pressed="false">배치표</button><button type="button" data-sv="respond" aria-pressed="false">섬김 응답</button></div></div>
+  <div class="m-subnav hidden" id="worshipNav"><div class="segbar" role="tablist" aria-label="찬양">
+    <button type="button" data-ws="conti" aria-pressed="true">콘티</button><button type="button" data-ws="history" aria-pressed="false">기록</button></div></div>
 
   <main class="m-main" id="view-home"></main>
 
@@ -33,7 +35,7 @@
   <main class="m-main hidden" id="view-alerts"></main>
   <main class="m-main hidden" id="view-install"></main>
   <main class="m-main hidden" id="view-pray"></main>
-  <main class="m-main hidden" id="view-worship"></main>
+  <main class="m-main hidden" id="view-worship"><div id="wsConti"></div><div id="wsHist" class="hidden"></div></main>
 
   <main class="m-main hidden" id="view-info">
     <section class="card">
@@ -56,10 +58,11 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=22"></script>
+<script src="assets/config.js?v=24"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=22"></script>
-<script src="assets/history.js?v=22"></script>
+<script src="assets/common.js?v=24"></script>
+<script src="assets/history.js?v=24"></script>
+<script src="assets/conti.js?v=24"></script>
 <script>
   let ctx, me, app, extras = [], ST;
   // 021: 예배MC · 교역자 — 리더십 권한으로 보기만 (섬김 응답 없음)
@@ -167,6 +170,22 @@
     if (rest.length && DEEP_VIEWS.includes(v)) deep = { v, arg: decodeURIComponent(rest.join("/")) };
     go(v);
   });
+  // ---------- 022: 찬양 탭 = 콘티 | 기록 (#worship/{예배 id} → 그 예배 콘티)
+  let wsSeg = (() => { try { return sessionStorage.getItem("pole2.worship") || "conti"; } catch { return "conti"; } })();
+  function showWorship() {
+    let focus = null;
+    if (deep?.v === "worship") { focus = deep.arg; deep = null; wsSeg = "conti"; }
+    $$("#worshipNav [data-ws]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.ws === wsSeg)));
+    $("#wsConti").classList.toggle("hidden", wsSeg !== "conti");
+    $("#wsHist").classList.toggle("hidden", wsSeg !== "history");
+    if (wsSeg === "history") { if (!$("#wsHist").dataset.on) { $("#wsHist").dataset.on = "1"; HISTORY.mount($("#wsHist")); } return; }
+    CONTI.mountWeek($("#wsConti"), { me, focus });
+  }
+  $("#worshipNav").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ws]"); if (!b || b.dataset.ws === wsSeg) return;
+    wsSeg = b.dataset.ws; try { sessionStorage.setItem("pole2.worship", wsSeg); } catch {}
+    showWorship(); window.scrollTo(0, 0);
+  });
   function showView() {
     if (!me) return;   // 아직 불러오는 중이면 init이 끝난 뒤 다시 호출됨
     const allowed = me.status === "trainee" ? ["home", "info", "alerts", "install", "pray", "worship"]
@@ -186,7 +205,8 @@
     if (v === "alerts") renderAlerts();
     if (v === "install") renderInstall();
     if (v === "pray") renderPray();
-    if (v === "worship" && !$("#view-worship").dataset.on) { $("#view-worship").dataset.on = "1"; HISTORY.mount($("#view-worship")); }
+    $("#worshipNav").classList.toggle("hidden", v !== "worship");
+    if (v === "worship") showWorship();
     if (v === "info") renderDevCard($("#devCard"));
     if (v === "home" && deep?.v === "home") deep = null;
     if (v === "home") refreshVoteBanners();

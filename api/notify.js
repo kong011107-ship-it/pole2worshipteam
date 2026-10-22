@@ -10,6 +10,7 @@ const SAMPLE = {
   "내 섬김": "11/8 싱어 리더 · 11/15 섬겨요", "연습 일시": "11/10(화) 19:00–21:00", "지원자": "이도현", "포지션": "싱어",
   "수습생": "이도현", "주차": "3", "제목": "공지 제목", "내용": "공지 내용",
   "인원": "12", "개수": "12", "대상": "김하늘",
+  "예배": "11/8 주일", "마감": "11/4(수) 22:00", "곡": "주님 다시 오실 때까지 · 은혜", "바뀐 것": "키 A → Bb", "올린 사람": "이은혜",
   "생일자": "김하늘", "며칠": "3일", "날짜": "10/23(금)", "정산": "생일선물 정산 참여 · 선물 준비해요",
 };
 
@@ -41,7 +42,7 @@ export default handler(async (req, body) => {
   if (kind === "test") {
     const vars = { ...SAMPLE, "이름": user.email };
     const t = fill(body.title ?? st.title, vars), b = fill(body.body ?? st.body, vars);
-    return deliver(db, { kind: String(body.test_kind).startsWith("prayer") ? "prayer" : String(body.test_kind).startsWith("birthday") ? "birthday" : body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
+    return deliver(db, { kind: String(body.test_kind).startsWith("prayer") ? "prayer" : String(body.test_kind).startsWith("birthday") ? "birthday" : String(body.test_kind).startsWith("conti") ? "conti" : body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
   }
 
   // ---------- 월말 응답 열림

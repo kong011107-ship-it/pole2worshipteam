@@ -188,6 +188,7 @@
     if (view === "sharing") return renderSharing();
     if (view === "audit") return renderAudit();
     if (view === "songs") return renderSongs();
+    if (view === "conti") return renderConti();
     if (view === "history") return renderHistory();
     return renderDashboard();
   }
@@ -195,7 +196,7 @@
   //  기록: [대시보드] → 메뉴 한 칸 → 상세(멤버·사역·지원자) …
   //  메뉴끼리 옮길 때는 메뉴 칸을 바꿔 끼워서, 어느 메뉴에서든 뒤로가기 = 대시보드, 대시보드에서 뒤로가기 = 종료
   //  창(모달)이 열려 있으면 뒤로가기는 창만 닫음
-  const MAIN = ["dashboard", "pipeline", "members", "forecast", "schedule", "respond", "lineup", "attendance", "songs", "history", "notify", "sharing", "templates", "settings"];
+  const MAIN = ["dashboard", "pipeline", "members", "forecast", "schedule", "respond", "lineup", "attendance", "conti", "songs", "history", "notify", "sharing", "templates", "settings"];
   const lv = () => history.state?.lv ?? 0;
   let curClose = null;
   let pendingNav = null, modalPushed = false, popWait = null, popDone = null;
@@ -438,7 +439,8 @@
 
   // ---------------------------------------------------------------- 푸시 알림 (013)
   const NOTIFY_NAME = { open: "섬김 응답 열림", minopen: "사역 응답 열림", poll: "연습 시간 요청", remind: "마감 임박", lineup: "배치표 공개", practice: "연습 시간 확정", apply: "새 지원서", trainee: "수습 기록 차례", notice: "리더 공지",
-    prayer_new: "기도제목 올라옴", prayer_remind: "주중 함께 기도", prayer_urgent: "급한 기도", birthday_soon: "생일 다가옴", birthday_today: "생일 당일" };
+    prayer_new: "기도제목 올라옴", prayer_remind: "주중 함께 기도", prayer_urgent: "급한 기도", birthday_soon: "생일 다가옴", birthday_today: "생일 당일",
+    conti_open: "콘티 준비 안내", conti_remind: "콘티 마감 임박", conti_up: "콘티 올라옴", conti_edit: "콘티 수정됨" };
   async function notifyEnabled(kind) {
     const { data } = await sb.from("notify_settings").select("enabled").eq("kind", kind).maybeSingle();
     return data ? data.enabled : true;
@@ -4453,7 +4455,7 @@
   const NV = { tab: "send", sel: "remind", draft: null, target: "all", date: null, pick: new Set(), title: "", body: "", vote: null };
   // 016: 공지에 붙이는 투표 (기본: 하나만 · 실명 · 사흘 뒤 밤 9시 마감)
   const newVote = () => ({ on: false, options: ["", ""], multi: false, anonymous: false, date: addDays(todayISO(), 3), hour: 21 });
-  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent", "birthday_soon", "birthday_today"];
+  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent", "birthday_soon", "birthday_today", "conti_open", "conti_remind", "conti_up", "conti_edit"];
   const NINFO = {
     open: { who: "정식 팀원 전체", when: "리더가 월말 응답을 열 때 (확인 창에서 고름)", vars: ["월", "마감일", "이름"] },
     minopen: { who: "그 사역 응답 대상", when: "따로 받는 사역을 만들거나 응답을 다시 열 때 (확인 창에서 고름)", vars: ["사역", "마감일", "이름"] },
@@ -4469,11 +4471,16 @@
     prayer_urgent: { who: "올린 사람을 뺀 팀원 전체", when: "팀원이 '급한 기도'로 올릴 때", vars: ["대상", "이름"] },
     birthday_soon: { who: "리더십 (생일인 본인은 빼고)", when: "", vars: ["생일자", "며칠", "날짜", "정산", "이름"] },
     birthday_today: { who: "리더십 (생일인 본인은 빼고)", when: "", vars: ["생일자", "날짜", "정산", "이름"] },
+    conti_open: { who: "그 예배 인도자 · 밴드 마스터", when: "", vars: ["예배", "마감", "인원", "이름"] },
+    conti_remind: { who: "콘티를 아직 안 올린 예배의 인도자 · 밴드 마스터", when: "", vars: ["예배", "마감", "마감일", "이름"] },
+    conti_up: { who: "그 예배 섬김자 (올린 사람 빼고)", when: "인도자가 콘티를 처음 올릴 때", vars: ["예배", "곡", "올린 사람", "이름"] },
+    conti_edit: { who: "그 예배 섬김자 (올린 사람 빼고)", when: "올라온 콘티를 고쳐서 다시 올릴 때", vars: ["예배", "바뀐 것", "올린 사람", "이름"] },
   };
   const NSAMPLE = { "월": "11월", "마감일": "10/31(토)", "사역": "원스텝", "무엇": "11월 섬김 응답", "남은 것": "3개 남았어요", "이름": "이은혜",
     "내 섬김": "11/8 싱어 리더 · 11/15 섬겨요", "연습 일시": "11/10(화) 19:00–21:00", "지원자": "이도현", "포지션": "싱어", "수습생": "이도현", "주차": "3",
     "제목": "이번 주 팀모임은 없어요", "내용": "토요 연습은 그대로 11:00에 있어요", "인원": "12", "개수": "12", "대상": "김하늘",
-    "생일자": "김하늘", "며칠": "3일", "날짜": "10/23(금)", "정산": "생일선물 정산 참여 · 선물 준비해요" };
+    "생일자": "김하늘", "며칠": "3일", "날짜": "10/23(금)", "정산": "생일선물 정산 참여 · 선물 준비해요",
+    "예배": "11/8 주일", "마감": "11/4(수) 22:00", "곡": "주님 다시 오실 때까지 · 은혜 · 송축해 내 영혼", "바뀐 것": "키 A → Bb · 곡 추가: 은혜", "올린 사람": "이은혜" };
   const NDEF = {
     open: ["{월} 섬김 응답을 받고 있어요", "{마감일}까지 토요 연습·주일 가능 여부를 체크해 주세요"],
     minopen: ["{사역} 섬김 응답을 받고 있어요", "{마감일}까지 가능 여부를 체크해 주세요"],
@@ -4489,8 +4496,13 @@
     prayer_urgent: ["급한 기도제목이 올라왔어요", "{대상}님을 위해 함께 기도해 주세요"],
     birthday_soon: ["{생일자}님 생일이 {며칠} 남았어요", "{날짜} · {정산}"],
     birthday_today: ["오늘은 {생일자}님 생일이에요", "{정산} · 축하 메시지를 보내 주세요"],
+    conti_open: ["{예배} 콘티를 준비해 주세요", "{마감}까지 올려 주세요 · 섬김자 {인원}명"],
+    conti_remind: ["[{마감일} 마감] {예배} 콘티", "아직 콘티가 올라오지 않았어요. {마감}까지 올려 주세요"],
+    conti_up: ["{예배} 콘티가 올라왔어요", "{곡}"],
+    conti_edit: ["{예배} 콘티가 수정됐어요", "{바뀐 것}"],
   };
-  const NSCHED = { remind: [{ days: 1, hour: 18 }, { days: 0, hour: 10 }], trainee: { dow: 6, hour: 18 }, prayer_new: { dow: 6, hour: 21 }, prayer_remind: { days: [2, 4], hour: 20 }, birthday_soon: { days: 3, hour: 9 }, birthday_today: { hour: 9 } };
+  const NSCHED = { remind: [{ days: 1, hour: 18 }, { days: 0, hour: 10 }], trainee: { dow: 6, hour: 18 }, prayer_new: { dow: 6, hour: 21 }, prayer_remind: { days: [2, 4], hour: 20 }, birthday_soon: { days: 3, hour: 9 }, birthday_today: { hour: 9 },
+    conti_open: { days: 7, hour: 18 }, conti_remind: [{ days: 1, hour: 18 }, { days: 0, hour: 18 }] };
   const DOWN = ["주일", "월", "화", "수", "목", "금", "토"];
   const hourLabel = (h) => `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}시`;
   const dayLabel = (d) => (d ? `마감 ${d}일 전` : "마감 당일");
@@ -4499,7 +4511,8 @@
     const v = vars[k]; if (v === undefined) return m; if (v === null || v === "") return "\u0000"; return v + (kk || "");
   }).replace(/\u0000\s*(·\s*)?/g, "").replace(/\s*·\s*$/, "").trim();
   const remindSched = (s) => [].concat(s?.schedule || [{ days: 1, hour: 18 }, { days: 0, hour: 10 }]);
-  const whenOf = (k, s) => k === "remind" ? remindSched(s).map((x) => `${dayLabel(x.days)} ${hourLabel(x.hour)}`).join(" · ") || "보내는 때 없음"
+  const whenOf = (k, s) => k === "remind" || k === "conti_remind" ? [].concat(s?.schedule ?? NSCHED[k]).map((x) => `${dayLabel(x.days)} ${hourLabel(x.hour)}`).join(" · ") || "보내는 때 없음"
+    : k === "conti_open" ? `예배 ${s?.schedule?.days ?? 7}일 전 ${hourLabel(s?.schedule?.hour ?? 18)}`
     : k === "trainee" ? `매주 ${DOWN[s?.schedule?.dow ?? 6]}요일 ${hourLabel(s?.schedule?.hour ?? 18)}`
     : k === "prayer_new" ? `${DOWN[s?.schedule?.dow ?? 6]}요일 ${hourLabel(s?.schedule?.hour ?? 21)}부터 · 한 번`
     : k === "prayer_remind" ? `매주 ${([].concat(s?.schedule?.days ?? [2, 4])).map((d) => DOWN[d]).join("·") || "요일 없음"} ${hourLabel(s?.schedule?.hour ?? 20)}`
@@ -4723,13 +4736,20 @@
     const dirty = JSON.stringify(d) !== JSON.stringify(cur(k));
     const hours = (sel) => Array.from({ length: 16 }, (_, i) => i + 7).map((h) => `<option value="${h}" ${h === sel ? "selected" : ""}>${hourLabel(h)}</option>`).join("");
     let whenHTML;
-    if (k === "remind") {
+    if (k === "remind" || k === "conti_remind") {
       const sc = [].concat(d.schedule || []);
       whenHTML = [0, 1].map((i) => { const x = sc[i]; return `<div class="row" style="font-size:14px">
           <label class="row" style="gap:6px;font-weight:700"><input type="checkbox" data-sc-on="${i}" ${x ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--violet)">${i ? "두 번째" : "첫 번째"}</label>
           <select data-sc-days="${i}" ${x ? "" : "disabled"} aria-label="며칠 전">${[0, 1, 2, 3].map((n) => `<option value="${n}" ${x?.days === n ? "selected" : ""}>${dayLabel(n)}</option>`).join("")}</select>
           <select data-sc-hour="${i}" ${x ? "" : "disabled"} aria-label="시각">${hours(x?.hour ?? 18)}</select></div>`; }).join("")
-        + `<span class="small muted">월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 · 공지 투표 마감에 모두 적용돼요. 마감일을 정해 둔 것만 보내요. 같은 알림은 한 번만 가요.</span>`;
+        + (k === "remind" ? `<span class="small muted">월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 · 공지 투표 마감에 모두 적용돼요. 마감일을 정해 둔 것만 보내요. 같은 알림은 한 번만 가요.</span>`
+          : `<span class="small muted">콘티 마감(찬양 › 콘티에서 정함) 기준이에요. 콘티가 이미 올라온 예배에는 보내지 않아요.</span>`);
+    } else if (k === "conti_open") {
+      const sc = d.schedule || NSCHED.conti_open;
+      whenHTML = `<div class="row" style="font-size:14px"><span>예배</span>
+          <select id="scBd" aria-label="며칠 전">${[3, 4, 5, 6, 7, 10, 14].map((n) => `<option value="${n}" ${sc.days === n ? "selected" : ""}>${n}일 전</option>`).join("")}</select>
+          <select id="scHour" aria-label="시각">${hours(sc.hour)}</select></div>
+        <span class="small muted">배치표가 공개된 예배만 보내요. 그때 이미 콘티가 올라왔으면 보내지 않아요.</span>`;
     } else if (k === "trainee") {
       const sc = d.schedule || { dow: 6, hour: 18 };
       whenHTML = `<div class="row" style="font-size:14px"><span>수습 주차마다</span>
@@ -4812,10 +4832,10 @@
     }));
     $("#nOn").addEventListener("click", () => { d.enabled = !d.enabled; drawNotifySettings(); });
     const sched = () => {
-      if (k === "remind") d.schedule = [0, 1].filter((i) => $(`[data-sc-on="${i}"]`).checked).map((i) => ({ days: +$(`[data-sc-days="${i}"]`).value, hour: +$(`[data-sc-hour="${i}"]`).value }));
+      if (k === "remind" || k === "conti_remind") d.schedule = [0, 1].filter((i) => $(`[data-sc-on="${i}"]`).checked).map((i) => ({ days: +$(`[data-sc-days="${i}"]`).value, hour: +$(`[data-sc-hour="${i}"]`).value }));
       if (k === "trainee" || k === "prayer_new") d.schedule = { dow: +$("#scDow").value, hour: +$("#scHour").value };
       if (k === "prayer_remind") d.schedule = { days: $$("#scDays [aria-pressed=true]").map((b) => +b.dataset.day), hour: +$("#scHour").value };
-      if (k === "birthday_soon") d.schedule = { days: +$("#scBd").value, hour: +$("#scHour").value };
+      if (k === "birthday_soon" || k === "conti_open") d.schedule = { days: +$("#scBd").value, hour: +$("#scHour").value };
       if (k === "birthday_today") d.schedule = { hour: +$("#scHour").value };
     };
     $$("[data-sc-on], [data-sc-days], [data-sc-hour], #scDow, #scHour, #scBd").forEach((el) => el.addEventListener("change", () => { sched(); drawNotifySettings(); }));
@@ -4831,9 +4851,9 @@
     });
     $("#nsSave").addEventListener("click", async () => {
       if (!d.title.trim()) return toast("제목을 적어 주세요");
-      if (k === "remind" && d.enabled && !d.schedule.length) return toast("보내는 때를 하나 이상 골라 주세요");
+      if ((k === "remind" || k === "conti_remind") && d.enabled && !d.schedule.length) return toast("보내는 때를 하나 이상 골라 주세요");
       if (k === "prayer_remind" && d.enabled && !d.schedule.days.length) return toast("요일을 하나 이상 골라 주세요");
-      if (k === "remind" && d.schedule.length === 2 && d.schedule[0].days === d.schedule[1].days && d.schedule[0].hour === d.schedule[1].hour) return toast("두 번이 같은 때예요. 다르게 골라 주세요");
+      if ((k === "remind" || k === "conti_remind") && d.schedule.length === 2 && d.schedule[0].days === d.schedule[1].days && d.schedule[0].hour === d.schedule[1].hour) return toast("두 번이 같은 때예요. 다르게 골라 주세요");
       const { error } = await sb.from("notify_settings").upsert({ kind: k, enabled: d.enabled, title: d.title.trim(), body: d.body.trim(), schedule: d.schedule ?? null });
       if (error) return toast("저장하지 못했어요: " + error.message, 4000);
       toast(`${NOTIFY_NAME[k]} 설정을 저장했어요`); NV.draft = null; if (k === "notice") NV.noticeSetting = null; drawNotifySettings();
@@ -5112,6 +5132,14 @@
   }).observe($("#content"), { childList: true });
   $("#content").addEventListener("click", (e) => { const b = e.target.closest("[data-ptab]"); if (b && b.getAttribute("aria-selected") !== "true") nav(b.dataset.ptab); });
 
+  // ---------------------------------------------------------------- 찬양 › 콘티 (022)
+  async function renderConti() {
+    $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">콘티</h1></div>
+      <p class="lead">예배마다 인도자 · 밴드 마스터가 콘티를 쓰고 올려요. 리더십은 모든 예배의 콘티를 쓰고 고칠 수 있어요. 올리면 그 예배 섬김자에게 알림이 가고, 주일 콘티는 기록에 쌓여요.</p>
+      <div id="caRoot" style="display:flex;flex-direction:column;gap:16px"></div>`;
+    await CONTI.mountAdmin($("#caRoot"));
+  }
+
   // ---------------------------------------------------------------- 찬양 › 기록 (021)
   async function renderHistory() {
     $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">기록</h1></div>
@@ -5122,18 +5150,19 @@
   // ---------------------------------------------------------------- 찬양 › 곡 (021)
   const SG = { q: "", sort: "n", lim: 60 };
   async function renderSongs() {
-    const [sr, D] = await Promise.all([sb.from("songs").select("id, title, main_key, memo").order("title"), HISTORY.load().catch(() => null)]);
+    const [sr, D, shr] = await Promise.all([sb.from("songs").select("id, title, main_key, memo, team_sec").order("title"), HISTORY.load().catch(() => null), sb.from("sheet_versions").select("song_id")]);
+    const shN = {}; (shr.data || []).forEach((r) => (shN[r.song_id] = (shN[r.song_id] || 0) + 1));
     if (sr.error) { $("#content").innerHTML = `<div class="empty">곡 목록을 불러오지 못했어요. migration_020을 실행했는지 확인해 주세요.</div>`; return console.error(sr.error); }
     const stat = new Map((D?.songs || []).map((x) => [x.id, x]));
     const all = (sr.data || []).map((x) => ({ ...x, st: stat.get(x.id) || { count: 0, last: "", keys: "", link: "" } }));
     $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">곡</h1>
-        <button type="button" class="btn btn-primary btn-sm" id="songAdd">곡 추가</button></div>
-      <p class="lead">콘티에 쓰는 곡 목록이에요. 이름 · 대표 키 · 메모를 고칠 수 있어요. 악보 · 곡 시간은 다음 업데이트에서 붙어요.</p>
+        <div class="row"><button type="button" class="btn btn-ghost btn-sm" id="songYt">영상 길이 채우기</button><button type="button" class="btn btn-primary btn-sm" id="songAdd">곡 추가</button></div></div>
+      <p class="lead">콘티에 쓰는 곡 목록이에요. 곡 이름을 누르면 악보 · 레퍼런스 · 부른 기록을 봐요. 곡 시간(팀 기준)은 콘티 RT 계산에 써요. 콘티에서 시간을 직접 고치면 그 값이 팀 기준이 돼요.</p>
       <section class="panel">
         <div class="hx-fr"><input type="search" class="hx-search" id="songQ" placeholder="곡 이름 찾기" aria-label="곡 이름 찾기" value="${esc(SG.q)}">
           <div class="hx-seg" id="songSort">${[["n", "많이 부른 순"], ["last", "최근 순"], ["name", "가나다 순"]].map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${SG.sort === k}">${l}</button>`).join("")}</div></div>
         <div class="small muted" id="songSum"></div>
-        <div class="song-wrap"><table class="hx-lead song-table"><thead><tr><th>곡</th><th>대표 키</th><th class="n">부른 횟수</th><th>마지막</th><th class="wide">쓴 키</th><th class="wide">메모</th><th></th></tr></thead><tbody id="songBody"></tbody></table></div>
+        <div class="song-wrap"><table class="hx-lead song-table"><thead><tr><th>곡</th><th>대표 키</th><th class="n">부른 횟수</th><th>마지막</th><th class="n">곡 시간</th><th class="n">악보</th><th class="wide">쓴 키</th><th class="wide">메모</th><th></th></tr></thead><tbody id="songBody"></tbody></table></div>
         <button type="button" class="hx-more" id="songMore">더 보기</button>
       </section>`;
     const draw = () => {
@@ -5143,30 +5172,45 @@
       rows.sort((a, b) => cmp(a, b) || a.title.localeCompare(b.title, "ko"));
       $("#songSum").textContent = `${rows.length}곡${q ? ` · '${SG.q}'` : ""} · 전체 ${all.length}곡`;
       $("#songBody").innerHTML = rows.slice(0, SG.lim).map((x) => `<tr data-id="${x.id}">
-          <td><b>${esc(x.title)}</b>${x.st.link ? ` <a class="hx-yt" href="https://youtu.be/${esc(x.st.link)}" target="_blank" rel="noopener">▶</a>` : ""}</td>
+          <td><button type="button" class="linkbtn song-name" data-detail="${x.id}">${esc(x.title)}</button>${x.st.link ? ` <a class="hx-yt" href="https://youtu.be/${esc(x.st.link)}" target="_blank" rel="noopener">▶</a>` : ""}</td>
           <td>${x.main_key ? `<span class="chip chip-violet">${esc(x.main_key)}</span>` : `<span class="muted small">—</span>`}</td>
           <td class="n">${x.st.count}</td><td class="small">${x.st.last ? x.st.last.slice(2).replace(/-/g, ".") : "—"}</td>
+          <td class="n small">${x.team_sec ? `${Math.floor(x.team_sec / 60)}:${String(x.team_sec % 60).padStart(2, "0")}` : "—"}</td><td class="n small">${shN[x.id] || "—"}</td>
           <td class="wide small muted">${esc(x.st.keys || "")}</td><td class="wide small">${esc(x.memo || "")}</td>
           <td><button type="button" class="btn btn-ghost btn-sm" data-edit="${x.id}">고치기</button></td></tr>`).join("")
-        || `<tr><td colspan="7" class="muted">찾는 곡이 없어요.</td></tr>`;
+        || `<tr><td colspan="9" class="muted">찾는 곡이 없어요.</td></tr>`;
       $("#songMore").hidden = rows.length <= SG.lim;
     };
     draw();
     $("#songQ").addEventListener("input", (e) => { SG.q = e.target.value; SG.lim = 60; draw(); });
     $("#songSort").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; SG.sort = b.dataset.v; $$("#songSort button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); draw(); });
     $("#songMore").addEventListener("click", () => { SG.lim += 100; draw(); });
-    $("#songBody").addEventListener("click", (e) => { const b = e.target.closest("[data-edit]"); if (b) songEdit(all.find((x) => x.id === +b.dataset.edit)); });
+    $("#songBody").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-edit]"); if (b) return songEdit(all.find((x) => x.id === +b.dataset.edit));
+      const d = e.target.closest("[data-detail]"); if (d) CONTI.songDetail(+d.dataset.detail);
+    });
+    $("#songYt").addEventListener("click", async (e) => {
+      const btn = e.currentTarget; btn.disabled = true; btn.textContent = "가져오는 중…";
+      try { const r = await api("/api/conti", { action: "yt-fill" });
+        toast(r.fetched ? `레퍼런스 영상 ${r.total}개 중 ${r.fetched}개의 길이를 가져왔어요${r.left ? ` · 남은 ${r.left}개는 한 번 더 눌러 주세요` : ""}` : `레퍼런스 영상 ${r.total}개의 길이를 이미 다 알고 있어요`, 5000); }
+      catch (err) { toast(err.message, 6000); }
+      btn.disabled = false; btn.textContent = "영상 길이 채우기";
+    });
     $("#songAdd").addEventListener("click", () => songEdit(null));
     function songEdit(x) {
       modal({ title: x ? "곡 고치기" : "곡 추가", confirmLabel: "저장",
         body: `<label class="field">곡 이름 *<input type="text" id="sgTitle" maxlength="80" value="${esc(x?.title || "")}" autocomplete="off"></label>
           <label class="field">대표 키 <span class="hint">· 비우면 가장 많이 부른 키로 보여요</span><input type="text" id="sgKey" maxlength="12" value="${esc(x?.main_key || "")}" placeholder="예: G" autocomplete="off"></label>
+          <label class="field">곡 시간 (팀 기준) <span class="hint">· 4:30처럼 · 비우면 레퍼런스 영상 길이로 셈</span><input type="text" id="sgSec" maxlength="5" inputmode="numeric" value="${x?.team_sec ? `${Math.floor(x.team_sec / 60)}:${String(x.team_sec % 60).padStart(2, "0")}` : ""}" placeholder="예: 4:30" autocomplete="off"></label>
           <label class="field">메모<textarea id="sgMemo" maxlength="300" rows="3" placeholder="예: 후렴 두 번 반복">${esc(x?.memo || "")}</textarea></label>
           ${x && x.st.count ? `<p class="small muted" style="margin:0">콘티 ${x.st.count}번에 쓰인 곡이에요. 이름을 바꾸면 지난 기록에도 바뀐 이름으로 보여요.</p>` : ""}
           <span class="small bk-err" id="sgErr"></span>`,
         onConfirm: async (close) => {
           const v = { title: $("#sgTitle").value.trim(), main_key: $("#sgKey").value.trim() || null, memo: $("#sgMemo").value.trim() || null };
           if (!v.title) { $("#sgErr").textContent = "곡 이름을 적어 주세요"; return; }
+          const tv = $("#sgSec").value.trim(), tm = tv.match(/^(\d{1,2}):([0-5]\d)$/);
+          if (tv && !tm) { $("#sgErr").textContent = "곡 시간은 4:30처럼 적어 주세요"; return; }
+          v.team_sec = tm ? +tm[1] * 60 + +tm[2] : null;
           const r = x ? await sb.from("songs").update(v).eq("id", x.id) : await sb.from("songs").insert(v);
           if (r.error) { $("#sgErr").textContent = r.error.code === "23505" ? "같은 이름의 곡이 이미 있어요 (띄어쓰기 · 대소문자는 같게 봐요)" : "저장하지 못했어요"; return; }
           close(); HISTORY.reset(); toast(x ? "곡을 고쳤어요" : "곡을 추가했어요"); renderSongs();

@@ -23,6 +23,18 @@ export const sundaysOf = (month) => {
 };
 export const RELDAY = ["오늘", "내일", "모레", "글피"];
 
+// ---------------------------------------------------------------- 콘티 (022)
+// 예배 이름: '10/25 주일' · '원스텝' · '수련회 예배 2'
+export function serviceName(s, multi = false) {
+  if (!s.ministry_id) return `${md(s.service_date)} 주일`;
+  return `${s.ministries?.name || "사역"}${multi && s.label ? " " + s.label : ""}`;
+}
+export function deadlineLabel(iso) {
+  const k = new Date(new Date(iso).getTime() + 9 * 3600e3);
+  return `${mdw(k.toISOString().slice(0, 10))} ${hm(k.toISOString().slice(11, 16))}`;
+}
+
+
 // ---------------------------------------------------------------- 설정 · 문구
 export const DEFAULTS = {
   open: { title: "{월} 섬김 응답을 받고 있어요", body: "{마감일}까지 토요 연습·주일 가능 여부를 체크해 주세요" },
@@ -39,6 +51,10 @@ export const DEFAULTS = {
   prayer_urgent: { title: "급한 기도제목이 올라왔어요", body: "{대상}님을 위해 함께 기도해 주세요" },
   birthday_soon: { title: "{생일자}님 생일이 {며칠} 남았어요", body: "{날짜} · {정산}", schedule: { days: 3, hour: 9 } },
   birthday_today: { title: "오늘은 {생일자}님 생일이에요", body: "{정산} · 축하 메시지를 보내 주세요", schedule: { hour: 9 } },
+  conti_up: { title: "{예배} 콘티가 올라왔어요", body: "{곡}" },
+  conti_edit: { title: "{예배} 콘티가 수정됐어요", body: "{바뀐 것}" },
+  conti_open: { title: "{예배} 콘티를 준비해 주세요", body: "{마감}까지 올려 주세요 · 섬김자 {인원}명", schedule: { days: 7, hour: 18 } },
+  conti_remind: { title: "[{마감일} 마감] {예배} 콘티", body: "아직 콘티가 올라오지 않았어요. {마감}까지 올려 주세요", schedule: [{ days: 1, hour: 18 }, { days: 0, hour: 18 }] },
 };
 // 생일 (016 · 양력): 그해 생일 날짜 — 2/29는 평년이면 2/28
 export function birthdayIn(birth, year) {
