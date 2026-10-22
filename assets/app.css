@@ -1693,7 +1693,7 @@ body.cv-open { overflow: hidden; }
   .topbar img { height: 28px; }
   .m-main { padding: 28px 32px 124px; gap: 18px; }
   .m-main .hx-tabs { margin: -28px -32px 0; padding: 4px 32px 0; }
-  .m-subnav { padding: 16px 32px 0; }
+  .m-subnav { padding: 16px 32px 0; justify-content: center; }   /* 024: 태블릿 · 넓은 화면에서 탭을 가운데로 */
   .m-subnav .segbar { max-width: 520px; }
   .tabbar-inner { max-width: 640px; }
   .tabbar a, .tabbar button { font-size: 12px; min-height: 54px; }
@@ -1861,3 +1861,52 @@ body.cv-open { overflow: hidden; }
 .pick-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pick-chips button { min-height: 32px; padding: 0 10px 0 12px; border-radius: 999px; border: 1px solid var(--violet-soft); background: #fff; color: var(--violet); font-size: 13px; font-weight: 700; cursor: pointer; }
 .pick-chips button:hover { border-color: var(--bad); color: var(--bad); }
+
+/* ---------- 024: 내 메모 (악보 위 필기) · 확대 · 여백 ---------- */
+.iv-stage { touch-action: none; overflow: hidden; -webkit-user-select: none; -webkit-touch-callout: none; }
+.iv-stage canvas.iv-page { position: absolute; z-index: 1; }
+.iv-stage canvas.iv-ink { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; background: transparent; box-shadow: none; }
+.iv-paper { position: absolute; z-index: 0; background: #EEEAF3; border-radius: 2px; box-shadow: 0 6px 30px rgba(0,0,0,.35); }
+.iv-stage .cvv-tap { z-index: 3; }
+.iv-stage .cvv-load, .iv-stage .cvv-blank, .iv-stage .bk-toast { z-index: 4; }
+.iv-pen .cvv-tap, .iv-zoom .cvv-tap { pointer-events: none; }
+.iv-pen { cursor: crosshair; }
+.iv-host { padding: 0 10px 8px; }
+.iv-bar { display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 14px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); }
+.iv-scroll { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.iv-scroll::-webkit-scrollbar { display: none; }
+.iv-bar button.iv-pg { min-width: 34px; padding: 0; font-size: 16px; }
+.iv-bar > button, .iv-scroll > button, .iv-grp > button:not(.iv-c):not(.iv-sz) { flex: none; min-height: 34px; padding: 0 12px; border-radius: 17px; border: 0; background: rgba(255,255,255,.08); color: #E8E0F4; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.iv-bar button[aria-pressed=true]:not(.iv-c):not(.iv-sz) { background: #fff; color: var(--violet); }
+.iv-bar button:disabled { opacity: .4; cursor: default; }
+.iv-grp { flex: none; display: flex; align-items: center; gap: 4px; padding-right: 6px; margin-right: 2px; border-right: 1px solid rgba(255,255,255,.14); }
+.iv-on { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 6px; font-size: 13px; font-weight: 800; color: #BFF0D9; white-space: nowrap; }
+.iv-c { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); background: var(--c); cursor: pointer; padding: 0; }
+.iv-c[aria-pressed=true] { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+.iv-sz { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255,255,255,.2); background: transparent; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.iv-sz i { display: block; border-radius: 50%; background: #E8E0F4; }
+.iv-sz[aria-pressed=true] { background: #fff; } .iv-sz[aria-pressed=true] i { background: var(--violet); }
+.iv-tip { flex: none; color: #C9B2EC; white-space: nowrap; padding: 0 6px; }
+.iv-sp { flex: 1 0 8px; }
+.iv-me { flex: none; font-size: 12px; font-weight: 700; color: #C9B2EC; white-space: nowrap; }
+.iv-bar .chip { flex: none; }
+.iv-bar .iv-done { background: var(--violet-hi); color: #fff; }
+.cvv-pen, .bk-pen { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid rgba(255,255,255,.25); background: transparent; color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; }
+.cvv-pen[aria-pressed=true], .bk-pen[aria-pressed=true] { background: #fff; color: var(--violet); border-color: #fff; }
+.cvv-pen:disabled, .bk-pen:disabled { opacity: .4; cursor: default; }
+.iv-hint { position: absolute; left: 10px; top: 10px; z-index: 5; }
+.iv-hint button { min-height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,.3); background: rgba(23,9,46,.78); color: #fff; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.iv-ref { position: absolute; z-index: 6; top: 0; bottom: 0; right: 0; width: min(100%, 460px); display: flex; flex-direction: column; background: #241B33; border-left: 1px solid rgba(255,255,255,.14); box-shadow: -10px 0 30px rgba(0,0,0,.35); }
+.iv-ref-top { display: flex; align-items: center; gap: 6px; padding: 8px; }
+.iv-ref-top select { flex: 1; min-width: 0; min-height: 34px; border-radius: 10px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08); color: #fff; font-size: 13px; font-weight: 700; padding: 0 8px; }
+.iv-ref-top select option { color: var(--ink); }
+.iv-ref-top button { flex: none; min-height: 34px; min-width: 34px; padding: 0 10px; border-radius: 17px; border: 0; background: rgba(255,255,255,.1); color: #fff; font-weight: 800; cursor: pointer; }
+.iv-ref-pg { flex: none; font-size: 12px; font-weight: 700; color: #C9B2EC; }
+.iv-ref-body { flex: 1; min-height: 0; display: grid; place-items: center; padding: 8px; }
+.iv-ref-body canvas { box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.iv-ref-foot { padding: 8px 12px 12px; color: #C9B2EC; }
+@media (max-width: 600px) {
+  .iv-on span, .iv-me { display: none; }
+  .iv-bar { padding: 5px; gap: 4px; }
+}
+.iv-oldtag { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 14px; background: var(--warn-bg); color: var(--warn); font-size: 12px; font-weight: 800; }

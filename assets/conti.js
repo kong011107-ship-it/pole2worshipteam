@@ -267,7 +267,7 @@
     const list = f.proc || [];
     if (!list.length) return "";
     const special = !!f.ministry_id;
-    return `<section class="card"><div class="card-title cv-ct">예배 진행곡 <small>RT에 넣지 않아요</small></div>
+    return `<section class="card"><div class="card-title cv-ct">예배 진행곡 <small>${f.communion ? "성찬식 주일 · " : ""}RT에 넣지 않아요</small></div>
       ${PROC_ORDER.map((k) => { const x = list.find((y) => y.kind === k); if (!x) return "";
         const dim = k === "entrance" && !special;
         return `<button type="button" class="cv-prow ${dim ? "dim" : ""}" data-cv-at="p:${k}" ${dim ? "disabled" : ""}><span class="cv-ptag">${PROC[k][0]}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${dim ? "특별예배 · 수련회 때만" : [x.key, x.images?.length ? `${x.images.length}장` : x.pages ? `${x.pages}쪽` : ""].filter(Boolean).map(esc).join(" · ")}</small></span>${dim ? "" : `<span class="cv-go">보기</span>`}</button>`; }).join("")}</section>`;
@@ -279,14 +279,17 @@
   }
 
   // =================================================================== 악보 보기 (태블릿 세로 · 한 쪽씩)
-  //  023: 콘티 곡 → 적용찬양 → 예배 진행곡(축복 · 봉헌 · 축도, 사역이면 등단) → '백업찬양 ›' 순서로 이어서 넘김
+  //  023: 콘티 곡 → 적용찬양 → 예배 진행곡(축복 · 성찬 · 봉헌 · 축도, 사역이면 등단) → '백업찬양 ›' 순서로 이어서 넘김
   //  쪽 = PDF 한 쪽({ path, p }) 또는 그림 한 장({ img })
-  const PROC = { blessing: ["축복송", "축복"], offering: ["봉헌송", "봉헌"], benediction: ["축도송", "축도"], entrance: ["등단송", "등단"] };
-  const PROC_ORDER = ["blessing", "offering", "benediction", "entrance"];
-  const procPages = (x) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? (isImg(x.path) ? [{ img: x.path }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 }))) : []);
+  // 024: 성찬 찬양 1 · 2 — 성찬식 주일에만 (서버가 그 주에 맞춰 보내 줌)
+  const PROC = { blessing: ["축복송", "축복"], communion: ["성찬 찬양 1", "성찬 1"], communion2: ["성찬 찬양 2", "성찬 2"], offering: ["봉헌송", "봉헌"], benediction: ["축도송", "축도"], entrance: ["등단송", "등단"] };
+  const PROC_ORDER = ["blessing", "communion", "communion2", "offering", "benediction", "entrance"];
+  // 024: 쪽마다 내 메모 자리(ink) — 예배 진행곡은 그 곡(id) × 쪽
+  const procPages = (x) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? (isImg(x.path) ? [{ img: x.path }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 }))) : [])
+    .map((pg, k) => (x.id ? { ...pg, ink: { key: `p:${x.id}`, page: k + 1 } } : pg));
   function viewerItems(svc) {
     const out = (svc.setlist?.status === "published" || svc.can_edit ? svc.setlist?.items || [] : []).map((x, i) => ({ id: `c:${i}`, tag: String(i + 1), title: x.title, key: x.key,
-      src: x.sheet_path ? Array.from({ length: x.sheet_pages || 1 }, (_, k) => ({ path: x.sheet_path, p: k + 1 })) : [] }));
+      src: x.sheet_path ? Array.from({ length: x.sheet_pages || 1 }, (_, k) => ({ path: x.sheet_path, p: k + 1, ink: x.sheet_id ? { key: `s:${x.sheet_id}`, page: k + 1, song: x.song_id } : null })) : [] }));
     (svc.applied || []).forEach((x) => out.push({ id: `a:${x.id}`, tag: "적용", kind: "applied", title: x.title, key: x.key, src: (x.images || []).map((img) => ({ img })) }));
     const special = !!svc.ministry_id;
     (svc.proc || []).filter((x) => x.kind !== "entrance" || special).sort((a, b) => PROC_ORDER.indexOf(a.kind) - PROC_ORDER.indexOf(b.kind))
@@ -295,7 +298,7 @@
   }
   async function openViewer(svc, { song = 0, at = null, single = null, items: given = null, title: givenTitle = null } = {}) {
     // single: { title, path, pages } — 곡 상세에서 악보 하나만 볼 때 · items: 이미 만든 목록(백업찬양 등)
-    const items = given || (single ? [{ title: single.title, key: single.key, src: single.images ? single.images.map((img) => ({ img })) : Array.from({ length: single.pages || 1 }, (_, k) => ({ path: single.path, p: k + 1 })) }] : viewerItems(svc));
+    const items = given || (single ? [{ title: single.title, key: single.key, src: single.images ? single.images.map((img) => ({ img })) : Array.from({ length: single.pages || 1 }, (_, k) => ({ path: single.path, p: k + 1, ink: single.ink ? { ...single.ink, page: k + 1 } : null })) }] : viewerItems(svc));
     const pages = [];
     items.forEach((x, i) => {
       if (x.src?.length) x.src.forEach((pg, k) => pages.push({ i, ...pg, n: k + 1, of: x.src.length }));
@@ -308,12 +311,18 @@
     const first = at ? Math.max(0, items.findIndex((x) => x.id === at)) : song;
     const V = { cur: Math.max(0, pages.findIndex((x) => x.i === first)), token: 0 };
     const el = openLayer("cv-viewer", `<div class="cvv-top"><button type="button" class="cvv-back" data-cvv="close" aria-label="닫기">${ICO.back}</button>
-        <b class="cvv-title">${esc(title)}</b>${contiItems.length && svc.target_sec ? `<span class="cvv-rt">RT ${mmss(rt)} / ${mmss(svc.target_sec)}</span>` : ""}<span class="cvv-pg" id="cvvPg"></span></div>
+        <b class="cvv-title">${esc(title)}</b>${contiItems.length && svc.target_sec ? `<span class="cvv-rt">RT ${mmss(rt)} / ${mmss(svc.target_sec)}</span>` : ""}<span class="cvv-pg" id="cvvPg"></span>${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
       <div class="cvv-jump" role="tablist">${single ? "" : items.map((x, i) => `<button type="button" data-cvv-song="${i}" class="${x.kind || ""}"><i>${esc(x.tag || String(i + 1))}</i>${esc(x.title)}${x.key ? ` · ${esc(x.key)}` : ""}</button>`).join("")}${backupLink ? `<button type="button" class="go" data-cvv="backup">백업찬양 ›</button>` : ""}</div>
+      <div class="iv-host hidden" id="cvvInk"></div>
       <div class="cvv-stage" id="cvvStage"><canvas id="cvvCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="cvvBlank"></div>
         <button type="button" class="cvv-tap l" data-cvv="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-cvv="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="cvvLoad">불러오는 중…</div></div>
-      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => document.removeEventListener("keydown", onKey));
+      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.ink?.destroy(); });
+    // 024: 내 메모 · 확대 (INK) — 밀어서 넘기기 · 크기 맞춤도 여기서
+    if (window.INK) {
+      V.ink = INK.view({ stage: $("#cvvStage", el), canvas: $("#cvvCanvas", el), root: el, bar: $("#cvvInk", el), onTurn: (d) => V.go?.(V.cur + d) });
+      V.ink.prefetch(pages.map((p) => p.ink?.key));
+    }
     const draw = async () => {
       const pg = pages[V.cur]; if (!pg) return;
       const t = ++V.token, x = items[pg.i];
@@ -325,10 +334,11 @@
       const nx = pages[V.cur + 1];
       $("#cvvNext", el).textContent = nx ? `다음 쪽: ${items[nx.i].title}${nx.of > 1 ? ` ${nx.n}/${nx.of}` : ""}` : backupLink ? "마지막 쪽 · 다음은 백업찬양" : "마지막 쪽이에요";
       const cv = $("#cvvCanvas", el), blank = $("#cvvBlank", el), load = $("#cvvLoad", el);
-      if (!pg.path && !pg.img) { cv.classList.add("hidden"); blank.classList.remove("hidden"); load.classList.add("hidden"); blank.innerHTML = `<b>${esc(x.title)}</b><span>${x.key ? esc(x.key) + " · " : ""}악보가 없는 곡이에요</span>`; return; }
+      if (!pg.path && !pg.img) { V.ink?.clear(); cv.classList.add("hidden"); blank.classList.remove("hidden"); load.classList.add("hidden"); blank.innerHTML = `<b>${esc(x.title)}</b><span>${x.key ? esc(x.key) + " · " : ""}악보가 없는 곡이에요</span>`; return; }
       blank.classList.add("hidden"); load.classList.remove("hidden");
       try {
-        await drawPageInto(cv, $("#cvvStage", el), pg, () => t !== V.token);
+        if (V.ink) { if (!(await V.ink.show(pg, () => t !== V.token))) return; }
+        else await drawPageInto(cv, $("#cvvStage", el), pg, () => t !== V.token);
         if (t !== V.token) return;
         cv.classList.remove("hidden"); load.classList.add("hidden");
         // 다음 쪽 미리 받아 둠
@@ -341,13 +351,15 @@
         if (a === "backup") { closeLayer(); return setTimeout(() => CONTI.onBackup?.(), 300); } }
       const s = e.target.closest("[data-cvv-song]"); if (s) go(pages.findIndex((p) => p.i === +s.dataset.cvvSong));
     });
-    // 밀어서 넘기기
-    let sx = null, sy = null;
-    $("#cvvStage", el).addEventListener("pointerdown", (e) => { sx = e.clientX; sy = e.clientY; });
-    $("#cvvStage", el).addEventListener("pointerup", (e) => { if (sx === null) return; const dx = e.clientX - sx, dy = e.clientY - sy; sx = null; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(V.cur + (dx < 0 ? 1 : -1)); });
+    // 밀어서 넘기기 (내 메모가 있으면 INK가 맡음)
+    if (!V.ink) {
+      let sx = null, sy = null;
+      $("#cvvStage", el).addEventListener("pointerdown", (e) => { sx = e.clientX; sy = e.clientY; });
+      $("#cvvStage", el).addEventListener("pointerup", (e) => { if (sx === null) return; const dx = e.clientX - sx, dy = e.clientY - sy; sx = null; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(V.cur + (dx < 0 ? 1 : -1)); });
+    }
     const onKey = (e) => { if (!document.body.contains(el)) return; if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(V.cur + 1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); go(V.cur - 1); } };
     document.addEventListener("keydown", onKey);
-    window.addEventListener("resize", () => { if (document.body.contains(el)) draw(); });
+    if (!V.ink) window.addEventListener("resize", () => { if (document.body.contains(el)) draw(); });
     V.go = go; el._viewer = V;
     draw();
     return el;
@@ -465,7 +477,7 @@
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-sd=close]")) return closeLayer();
       const v = e.target.closest("[data-sd-view]");
-      if (v) { const x = (sheets || []).find((s) => s.id === +v.dataset.sdView); if (x) { openViewer(null, { single: { title: `${song.title} · ${x.name}`, key: x.key, path: x.path, pages: x.pages } }); } }
+      if (v) { const x = (sheets || []).find((s) => s.id === +v.dataset.sdView); if (x) { openViewer(null, { single: { title: `${song.title} · ${x.name}`, key: x.key, path: x.path, pages: x.pages, ink: x.kind === "sheet" ? { key: `s:${x.id}`, song: song.id } : null } }); } }
     });
     $("#sdOrig", el)?.addEventListener("change", async (e) => {
       const file = e.target.files?.[0]; if (!file) return;
@@ -522,11 +534,11 @@
       const total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), unk = E.items.filter((x) => !x.dur).length, tg = target();
       const pct = tg ? Math.min(100, Math.round(100 * total / Math.max(tg, total || 1))) : 0, tick = tg ? Math.min(100, Math.round(100 * tg / Math.max(tg, total))) : 0;
       const diff = tg ? tg - total : null;
-      const first = !svc.ministry_id && +svc.date.slice(8) <= 7;
+      const first = !!svc.communion;
       return `<section class="ce-rt" id="ceRt"><div class="ce-rt-top"><span><small>예상 RT</small><b>${mmss(total)}</b>${tg ? `<span class="of">/ ${mmss(tg)}</span>` : ""}</span>
           ${tg ? `<span class="chip ${diff >= 0 ? "chip-ok" : "chip-warn"}">${diff >= 0 ? `${mmss(diff)} 남음` : `${mmss(-diff)} 초과`}</span>` : ""}</div>
         ${tg ? `<div class="ce-rtbar"><i style="width:${pct}%"></i><span class="tick" style="left:${tick}%"></span></div>` : ""}
-        <span class="small muted">${svc.ministry_id ? "사역" : first ? "첫째 주 주일(성찬식)" : "주일"} · ${tg ? `목표 ${Math.round(tg / 60)}분${E.target != null ? " (이번만 바꿈)" : ""}` : "목표 RT 없음"}${unk ? ` · 시간 모르는 곡 ${unk}곡` : ""} · <button type="button" class="linkbtn" data-ce="target">${tg ? "이번만 바꾸기" : "목표 정하기"}</button>
+        <span class="small muted">${svc.ministry_id ? "사역" : first ? "성찬식 주일" : "주일"} · ${tg ? `목표 ${Math.round(tg / 60)}분${E.target != null ? " (이번만 바꿈)" : ""}` : "목표 RT 없음"}${unk ? ` · 시간 모르는 곡 ${unk}곡` : ""} · <button type="button" class="linkbtn" data-ce="target">${tg ? "이번만 바꾸기" : "목표 정하기"}</button>
           ${E.target != null ? ` · <button type="button" class="linkbtn" data-ce="target-reset">기본으로</button>` : ""}</span></section>`;
     }
     function rowHTML(x, i) {
@@ -983,17 +995,17 @@
     root.innerHTML = `<section class="panel"><h2>다가오는 예배 <small>배치표가 공개되면 인도자에게 콘티 안내가 가요</small></h2>
         <div class="song-wrap"><table class="hx-lead ca-table"><thead><tr><th>예배</th><th>인도</th><th>상태</th><th>마감</th><th class="n">RT</th><th></th></tr></thead><tbody>
         ${rows.map((s) => { const [c, t] = st(s), items = s.setlist?.items || [], rt = rtOf(items);
-          return `<tr data-sid="${s.id}"><td><b>${esc(svcShort(s, rows))}</b>${s.ministry_id ? ` <span class="chip chip-violet">사역</span>` : ""}</td>
+          return `<tr data-sid="${s.id}"><td><b>${esc(svcShort(s, rows))}</b>${s.ministry_id ? ` <span class="chip chip-violet">사역</span>` : s.communion ? ` <span class="chip chip-violet">성찬식</span>` : ""}</td>
             <td class="small">${(s.lineup || []).filter((x) => x.pos === "leader").map((x) => esc(x.name)).join(", ") || "<span class='muted'>—</span>"}</td>
             <td><span class="chip ${c}">${t}</span>${items.length ? ` <span class="small muted">${items.length}곡</span>` : ""}</td>
             <td class="small">${esc(dlText(s.deadline))}${s.setlist?.deadline ? ` <span class="chip chip-gray">바꿈</span>` : ""}</td>
             <td class="n small">${items.length ? mmss(rt) : "—"}${s.target_sec ? ` / ${mmss(s.target_sec)}` : ""}</td>
-            <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button></td></tr>`; }).join("")
+            <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button>${s.ministry_id ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-ca="communion" aria-pressed="${!!s.communion}">${s.communion ? "성찬식 빼기" : "성찬식 넣기"}</button>`}</td></tr>`; }).join("")
           || `<tr><td colspan="6" class="muted">앞으로 8주 안에 배치된 예배가 없어요.</td></tr>`}</tbody></table></div></section>
       <section class="panel" id="caSet"><h2>기본값 <small>예배마다 '마감 · 목표'로 따로 바꿀 수 있어요</small></h2>
         <div class="row"><span style="font-weight:700">주일 콘티 마감</span><select class="select" id="caDow" style="width:auto">${KDOW.map((w, i) => `<option value="${i}" ${C.deadline_dow === i ? "selected" : ""}>${w}요일</option>`).join("")}</select><select class="select" id="caHour" style="width:auto">${hours(C.deadline_hour)}</select></div>
         <div class="row"><span style="font-weight:700">사역 콘티 마감</span><select class="select" id="caMin" style="width:auto">${[1, 2, 3, 4, 5, 7].map((n) => `<option value="${n}" ${C.min_days === n ? "selected" : ""}>예배 ${n}일 전</option>`).join("")}</select><span class="small muted">22:00</span></div>
-        <div class="row"><span style="font-weight:700">목표 RT</span><label class="row" style="gap:6px">첫째 주(성찬식)<input type="number" class="input" id="caFirst" min="5" max="90" value="${Math.round(C.rt_first / 60)}" style="width:80px;min-height:40px">분</label>
+        <div class="row"><span style="font-weight:700">목표 RT</span><label class="row" style="gap:6px">성찬식 주일<input type="number" class="input" id="caFirst" min="5" max="90" value="${Math.round(C.rt_first / 60)}" style="width:80px;min-height:40px">분</label>
           <label class="row" style="gap:6px">나머지 주일<input type="number" class="input" id="caOther" min="5" max="90" value="${Math.round(C.rt_other / 60)}" style="width:80px;min-height:40px">분</label></div>
         <div class="row"><button type="button" class="btn btn-primary btn-sm" id="caSave">저장</button><span class="small muted">콘티 알림(안내 · 독촉 · 올라옴 · 수정됨)은 공지 · 알림 › 알림 설정에서 바꿔요.</span></div></section>`;
     root.onclick = async (e) => {
@@ -1002,6 +1014,13 @@
         if (b.dataset.ca === "view") return openViewer(s, {});
         if (b.dataset.ca === "edit") return openEditor(s.id, { after: () => mountAdmin(root) });
         if (b.dataset.ca === "applied") return openApplied(s, { after: () => mountAdmin(root) });
+        // 024: 이 주일 성찬식 켬 · 끔 (첫째 주는 자동으로 켜져 있어요) — 성찬 찬양 · 목표 RT가 따라감
+        if (b.dataset.ca === "communion") {
+          b.disabled = true;
+          const { data, error } = await sb.rpc("set_communion", { p_service: s.id, p_on: !s.communion });
+          toast(error ? error.message || "바꾸지 못했어요" : data ? `${svcShort(s, rows)} 성찬식 있음 · 성찬 찬양이 보여요` : `${svcShort(s, rows)} 성찬식 없음`);
+          return mountAdmin(root);
+        }
         if (b.dataset.ca === "meta") {
           const k = kst(s.deadline);
           const dv = prompt(`${svcShort(s, rows)} 콘티 마감 (YYYY-MM-DD HH:MM · 비우면 기본값)`, s.setlist?.deadline ? `${k.date} ${k.hm}` : "");

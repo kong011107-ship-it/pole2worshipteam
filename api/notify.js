@@ -247,7 +247,7 @@ async function satDecide(db, user, st, body) {
 
 // ---------- 023: 예배 진행곡이 바뀜 → 팀원 전체 (리더십이 고를 때만)
 //  { kind: "proc", ids: [worship_proc id] }
-const PROC = { blessing: "축복송", offering: "봉헌송", benediction: "축도송", entrance: "등단송" };
+const PROC = { blessing: "축복송", communion: "성찬 찬양 1", communion2: "성찬 찬양 2", offering: "봉헌송", benediction: "축도송", entrance: "등단송" };
 async function procChanged(db, user, st, body) {
   const ids = [].concat(body.ids || []).map(Number).filter(Boolean).slice(0, 8);
   const { data: rows } = ids.length ? await db.from("worship_proc").select("kind, title, key, start_date").in("id", ids) : { data: [] };

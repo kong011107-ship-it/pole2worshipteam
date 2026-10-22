@@ -54,8 +54,10 @@
     const r = refInfo(ref); if (!r) return [];
     if (r.song) {
       const s = r.song;
-      if (s.images?.length) return s.images.map((img) => ({ img }));
-      if (B.book && s.page) return Array.from({ length: s.pages || 1 }, (_, k) => ({ path: B.book.path, p: s.page + k }));
+      // 024: 내 메모는 곡 코드 기준 (악보집이 새 판으로 바뀌면 '이전 판 메모')
+      const ink = (k) => ({ key: `b:${s.code}`, page: k + 1, ver: s.book_id ? String(s.book_id) : `c${s.id}` });
+      if (s.images?.length) return s.images.map((img, k) => ({ img, ink: ink(k) }));
+      if (B.book && s.page) return Array.from({ length: s.pages || 1 }, (_, k) => ({ path: B.book.path, p: s.page + k, ink: ink(k) }));
       return [];
     }
     return r.proc ? L().procPages(r.proc) : [];
@@ -214,15 +216,20 @@
     if (!B.live?.active) return toast("지금 진행 중인 백업찬양이 없어요");
     B.follow = true; B.view = B.live.now; B.pg = 0;
     const el = L().openLayer("bk-live", `<div class="bk-livebar" id="bkBar"></div><div class="bk-band" id="bkBand"></div><div class="bk-mini" id="bkMini"></div>
+      <div class="iv-host hidden" id="bkInk"></div>
       <div class="bk-stage" id="bkStage"><canvas id="bkCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="bkBlank"></div>
         <button type="button" class="cvv-tap l" data-bkl="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-bkl="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="bkLoad">불러오는 중…</div><div class="bk-toast hidden" id="bkToast"></div></div>
-      <div class="bk-dock" id="bkDock"></div>`, () => { B.layer = null; document.removeEventListener("keydown", onKey); watch(false); if (B.root?.offsetParent) drawHome(); });
+      <div class="bk-dock" id="bkDock"></div>`, () => { B.iv?.destroy(); B.iv = null; B.layer = null; document.removeEventListener("keydown", onKey); watch(false); if (B.root?.offsetParent) drawHome(); });
     B.layer = el;
+    // 024: 내 메모 · 확대 — 따라가는 중에도 쓸 수 있고, 인도자가 넘기면 쓰던 메모를 먼저 저장하고 같이 넘어감
+    B.iv = window.INK ? INK.view({ stage: $("#bkStage", el), canvas: $("#bkCanvas", el), root: el, bar: $("#bkInk", el), onTurn: (d) => turn(d) }) : null;
+    el._iv = B.iv;
+    B.iv?.prefetch([...cands().map((s) => `b:${s.code}`), ...B.proc.map((p) => `p:${p.id}`)]);
     el.addEventListener("click", onLiveClick);
     el.addEventListener("keydown", (e) => { if (e.target.id === "bkCode" && e.key === "Enter") reserveCode(); });
     document.addEventListener("keydown", onKey);
-    window.addEventListener("resize", () => { if (B.layer) drawSheet(); });
+    if (!B.iv) window.addEventListener("resize", () => { if (B.layer) drawSheet(); });
     watch(true);
     renderLive(); drawSheet();
     // 후보 악보를 미리 받아 둠
@@ -250,8 +257,9 @@
     const el = B.layer; if (!el) return;
     const lv = B.live, lead = amLeader(), now = refInfo(lv.now), nx = refInfo(lv.next), cs = cands();
     $("#bkBar", el).innerHTML = lead
-      ? `<span><span class="bk-dot"></span>기도회 진행 중 · 내가 인도</span><span class="sp"></span><button type="button" class="bk-pill" data-bkl="end">끝내기</button><button type="button" class="bk-pill" data-bkl="close">나가기</button>`
-      : `<span><span class="bk-dot"></span>${esc(lv.leader || "인도자")} 인도 · 백업찬양</span><span class="sp"></span><button type="button" class="bk-pill ${B.follow ? "on" : ""}" data-bkl="follow" aria-pressed="${B.follow}">${B.follow ? "● 따라가는 중" : "따라가기"}</button>${canLead() ? `<button type="button" class="bk-pill" data-bkl="take">내가 이어서 진행</button>` : ""}<button type="button" class="bk-pill" data-bkl="close">나가기</button>`;
+      ? `<span><span class="bk-dot"></span>기도회 진행 중 · 내가 인도</span><span class="sp"></span>${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="end">끝내기</button><button type="button" class="bk-pill" data-bkl="close">나가기</button>`
+      : `<span><span class="bk-dot"></span>${esc(lv.leader || "인도자")} 인도 · 백업찬양</span><span class="sp"></span><button type="button" class="bk-pill ${B.follow ? "on" : ""}" data-bkl="follow" aria-pressed="${B.follow}">${B.follow ? "● 따라가는 중" : "따라가기"}</button>${canLead() ? `<button type="button" class="bk-pill" data-bkl="take">내가 이어서 진행</button>` : ""}${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="close">나가기</button>`;
+    B.iv?.sync();
     $("#bkBand", el).innerHTML = `<div class="now"><small>지금</small>${now ? `${codeHTML(now.code)}<b>${esc(now.title)}</b>` : `<b class="muted">아직 없음</b>`}</div>
       <div class="nx"><small>다음</small>${nx ? `${codeHTML(nx.code, "inv")}<b>${esc(nx.title)}</b>` : `<b>${lead ? "후보를 눌러 예약" : "아직 없음"}</b>`}</div>`;
     const procKinds = L().PROC_ORDER.filter((k) => k !== "entrance" && procOf(k));
@@ -276,10 +284,11 @@
     const pages = pagesOf(B.view), pg = pages[B.pg], r = refInfo(B.view);
     const cv = $("#bkCanvas", el), blank = $("#bkBlank", el), load = $("#bkLoad", el);
     const t = (B.tok = (B.tok || 0) + 1);
-    if (!pg) { cv.classList.add("hidden"); load.classList.add("hidden"); blank.classList.remove("hidden"); blank.innerHTML = r ? `<b>${esc(r.code)} ${esc(r.title)}</b><span>악보가 없어요</span>` : `<b>백업찬양</b><span>인도자가 곡을 시작하면 여기에 보여요</span>`; return; }
+    if (!pg) { B.iv?.clear(); cv.classList.add("hidden"); load.classList.add("hidden"); blank.classList.remove("hidden"); blank.innerHTML = r ? `<b>${esc(r.code)} ${esc(r.title)}</b><span>악보가 없어요</span>` : `<b>백업찬양</b><span>인도자가 곡을 시작하면 여기에 보여요</span>`; return; }
     blank.classList.add("hidden"); load.classList.remove("hidden"); load.textContent = "불러오는 중…";
     try {
-      await L().drawPageInto(cv, $("#bkStage", el), pg, () => t !== B.tok);
+      if (B.iv) { if (!(await B.iv.show(pg, () => t !== B.tok))) return; }
+      else await L().drawPageInto(cv, $("#bkStage", el), pg, () => t !== B.tok);
       if (t !== B.tok) return;
       cv.classList.remove("hidden"); load.classList.add("hidden");
     } catch (err) { if (t === B.tok) load.textContent = err.message || "악보를 열지 못했어요"; }
@@ -349,12 +358,12 @@
           <div class="bk-alist">${(cust.data || []).map((x) => `<div class="devrow"><span>${codeHTML(x.code)} <b>${esc(x.title)}</b> <span class="small muted">${x.images?.length || 0}장${x.hidden ? " · 숨김" : ""}</span></span>
             <button type="button" class="btn btn-ghost btn-sm" data-bka="hide" data-id="${x.id}" data-h="${x.hidden ? 0 : 1}">${x.hidden ? "다시 보이기" : "숨기기"}</button></div>`).join("")}</div></details>` : ""}
       </section>
-      <section class="panel" id="procAdmin"><h2>예배 진행곡 <small>종류마다 1곡 · 바꿀 때만 고쳐요 · RT에 넣지 않아요</small></h2>
+      <section class="panel" id="procAdmin"><h2>예배 진행곡 <small>종류마다 1곡(성찬 찬양은 2곡) · 바꿀 때만 고쳐요 · RT에 넣지 않아요</small></h2>
         <div class="bk-alist">${L().PROC_ORDER.map((k) => { const c = cur(k), n = next(k);
-          return `<div class="devrow"><span style="display:flex;flex-direction:column;gap:2px"><span><span class="cv-ptag">${P[k][0]}</span> ${c ? `<b>${esc(c.title)}</b>${c.key ? ` <span class="small muted">${esc(c.key)}</span>` : ""}` : `<span class="muted">아직 없어요</span>`}${k === "entrance" ? ` <span class="small muted">· 특별예배 · 수련회 때만</span>` : ""}</span>
+          return `<div class="devrow"><span style="display:flex;flex-direction:column;gap:2px"><span><span class="cv-ptag">${P[k][0]}</span> ${c ? `<b>${esc(c.title)}</b>${c.key ? ` <span class="small muted">${esc(c.key)}</span>` : ""}` : `<span class="muted">아직 없어요</span>`}${k === "entrance" ? ` <span class="small muted">· 특별예배 · 수련회 때만</span>` : k.startsWith("communion") ? ` <span class="small muted">· 성찬식 주일에만</span>` : ""}</span>
             <span class="small muted">${c ? `${md(c.start_date)}부터 · ${c.images?.length ? `그림 ${c.images.length}장` : c.pages ? `PDF ${c.pages}쪽` : "악보 없음"}` : ""}${n ? ` · ${md(n.start_date)}부터 '${esc(n.title)}'로 바뀜` : ""}</span></span>
             <div class="row" style="gap:6px;flex:none">${c && (c.path || c.images?.length) ? `<button type="button" class="btn btn-ghost btn-sm" data-bka="proc-view" data-id="${c.id}">보기</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-bka="proc" data-k="${k}">바꾸기</button></div></div>`; }).join("")}</div>
-        ${procs.length > 4 ? `<details><summary class="small" style="cursor:pointer;font-weight:700;color:var(--violet)">지난 곡 기록</summary><div class="bk-alist">${procs.filter((x) => x !== cur(x.kind) && x !== next(x.kind)).map((x) => `<div class="devrow"><span><span class="cv-ptag">${P[x.kind][0]}</span> ${esc(x.title)} <span class="small muted">${md(x.start_date)}부터</span></span></div>`).join("")}</div></details>` : ""}
+        ${procs.some((x) => x !== cur(x.kind) && x !== next(x.kind)) ? `<details><summary class="small" style="cursor:pointer;font-weight:700;color:var(--violet)">지난 곡 기록</summary><div class="bk-alist">${procs.filter((x) => x !== cur(x.kind) && x !== next(x.kind)).map((x) => `<div class="devrow"><span><span class="cv-ptag">${P[x.kind][0]}</span> ${esc(x.title)} <span class="small muted">${md(x.start_date)}부터</span></span></div>`).join("")}</div></details>` : ""}
       </section>`;
     root.onclick = async (e) => {
       const b = e.target.closest("[data-bka]"); if (!b) return;
