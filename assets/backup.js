@@ -109,7 +109,7 @@
     const q = B.q.trim().toLowerCase().replace(/\s/g, ""), T = topics();
     const picked = (B.live?.candidates || []).map(Number);
     const hits = B.songs.filter((s) => (!B.keys.size || B.keys.has(s.key)) && (!B.topics.size || B.topics.has(String(s.topic ?? "x")))
-      && (!q || s.code.startsWith(q) || (s.norm || "").includes(q) || s.title.toLowerCase().replace(/\s/g, "").includes(q)));
+      && (!q || s.code.startsWith(q) || (s.norm || "").includes(q) || KO.match(s.title, q)));
     const groups = new Map();
     hits.sort((a, b) => (a.topic ?? 99) - (b.topic ?? 99) || KEYS.indexOf(a.key) - KEYS.indexOf(b.key) || a.code.localeCompare(b.code)).forEach((s) => {
       const g = s.topic != null && T[s.topic] ? T[s.topic] : s.book_id ? "기타" : "직접 더한 곡";

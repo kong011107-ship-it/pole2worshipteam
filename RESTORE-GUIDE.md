@@ -1,0 +1,140 @@
+# 사고 대응 · 이관 안내서
+
+Pole2 찬양팀 플랫폼 v26 · 2026년 10월 23일에 각 서비스 공식 문서로 확인한 조건이에요. 서비스 화면과 조건은 바뀔 수 있으니, 막히면 맨 아래 공식 문서 링크로 다시 확인하세요.
+
+## 0. 한눈에
+
+플랫폼은 세 곳에 나뉘어 있어요.
+
+- **GitHub** — 코드, 자동 백업 보관, '복원 버튼'(Actions › DB 복원)
+- **Vercel** — 사이트(pole2worshipteam.vercel.app), 환경변수(VAPID · CRON_SECRET · Supabase 키)
+- **Supabase** — DB(팀원 · 일정 · 콘티 · 출석 …), 로그인 계정, 악보 파일(Storage)
+
+어떤 일이 생겼는지에 따라 볼 곳이 달라요.
+
+- 출석 · 배치 · 메모를 실수로 지웠거나 잘못 고쳤다 → 설정 › **변경 기록**에서 되살리기 (백업이 필요 없어요)
+- Supabase 프로젝트가 멈췄다(일시 정지) → 대시보드에서 **Restore project**만 누르면 데이터 그대로 돌아와요
+- Supabase 프로젝트가 지워졌거나 데이터가 통째로 망가졌다 → **3장 사고 대응**
+- 팀장이 바뀐다 · 개인 계정에서 팀 계정으로 옮긴다 → **4장 이관**
+
+## 1. 처음 설정 (한 번만)
+
+### 1-1. GitHub Secrets
+
+저장소 › Settings › Secrets and variables › Actions › New repository secret
+
+- `SUPABASE_DB_URL` — Supabase › Connect › **Session pooler** 주소 (`[YOUR-PASSWORD]`를 DB 비밀번호로 바꾼 것)
+- `BACKUP_PASSPHRASE` — 백업 파일 암호. **잃어버리면 백업을 못 열어요.** 팀 계정 메모 등 바깥에도 적어 두세요
+- `SUPABASE_URL` — `https://xxxx.supabase.co` (악보 파일 백업용, v26 새로)
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase › Project Settings › API Keys › service_role (악보 파일 백업용, v26 새로)
+- `CRON_SECRET` — Vercel 환경변수와 같은 값 (복원할 때 예약 알림을 다시 등록해요, v26 새로)
+
+Variables 탭(선택): `SITE_URL` = `https://pole2worshipteam.vercel.app`
+
+### 1-2. 파일
+
+- `.github/workflows/backup.yml` (바뀜) · `.github/workflows/restore.yml` (새로)
+- `scripts/backup.sh` · `scripts/restore.sh` · `scripts/prune_backups.py` (새로)
+- `supabase/restore_after.sql` (새로)
+
+### 1-3. 한 번 돌려 보기
+
+Actions › **DB 백업** › Run workflow → 초록 체크면 성공. 사이트 설정 › 백업 · 복원에 '최근 백업'이 떠요.
+
+### 1-4. 보관 한도
+
+- 백업은 매주 일요일 새벽 3시 17분. 새 백업이 **잘 올라간 다음에만** 오래된 것을 지워서 **최근 4개**를 남겨요
+- GitHub 무료 계정의 **비공개 저장소는 Actions 보관 공간이 500MB**(GitHub Packages와 같이 씀)예요. 결제 수단이 없으면 넘는 순간 막혀요. 그래서 백업이 커지면 다음 주 백업 자리를 남기고 **최근 2~3개만** 남기고, 실행 기록에 경고를 남겨요
+- 한도를 바꾸려면 Variables에 `BACKUP_MAX_MB` (기본 450)
+- 저장소는 꼭 **비공개(Private)**로 두세요. 백업은 암호화돼 있지만 남이 받아 갈 수 있는 곳에 둘 이유가 없어요
+- Supabase 무료 플랜: 조직마다 무료 프로젝트 2개, DB 500MB, 파일 1GB, 1주일 동안 쓰지 않으면 일시 정지. 우리 사이트는 매시간 예약 알림이 돌아서 보통 멈추지 않아요
+
+## 2. 백업 확인
+
+- 사이트 설정 › **백업 · 복원**: 최근 백업 날짜 · 크기 · 악보 파일 수, '결과 확인 표'(마지막 백업 때 개수와 지금 개수)
+- 실패하면 GitHub이 메일을 보내고 설정 화면에 빨간색으로 떠요. 8일 넘게 백업이 없으면 주황색
+- v25까지의 백업에는 악보 파일이 없어요. v26을 올린 뒤 한 번 Run workflow를 눌러 두세요
+
+## 3. 사고 대응 — Supabase가 통째로 날아갔을 때
+
+복원은 언제나 **새 Supabase 프로젝트**에 해요. 지금 쓰는 프로젝트에는 덮어쓰지 않아요(같은 프로젝트거나 팀원이 들어 있으면 멈춰요).
+
+1. **상황 확인** — Supabase 대시보드에서 프로젝트가 'Paused'면 Restore만 누르고 끝. 지워졌거나 망가졌을 때만 아래로
+2. **새 프로젝트 만들기** — 팀 계정 조직에서 New project. 이름은 아무거나, 지역은 예전과 같게(보통 Northeast Asia (Seoul)), DB 비밀번호는 비밀값 메모에 적어 두기
+3. **Secrets 3개 넣기** (새 프로젝트 것)
+   - `RESTORE_DB_URL` — 새 프로젝트 › Connect › Session pooler 주소 (비밀번호 넣은 것)
+   - `RESTORE_SUPABASE_URL` — `https://yyyy.supabase.co`
+   - `RESTORE_SERVICE_ROLE_KEY` — 새 프로젝트 service_role 키
+4. **복원 버튼** — Actions › **DB 복원** › Run workflow
+   - 백업 날짜: 비우면 가장 최근 (예: `20261025`)
+   - 사이트 주소: `https://pole2worshipteam.vercel.app` (예약 알림 등록용)
+   - 확인: `RESTORE`
+   - 하는 일: 백업 내려받기 → 풀기(암호) → 로그인 계정 → 앱 데이터 → 권한 · 악보 버킷 · 실시간 · 예약 알림 → 악보 파일 올리기 → **결과 확인 표**
+5. **결과 확인 표** — 실행 화면 맨 아래(Summary)에 백업 개수와 복원 개수가 나란히 떠요. 모두 '✅'면 성공. 새 사이트 설정 › 백업 · 복원에도 같은 표가 남아요
+6. **Supabase 새 프로젝트 설정**
+   - Authentication › URL Configuration › Site URL = 사이트 주소, Redirect URLs에 사이트 주소 (예전 프로젝트와 같게)
+   - 예전에 메일 설정(SMTP)을 바꿨다면 다시
+7. **사이트를 새 프로젝트로 연결**
+   - Vercel › 프로젝트 › Settings › Environment Variables: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` ← 새 값 → Deployments › Redeploy
+   - `assets/config.js`: `SUPABASE_URL`, `SUPABASE_ANON_KEY` ← 새 값 → GitHub에 올리기
+   - VAPID 키 · CRON_SECRET은 **그대로** 두세요 (그래야 팀원 폰 알림이 이어져요)
+8. **GitHub Secrets 정리** — `SUPABASE_DB_URL` · `SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY`를 새 프로젝트 것으로(다음 백업이 새 프로젝트를 받아요). `RESTORE_…` 3개는 지우기
+9. **확인** — 리더십 · 팀원 로그인(비밀번호 그대로, 한 번 다시 로그인), 콘티 악보 열기, 공지 테스트 알림, Supabase SQL Editor에서 `select jobname from cron.job;`
+
+잃는 것: 마지막 백업 뒤에 바뀐 것(최대 1주일). 그래서 큰 작업(배치표 공개 · 콘티 마감) 직후라면 Run workflow로 바로 백업해 두면 좋아요.
+
+## 4. 이관 — 팀장 교체 · 팀 계정으로 옮기기
+
+### 4-0. 먼저 팀 계정
+
+- 팀 Gmail(예: pole2worship@gmail.com)을 만들고 2단계 인증. 비밀번호는 리더십 둘 이상이 아는 곳에
+- 그 Gmail로 GitHub · Vercel · Supabase에 가입
+
+### 방법 A. 소유권 넘기기 (추천)
+
+데이터 · 주소 · 팀원 앱이 그대로예요. 순서는 **Supabase → GitHub → Vercel**.
+
+1. **Supabase**
+   - 팀 계정으로 조직(Organization)을 만들고, 지금 계정을 그 조직에 **멤버로 초대 → 수락**
+   - 지금 계정으로 프로젝트 › Project Settings › General › **Transfer project** → 팀 계정 조직
+   - 조건: 옮기는 사람이 지금 조직의 Owner, 받는 조직의 멤버 · GitHub 연동 · 로그 드레인이 없어야 함 · 무료 조직은 무료 프로젝트 2개까지
+   - 무료 조직으로 옮기면 1~2분 멈출 수 있어요. 끝나면 로그인 · 콘티가 되는지 확인
+   - 옮긴 뒤 팀 계정 조직에서 지금 계정 권한을 정리 (다음 팀장을 Owner로)
+2. **GitHub**
+   - 저장소 › Settings › General › Danger Zone › **Transfer ownership** → 팀 계정
+   - 팀 계정이 **하루 안에** 메일로 수락해야 해요. 예전 주소는 새 주소로 자동 연결돼요
+   - Secrets는 저장소에 붙어 따라가요. 옮긴 뒤 Actions › DB 백업 › Run workflow로 한 번 확인
+3. **Vercel**
+   - Vercel 무료(Hobby)끼리는 프로젝트를 바로 넘길 수 없어요(넘기기는 받는 팀의 멤버여야 하고, Hobby는 멤버를 둘 수 없어요). 그래서
+   - 팀 계정 Vercel에서 Add New › Project › 옮긴 GitHub 저장소 Import
+   - 예전 프로젝트 Settings › Environment Variables 값을 그대로 옮겨 적기: `SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` · `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` · `CRON_SECRET` · (`YOUTUBE_API_KEY`)
+   - 새 프로젝트 기본 주소로 로그인 · 콘티를 확인한 뒤, 예전 프로젝트 Settings › Domains에서 `pole2worshipteam.vercel.app`을 빼고 바로 새 프로젝트 Domains에 넣기 (몇 분 안 되는 사이만 끊겨요)
+   - 일주일쯤 문제없으면 예전 Vercel 프로젝트 지우기
+   - 대안: Pro 체험으로 팀을 만들어 Transfer Project를 쓰면 중단 없이 넘어가요
+
+### 방법 B. 백업으로 새로 세우기
+
+예전 계정에 들어갈 수 없을 때(퇴임한 팀장 연락이 안 됨 등)만 써요.
+
+- 팀 계정으로 새 GitHub 저장소(코드 올리기) · 새 Supabase 프로젝트 · 새 Vercel 프로젝트를 만든 뒤 **3장 순서대로** 복원
+- 주의
+  - **사이트 주소가 바뀌어요**(예전 Vercel 프로젝트에서 도메인을 뺄 수 없으면). 그러면 팀원 홈 화면 앱 · 알림 구독 · 공유 링크를 새 주소로 다시 안내해야 해요
+  - **VAPID 키는 꼭 예전 값 그대로** 새 Vercel에 넣으세요. 바뀌면 팀원 모두 알림을 다시 켜야 해요
+  - 백업은 예전 저장소 Actions에 있어요. 예전 GitHub에 들어갈 수 없으면 복원할 백업도 없어요 — 그래서 평소에 팀 계정으로 옮겨 두는 게 중요해요
+  - 백업 암호(BACKUP_PASSPHRASE)를 모르면 백업을 열 수 없어요
+
+### 옮길 비밀값 목록
+
+설정 › 백업 · 복원 › **비밀값 메모**(최상위 리더십만 보여요)에 적어 둘 수 있어요.
+
+- Vercel 환경변수: `SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` · `VAPID_PUBLIC_KEY` · `VAPID_PRIVATE_KEY` · `VAPID_SUBJECT` · `CRON_SECRET` · `YOUTUBE_API_KEY`(선택)
+- GitHub Secrets: `SUPABASE_DB_URL` · `BACKUP_PASSPHRASE` · `SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` · `CRON_SECRET`
+- 그 밖: Supabase DB 비밀번호 · `assets/config.js`(Supabase 주소 · anon 키 — 공개돼도 되는 값)
+
+## 공식 문서
+
+- Supabase 프로젝트 넘기기: https://supabase.com/docs/guides/platform/project-transfer
+- Supabase 요금 · 무료 한도: https://supabase.com/pricing
+- GitHub 저장소 넘기기: https://docs.github.com/en/repositories/creating-and-managing-repositories/transferring-a-repository
+- GitHub Actions 보관 공간: https://docs.github.com/en/billing/concepts/product-billing/github-actions
+- Vercel 프로젝트 넘기기: https://vercel.com/docs/projects/transferring-projects

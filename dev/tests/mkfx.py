@@ -11,7 +11,7 @@ async def pdf(pg, name, html):
     await pg.pdf(path=FX + name, format="A4", print_background=True, margin={"top":"0","bottom":"0","left":"0","right":"0"})
 async def main():
     async with async_playwright() as p:
-        exe = os.popen("ls -d /opt/pw-browsers/chromium-*/chrome-linux/chrome").read().strip()
+        exe = os.popen("ls -d /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1").read().strip()
         b = await p.chromium.launch(executable_path=exe); pg = await b.new_page()
         await pdf(pg, "conti5.pdf", "".join(page(f"<h1>곡 {i}</h1>" + staff()) for i in range(1, 6)))
         await pdf(pg, "conti5b.pdf", "".join(page(f"<h1 style='font-size:60px'>다른 {i}</h1><div style='height:400px;background:#333'></div>" + staff(4), "#eee") for i in range(1, 6)))

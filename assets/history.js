@@ -334,7 +334,7 @@
       LS.sync(); press(keys, (v) => LF.keys.includes(v)); press(cnt, (v) => v === LF.cnt); press(med, (v) => v === LF.med); press(sort, (v) => v === LF.sort);
       const sdates = C.DATES.filter((d) => C.CDS.has(d) && LS.ok(d)), okD = new Set(sdates), qs = splitQ(q.value);
       const plays = C.P.filter((p) => okD.has(p.date) && (!LF.keys.length || LF.keys.includes(startKey(p.key))) && (LF.med === "all" || (LF.med === "medley") === p.medley)
-        && (!qs.length || qs.some((x) => (C.ST[p.sid] || "").toLowerCase().replace(/\s/g, "").includes(x))));
+        && (!qs.length || qs.some((x) => KO.match(C.ST[p.sid] || "", x))));
       const B = bucketsOf(sdates), G = new Map();
       plays.forEach((p) => {
         const g = G.get(p.sid) || { sid: p.sid, title: C.ST[p.sid] || p.title, dates: new Set(), keys: {}, leads: {}, b: {}, refs: new Map(), first: p.date, last: p.date, log: [] };
@@ -437,16 +437,16 @@
       if (!keep) lim = 20;
       HS.sync(); press(keys, (v) => HF.keys.includes(v)); press(nn, (v) => v === HF.n); press(sort, (v) => v === HF.sort);
       const qs = splitQ(q.value), ps = pq.value.split(",").map((x) => x.trim()).filter(Boolean);
-      const hit = (p) => qs.some((x) => (C.ST[p.sid] || "").toLowerCase().replace(/\s/g, "").includes(x));
+      const hit = (p) => qs.some((x) => KO.match(C.ST[p.sid] || "", x));
       let rows = C.DATES.filter(HS.ok).filter((d) => {
         const songs = byDate.get(d) || [];
-        if (qs.length && !qs.every((x) => songs.some((p) => (C.ST[p.sid] || "").toLowerCase().replace(/\s/g, "").includes(x)))) return false;
+        if (qs.length && !qs.every((x) => songs.some((p) => KO.match(C.ST[p.sid] || "", x)))) return false;
         if (HF.keys.length && !songs.some((p) => HF.keys.includes(startKey(p.key)))) return false;
         if (HF.n !== "all" && !songs.length) return false;
         if (HF.n === "3" && songs.length > 3) return false;
         if (HF.n === "5" && songs.length !== 5) return false;
         if (HF.n === "6" && songs.length < 6) return false;
-        if (ps.length) { const lu = LU.get(d); const names = new Set([...(lu ? lu.people.map((x) => x[0]) : []), ...(lu ? lu.lead : []), ...C.SV[d][0]]); if (!ps.every((x) => [...names].some((n) => n.includes(x)))) return false; }
+        if (ps.length) { const lu = LU.get(d); const names = new Set([...(lu ? lu.people.map((x) => x[0]) : []), ...(lu ? lu.lead : []), ...C.SV[d][0]]); if (!ps.every((x) => [...names].some((n) => KO.match(n, x)))) return false; }
         return true;
       });
       if (HF.sort === "new") rows.reverse();
@@ -516,7 +516,7 @@
       press(mode, (v) => v === F.mode);
       const s = qn();
       if (F.mode === "date") {
-        const rows = A.filter((x) => !s || x.norm.includes(s)).slice().reverse();
+        const rows = A.filter((x) => !s || x.norm.includes(s) || KO.match(x.title, q.value)).slice().reverse();
         list.replaceChildren(...(rows.length ? rows.slice(0, F.lim).map((x) => {
           const r = el("div", "hx-arow");
           r.append(el("b", "d", `${dot(x.date).slice(2)}${x.min ? ` ${x.min}` : ""}`));
@@ -528,7 +528,7 @@
         }) : [el("p", "muted", "찾는 적용찬양이 없어요.")]));
         more.hidden = rows.length <= F.lim;
       } else {
-        const rows = G.filter((g) => !s || g.norm.includes(s)).sort((a, b) => b.n - a.n || b.last.localeCompare(a.last));
+        const rows = G.filter((g) => !s || g.norm.includes(s) || KO.match(g.title, q.value)).sort((a, b) => b.n - a.n || b.last.localeCompare(a.last));
         list.replaceChildren(...(rows.length ? rows.slice(0, F.lim).map((g) => {
           const r = el("div", "hx-sc"), head = el("div", "hx-sch");
           head.append(el("div", "t", g.title));
@@ -635,7 +635,7 @@
       });
       let rows = [...P.values()].map((r) => ({ ...r, guest: r.gN === r.n, rate: svcs.length ? r.n / svcs.length : 0 }));
       if (F.guest === "member") rows = rows.filter((r) => !r.guest);
-      if (names.length) rows = rows.filter((r) => names.some((x) => r.name.includes(x)));
+      if (names.length) rows = rows.filter((r) => names.some((x) => KO.match(r.name, x)));
       const cmp = { n: (a, b) => b.n - a.n, rate: (a, b) => b.rate - a.rate, last: (a, b) => b.last.localeCompare(a.last), first: (a, b) => a.first.localeCompare(b.first), name: () => 0 }[F.sort];
       rows.sort((a, b) => cmp(a, b) || b.n - a.n || a.name.localeCompare(b.name, "ko"));
       if (F.sort === "name") rows.sort((a, b) => a.name.localeCompare(b.name, "ko"));

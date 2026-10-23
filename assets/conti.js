@@ -69,22 +69,76 @@
   };
 
   // ------------------------------------------------------------------ 025: BPM · 박자 · 메트로놈 · 화면 켜 두기
-  const METERS = ["4/4", "3/4", "6/8"];
-  const beatsOf = (m) => (m === "3/4" ? 3 : m === "6/8" ? 6 : 4);
+  const METERS = ["4/4", "3/4", "6/8", "1/4"];
+  const beatsOf = (m) => (m === "3/4" ? 3 : m === "6/8" ? 6 : m === "1/4" ? 1 : 4);
   const bpmText = (bpm, meter) => (bpm ? `♩=${bpm}${meter && meter !== "4/4" ? ` · ${meter}` : ""}` : "");
-  //  점을 누르면 깜빡임만 → 깜빡임 + 소리 → 끄기. 첫 박은 높은 소리. Web Audio로 박을 미리 예약해서 정확하게
+  // 026: 음원과 키 다름 = 키 뒤 '*'
+  const keyText = (x) => (x.key ? `${x.key}${x.diff_key ? "*" : ""}` : x.diff_key ? "*" : "–");
+  // 026: 메들리 묶음 — join_prev(앞 곡에 이어서)인 곡은 앞 번호 아래로. n = 묶음 번호
+  function groupInfo(items, i) {
+    let n = 0; for (let k = 0; k <= i; k++) if (!(k > 0 && items[k].join_prev)) n++;
+    const join = i > 0 && !!items[i].join_prev, head = !join && !!items[i + 1]?.join_prev;
+    return { n, join, head, medley: !!items[i].medley_id };
+  }
+  function groupsOf(items) {
+    const out = []; items.forEach((x, i) => { if (i > 0 && x.join_prev && out.length) out[out.length - 1].push(x); else out.push([x]); }); return out;
+  }
+  // 026: 카톡 복사 문구 — 'YYMMDD 찬양콘티' · 번호. 곡 키(*) · 레퍼런스 · 메들리는 '+ 곡 키' · 맨 아래 섬김이 팀 링크
+  function contiText(svc, links = []) {
+    const items = svc.setlist?.items || [];
+    const d = String(svc.date || "").slice(2).replace(/-/g, "");
+    const head = `${d} ${svc.ministry_id ? `${svc.ministry_name || "사역"}${svc.label ? " " + svc.label : ""} ` : ""}찬양콘티`;
+    const kt = (x) => (x.key || x.diff_key ? ` ${x.key || ""}${x.diff_key ? "*" : ""}` : "");
+    const blocks = groupsOf(items).map((g, n) => {
+      const lines = g.map((x, k) => `${k ? "+ " : `${n + 1}. `}${x.title}${kt(x)}`);
+      const ref = g.map((x) => x.refs?.[0]).find((r) => r?.[0]);
+      if (ref) lines.push(ytLink(ref[0], ref[1]));
+      return lines.join("\n");
+    });
+    const tail = links.length ? "\n\n" + links.map((l) => `${l.label}: ${shareUrl(l.token)}`).join("\n") : "";
+    return `${head}\n\n${blocks.join("\n\n")}${tail}`;
+  }
+  async function copyPop(svc) {
+    let links = [];
+    try { const { data } = await sb.rpc("conti_share_links", { p_service: svc.id }); links = data || []; } catch {}
+    const KEY = "pole2.copy.links", prev = ls.get(KEY);
+    const on = new Set(links.filter((l) => !prev || prev.includes(l.label)).map((l) => l.id));
+    const box = document.createElement("div"); box.className = "modal-back cp-back";
+    box.innerHTML = `<div class="modal cp-modal" role="dialog" aria-label="카톡으로 복사"><div class="modal-head"><b>카톡으로 복사</b><button type="button" class="ce-x" data-cp="close" aria-label="닫기">${ICO.x}</button></div>
+      ${links.length ? `<div class="field">섬김이 팀 링크 <span class="hint">· 붙일 팀만 골라요</span><div class="chips2" id="cpLinks">${links.map((l) => `<button type="button" data-cp-link="${l.id}" aria-pressed="${on.has(l.id)}">${esc(l.label)}</button>`).join("")}</div></div>`
+        : `<p class="small muted" style="margin:0">섬김이 팀 링크가 아직 없어요 · 리더십이 찬양 › 콘티 › 섬김이 팀 링크에서 만들어요</p>`}
+      <textarea class="input cp-text" id="cpText" rows="12" readonly></textarea>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm" data-cp="close">닫기</button><button type="button" class="btn btn-primary btn-sm" data-cp="copy">복사</button></div></div>`;
+    document.body.appendChild(box);
+    const draw = () => { box.querySelector("#cpText").value = contiText(svc, links.filter((l) => on.has(l.id))); };
+    draw();
+    box.addEventListener("click", async (e) => {
+      if (e.target === box || e.target.closest("[data-cp=close]")) return box.remove();
+      const l = e.target.closest("[data-cp-link]");
+      if (l) { const id = +l.dataset.cpLink; on.has(id) ? on.delete(id) : on.add(id); l.setAttribute("aria-pressed", String(on.has(id))); ls.set(KEY, links.filter((x) => on.has(x.id)).map((x) => x.label)); return draw(); }
+      if (e.target.closest("[data-cp=copy]")) { const ok = await copyText(box.querySelector("#cpText").value); toast(ok ? "콘티 문구를 복사했어요 · 카톡에 붙여 넣으세요" : "복사하지 못했어요 · 글을 길게 눌러 복사해 주세요", 3000); if (ok) box.remove(); }
+    });
+  }
+  //  점을 누르면 깜빡임만 → 깜빡임 + 소리 → 끄기. 첫 박은 높은 소리(1/4은 모든 박이 같은 소리). Web Audio로 박을 미리 예약해서 정확하게
+  //  026: 박 쪼개기 — 4분(그대로) · 8분 · 16분. 원래 박은 큰 소리, 쪼갠 박은 작은 소리. 사람마다 (이 기기에 저장)
+  const SUBS = [1, 2, 4];
+  const SUB_LABEL = { 1: "♩", 2: "♪♪", 4: "♬♬" };
+  const SUB_NAME = { 1: "쪼개기 없음", 2: "8분음표로 쪼개기", 4: "16분음표로 쪼개기" };
   const METRO = (() => {
-    const st = Object.assign({ mode: 0, vol: 0.6 }, ls.get("pole2.metro") || {});
+    const st = Object.assign({ mode: 0, vol: 0.6, sub: 1 }, ls.get("pole2.metro") || {});
     if (![0, 1, 2].includes(st.mode)) st.mode = 0;
+    if (!SUBS.includes(st.sub)) st.sub = 1;
     st.mode = 0;   // 열 때마다 꺼진 상태로 시작
-    let ctx = null, gain = null, timer = 0, raf = 0, bpm = 0, beats = 4, t0 = 0, aT0 = 0, nextBeat = 0, lastN = -1, clicks = 0;
+    let ctx = null, gain = null, timer = 0, raf = 0, bpm = 0, beats = 4, flat = false, t0 = 0, aT0 = 0, nextTick = 0, lastN = -1, clicks = 0, subClicks = 0;
     const els = new Set();
-    const save = () => ls.set("pole2.metro", { vol: st.vol });
+    const save = () => ls.set("pole2.metro", { vol: st.vol, sub: st.sub });
     const MODE = ["메트로놈 꺼짐", "깜빡임", "깜빡임 + 소리"];
     function paint() {
       els.forEach((el) => { if (!document.body.contains(el)) return els.delete(el);
         el.className = `cvv-dot m${st.mode}`; el.setAttribute("aria-label", `메트로놈: ${MODE[st.mode]}`); el.title = MODE[st.mode];
-        const v = el.parentElement?.querySelector(".cvv-vol"); if (v) { v.classList.toggle("hidden", st.mode !== 2); v.value = String(Math.round(st.vol * 100)); } });
+        const box = el.parentElement;
+        const v = box?.querySelector(".cvv-vol"); if (v) { v.classList.toggle("hidden", st.mode !== 2); v.value = String(Math.round(st.vol * 100)); }
+        const s = box?.querySelector(".cvv-sub"); if (s) { s.classList.toggle("hidden", st.mode !== 2); s.textContent = SUB_LABEL[st.sub]; s.setAttribute("aria-label", `박 쪼개기: ${SUB_NAME[st.sub]}`); s.title = SUB_NAME[st.sub]; s.setAttribute("aria-pressed", String(st.sub > 1)); } });
     }
     function flash(acc) { els.forEach((el) => { el.classList.add("on"); el.classList.toggle("acc", acc); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove("on", "acc"), Math.min(120, 30000 / bpm)); }); }
     function audio() {
@@ -96,11 +150,15 @@
       if (ctx.state === "suspended") ctx.resume().catch(() => {});
       return ctx;
     }
-    function click(t, n) {
-      const o = ctx.createOscillator(), g = ctx.createGain(), i = n % beats;
-      o.frequency.value = i === 0 ? 1760 : beats === 6 && i === 3 ? 1320 : 1000;
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
-      o.connect(g); g.connect(gain); o.start(t); o.stop(t + 0.08); clicks++;
+    // k = 쪼갠 박 번호. 원래 박(k % sub = 0)은 큰 소리, 쪼갠 박은 낮고 작은 소리
+    function click(t, k, sub) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      const main = k % sub === 0, i = Math.floor(k / sub) % beats;
+      const peak = main ? 1 : 0.32;
+      o.frequency.value = !main ? 800 : flat ? 1000 : i === 0 ? 1760 : beats === 6 && i === 3 ? 1320 : 1000;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + (main ? 0.06 : 0.035));
+      o.connect(g); g.connect(gain); o.start(t); o.stop(t + 0.08);
+      if (main) clicks++; else subClicks++;
     }
     function stop() { clearInterval(timer); cancelAnimationFrame(raf); timer = 0; raf = 0; lastN = -1; }
     function start() {
@@ -108,24 +166,26 @@
       if (!st.mode || !bpm) return paint();
       const per = 60 / bpm;
       if (st.mode === 2 && audio()) {
-        aT0 = ctx.currentTime + 0.08; t0 = performance.now() + 80; nextBeat = 0;
-        const sched = () => { while (aT0 + nextBeat * per < ctx.currentTime + 0.15) { click(aT0 + nextBeat * per, nextBeat); nextBeat++; } };
+        const sub = st.sub, step = per / sub;
+        aT0 = ctx.currentTime + 0.08; t0 = performance.now() + 80; nextTick = 0;
+        const sched = () => { while (aT0 + nextTick * step < ctx.currentTime + 0.15) { click(aT0 + nextTick * step, nextTick, sub); nextTick++; } };
         sched(); timer = setInterval(sched, 25);
       } else t0 = performance.now();
       const loop = () => {
         const n = Math.floor((performance.now() - t0) / (per * 1000));
-        if (n >= 0 && n !== lastN) { lastN = n; flash(n % beats === 0); }
+        if (n >= 0 && n !== lastN) { lastN = n; flash(!flat && n % beats === 0); }
         raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop); paint();
     }
     return {
       bind(el) { els.add(el); paint(); },
-      set(b, meter) { const nb = +b || 0, nm = beatsOf(meter); if (nb === bpm && nm === beats) return; bpm = nb; beats = nm; start(); },
+      set(b, meter) { const nb = +b || 0, nm = beatsOf(meter), nf = meter === "1/4"; if (nb === bpm && nm === beats && nf === flat) return; bpm = nb; beats = nm; flat = nf; start(); },
       cycle() { st.mode = (st.mode + 1) % 3; if (st.mode === 2) audio(); save(); start(); return st.mode; },
+      cycleSub() { st.sub = SUBS[(SUBS.indexOf(st.sub) + 1) % SUBS.length]; save(); start(); return st.sub; },
       volume(v) { st.vol = Math.max(0, Math.min(1, v)); if (gain) gain.gain.value = st.vol; save(); },
       off() { st.mode = 0; stop(); paint(); },
-      get state() { return { mode: st.mode, bpm, beats, running: !!raf, audio: ctx ? ctx.state : null, clicks, vol: st.vol }; },
+      get state() { return { mode: st.mode, bpm, beats, flat, sub: st.sub, running: !!raf, audio: ctx ? ctx.state : null, clicks, subClicks, vol: st.vol }; },
     };
   })();
   // 악보 보는 동안 화면이 꺼지지 않게 (지원하는 기기만)
@@ -297,7 +357,9 @@
     return data;
   }
   const rtOf = (items) => items.reduce((a, x) => a + (x.duration_sec || 0), 0);
-  const unknownN = (items) => items.filter((x) => !x.duration_sec).length;
+  // 026: 메들리 첫 곡은 메들리 악보 (뒤 곡은 그 곡 악보)
+  const sheetsOf = (E, x) => E.sheets[x.medley_id && !x.join ? "m" + x.medley_id : x.song_id] || [];
+  const unknownN = (items) => items.filter((x) => !x.duration_sec && x.duration_src !== "medley").length;
 
   // =================================================================== 팀원: 이번 주 콘티
   const W = { focus: null };
@@ -341,14 +403,16 @@
           <span class="chip chip-${dl.cls === "bad" ? "warn" : dl.cls === "warn" ? "warn" : "gray"}">${dl.text}</span></div>`}
       ${editBtn ? `<div class="cv-editrow">${editBtn}${f.can_edit && !pub && sl ? `<span class="small muted">임시 저장은 팀원에게 안 보여요</span>` : !f.can_edit && f.can_edit_sheets ? `<span class="small muted">이 예배 밴드는 악보를 고칠 수 있어요 · 곡 · 키 · 순서는 인도자가</span>` : ""}</div>` : ""}
       ${pub || (f.can_edit && items.length) ? `<section class="card"><div class="card-title cv-ct">곡 순서 <span class="cv-chips">${changed ? `<span class="chip chip-mid" title="${esc(changed.text.join(" · "))}">수정됨 · ${esc(changed.text.slice(0, 2).join(" · "))}${changed.text.length > 2 ? " 외" : ""}</span>` : !pub ? `<span class="chip chip-gray">임시 저장</span>` : ""}${shChg ? `<span class="chip chip-violet" title="${esc(fmtDateTime(shChg.at))}${shChg.by ? " · " + esc(shChg.by) : ""}">악보 바뀜 · ${esc(fmtDateTime(shChg.at))}</span>` : ""}</span></div>
-        <div class="cv-slist">${items.map((x, i) => `<div class="cv-srow">
-          <span class="cv-sn">${i + 1}</span>
+        <div class="cv-slist">${items.map((x, i) => { const gi = groupInfo(items, i); return `<div class="cv-srow ${gi.join ? "join" : ""}">
+          <span class="cv-sn">${gi.join ? "+" : gi.n}</span>
           <button type="button" class="cv-st" data-cv-song="${x.song_id}"><b>${esc(x.title)}</b>
-            <small>${x.sheet_pages ? `${x.sheet_pages}쪽` : "악보 없음"}${x.duration_sec ? ` · ${mmss(x.duration_sec)}` : ""}${x.medley ? " · 메들리" : ""}</small></button>
-          ${x.refs?.[0]?.[0] ? `<a class="cv-yt" href="${ytLink(x.refs[0][0], x.refs[0][1])}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${ICO.play}레퍼런스</a>` : "<span></span>"}
+            <small>${gi.join ? `앞 곡에 이어서${gi.medley ? "" : ""}` : `${x.sheet_pages ? `${x.sheet_pages}쪽` : "악보 없음"}${x.duration_sec ? ` · ${mmss(x.duration_sec)}` : ""}${gi.head ? ` · 메들리${x.medley_title ? ` '${esc(x.medley_title)}'` : ""}` : ""}`}</small></button>
+          ${!gi.join && x.refs?.[0]?.[0] ? `<a class="cv-yt" href="${ytLink(x.refs[0][0], x.refs[0][1])}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${ICO.play}레퍼런스</a>` : "<span></span>"}
           ${x.bpm || (pub && f.can_edit_sheets) ? `<button type="button" class="cv-bpm ${x.bpm ? "" : "none"}" data-cv-bpm="${x.ord}" ${pub && f.can_edit_sheets ? "" : "disabled"} aria-label="${esc(x.title)} BPM${x.bpm ? " " + x.bpm : " 입력"}">${x.bpm ? esc(bpmText(x.bpm, x.meter)) : "BPM"}</button>` : "<span></span>"}
-          <span class="cv-key ${keySongs.has(x.song_id) ? "chg" : ""}">${esc(x.key || "–")}</span>
-          ${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`).join("") || `<p class="muted small" style="margin:0">곡이 아직 없어요.</p>`}</div></section>` : ""}
+          <span class="cv-key ${keySongs.has(x.song_id) ? "chg" : ""}" ${x.diff_key ? `title="음원과 키가 달라요"` : ""}>${esc(keyText(x))}</span>
+          ${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`; }).join("") || `<p class="muted small" style="margin:0">곡이 아직 없어요.</p>`}</div>
+        ${items.some((x) => x.diff_key) ? `<p class="small muted cv-dk">* 음원(레퍼런스)과 키가 달라요</p>` : ""}
+        ${f.can_edit && items.length ? `<div class="cv-copyrow"><button type="button" class="btn btn-soft btn-sm" data-cv-copy>카톡으로 복사</button><span class="small muted">찬양팀 방에 붙여 넣는 콘티 문구 · 섬김이 팀 링크를 골라 붙일 수 있어요</span></div>` : ""}</section>` : ""}
       ${appliedCard(f)}
       ${procCard(f)}
       ${(f.lineup || []).length ? `<section class="card"><div class="card-title cv-ct">라인업</div><div class="cv-lu">${lineupHTML(f.lineup, me?.id)}</div></section>` : ""}
@@ -365,6 +429,7 @@
       const sb2 = e.target.closest("[data-cv-song]"); if (sb2) return songDetail(+sb2.dataset.cvSong);
       const at = e.target.closest("[data-cv-at]"); if (at) return openViewer(f, { at: at.dataset.cvAt });
       if (e.target.closest("[data-cv-applied]")) return openApplied(f, { after: () => mountWeek(root, { me }) });
+      if (e.target.closest("[data-cv-copy]")) return copyPop(f);
       // 025: BPM · 박자 (인도자 · 밴드 마스터 · 리더십 · 그 예배 밴드)
       const bp = e.target.closest("[data-cv-bpm]");
       if (bp && !bp.disabled) { const it = items.find((x) => x.ord === +bp.dataset.cvBpm); return bpmPop(bp, it, async (b, m) => { await saveBpm(f, it.ord, b, m); toast(b ? `${it.title} ${bpmText(b, m)} · 팀 기준으로 저장했어요` : "BPM을 지웠어요"); mountWeek(root, { me }); }); }
@@ -406,13 +471,18 @@
   function viewerItems(svc) {
     const sl = svc.setlist, pub = sl?.status === "published";
     const leader = (svc.lineup || []).find((x) => x.pos === "leader")?.name || "";
-    const out = (pub || svc.can_edit ? sl?.items || [] : []).map((x, i) => ({ id: `c:${i}`, tag: String(i + 1), title: x.title, key: x.key, ord: x.ord ?? i + 1, bpm: x.bpm, meter: x.meter, song: true,
+    // 026: 메들리 — 뒤 곡은 '+' 칩. 뒤 곡에 악보가 없으면(합친 악보) 앞 칩 이름에 이어 붙임
+    const src0 = pub || svc.can_edit ? sl?.items || [] : [];
+    const out = src0.map((x, i) => ({ id: `c:${i}`, tag: groupInfo(src0, i).join ? "+" : String(groupInfo(src0, i).n), join: groupInfo(src0, i).join, title: x.title, key: keyText(x) === "–" ? "" : keyText(x), ord: x.ord ?? i + 1, bpm: x.bpm, meter: x.meter, song: true,
       src: x.sheet_path ? Array.from({ length: x.sheet_pages || 1 }, (_, k) => ({ path: x.sheet_path, p: k + 1,
         // 내 메모: 원래 악보 기준 (필기본이 새로 생겨도 이어서 보여요)
         ink: x.sheet_id ? { key: `s:${x.sheet_base || x.sheet_id}`, page: k + 1, song: x.song_id } : null,
         // 025: 공유 필기 — 그 예배 날짜 기준
         shared: x.sheet_id ? { sheet: x.sheet_id, page: k + 1, date: svc.date, svc: svc.id, canEdit: !!svc.can_edit_sheets && pub, canEraseAll: !!svc.can_edit,
           kind: x.sheet_kind, name: x.sheet_name, defName: `${leader || "인도자"} ${x.key || ""}`.trim() } : null })) : [] }));
+    for (let k = out.length - 1; k > 0; k--) if (out[k].join && !out[k].src.length && out[k - 1].song) {
+      out[k - 1].title += ` + ${out[k].title}`; if (out[k].key) out[k - 1].key = [out[k - 1].key, out[k].key].filter(Boolean).join(" / "); out.splice(k, 1);
+    }
     (svc.applied || []).forEach((x) => out.push({ id: `a:${x.id}`, tag: "적용", kind: "applied", title: x.title, key: x.key,
       src: (x.images || []).map((img, k) => ({ img, ink: { key: `a:${x.id}`, page: k + 1, anorm: x.norm || null } })) }));
     const special = !!svc.ministry_id;
@@ -467,7 +537,7 @@
       const x = items[pages[V.cur]?.i];
       if (!x?.song) { box.innerHTML = ""; box.classList.add("hidden"); METRO.set(0); return; }
       box.classList.remove("hidden");
-      box.innerHTML = x.bpm ? `<button type="button" class="cvv-bpm" data-cvv="bpm" ${canBpm ? "" : "disabled"} aria-label="BPM ${x.bpm}${canBpm ? " 고치기" : ""}"><b>♩=${x.bpm}</b>${x.meter && x.meter !== "4/4" ? `<small>${esc(x.meter)}</small>` : ""}</button><button type="button" class="cvv-dot" data-cvv="metro"></button><input type="range" class="cvv-vol hidden" min="0" max="100" aria-label="메트로놈 음량">`
+      box.innerHTML = x.bpm ? `<button type="button" class="cvv-bpm" data-cvv="bpm" ${canBpm ? "" : "disabled"} aria-label="BPM ${x.bpm}${canBpm ? " 고치기" : ""}"><b>♩=${x.bpm}</b>${x.meter && x.meter !== "4/4" ? `<small>${esc(x.meter)}</small>` : ""}</button><button type="button" class="cvv-dot" data-cvv="metro"></button><button type="button" class="cvv-sub hidden" data-cvv="sub"></button><input type="range" class="cvv-vol hidden" min="0" max="100" aria-label="메트로놈 음량">`
         : canBpm ? `<button type="button" class="cvv-bpm none" data-cvv="bpm">BPM 입력</button>` : "";
       const dot = box.querySelector(".cvv-dot"); if (dot) METRO.bind(dot);
       METRO.set(x.bpm || 0, x.meter);
@@ -499,6 +569,7 @@
     el.addEventListener("click", (e) => {
       const b = e.target.closest("[data-cvv]"); if (b) { const a = b.dataset.cvv; if (a === "close") return closeLayer(); if (a === "prev") return go(V.cur - 1); if (a === "next") return go(V.cur + 1);
         if (a === "backup") { closeLayer(); return setTimeout(() => CONTI.onBackup?.(), 300); }
+        if (a === "sub") { const n = METRO.cycleSub(); toast(SUB_NAME[n] + (n > 1 ? " · 쪼갠 박은 작은 소리" : ""), 1600); return; }
         if (a === "metro") { const m = METRO.cycle(); toast(["메트로놈을 껐어요", "박자에 맞춰 깜빡여요", "소리도 나요 · 예배 중에는 이어폰으로 · 무음 모드면 안 들릴 수 있어요"][m], m === 2 ? 4000 : 1800); return; }
         if (a === "bpm" && canBpm) { const x = items[pages[V.cur].i]; return bpmPop(b, x, async (bpm, meter) => { await saveBpm(svc, x.ord, bpm, meter); x.bpm = bpm; x.meter = bpm ? meter : null; drawBpm(); toast(bpm ? `${x.title} ${bpmText(bpm, meter)} · 팀 기준으로 저장했어요` : "BPM을 지웠어요"); }); }
         return; }
@@ -581,7 +652,7 @@
       const q = anorm(e.target.value), box = $("#apHint", el);
       if (!q) { box.innerHTML = ""; return; }
       const same = SUG.find((x) => x.norm === q);
-      const near = SUG.filter((x) => x.norm !== q && (x.norm.includes(q) || q.includes(x.norm))).slice(0, 4);
+      const near = SUG.filter((x) => x.norm !== q && (x.norm.includes(q) || q.includes(x.norm) || KO.match(x.title, e.target.value))).slice(0, 4);
       box.innerHTML = `${same ? `<span class="chip chip-ok">같은 곡으로 묶여요 · 지금까지 ${same.n}번</span>` : `<span class="chip chip-gray">처음 쓰는 이름</span>`}${near.map((x) => `<button type="button" class="pillbtn" data-ap-pick="${esc(x.title)}">${esc(x.title)} · ${x.n}번</button>`).join("")}`;
     });
     el.addEventListener("change", (e) => { if (e.target.id === "apFiles") $("#apPicked", el).textContent = e.target.files.length ? `사진 ${e.target.files.length}장 · 순서대로 이어서 보여요` : "고른 사진 없음"; });
@@ -631,6 +702,7 @@
     ]);
     if (!song) return toast("곡을 찾을 수 없어요");
     const st = H?.songs.find((x) => x.id === songId);
+    const inMd = ((await sb.rpc("medley_list")).data || []).filter((m) => m.songs.some((x) => x.song_id === songId));
     const orig = (sheets || []).filter((x) => x.kind === "original"), saved = (sheets || []).filter((x) => x.kind === "sheet");
     const log = H ? H.plays.filter((p) => p[2] === songId).sort((a, b) => b[0].localeCompare(a[0])) : [];
     const sheetRow = (x) => `<div class="cv-sheet"><span class="cv-thumb ${x.thumb ? "" : "none"}">${x.thumb ? `<img src="${x.thumb}" alt="">` : ""}</span>
@@ -640,6 +712,7 @@
       <div class="cvs-body">
         <div class="cvs-head"><h2>${esc(song.title)}</h2><span class="small muted">${[song.main_key || st?.key_main ? `주로 부른 키 ${esc(song.main_key || st.key_main)}` : "", st?.keys ? esc(st.keys) : "", st?.leaders ? `인도 ${esc(st.leaders)}` : ""].filter(Boolean).join(" · ")}</span></div>
         <div class="cvs-kpis"><div><span>부른 횟수</span><b>${st?.count || 0}</b></div><div><span>최근 1년</span><b>${st?.last12 || 0}</b></div><div><span>마지막</span><b>${st?.last ? md(st.last) : "–"}</b><small>${st?.last ? `${st.days_since}일 전` : ""}</small></div><div><span>곡 시간</span><b>${song.team_sec ? mmss(song.team_sec) : "–"}</b><small>${song.team_sec ? "팀 기준" : ""}</small></div><div><span>BPM</span><b>${song.team_bpm || "–"}</b><small>${song.team_bpm ? `${esc(song.team_meter || "4/4")} · 팀 기준` : ""}</small></div></div>
+        ${inMd.length ? `<section class="card"><div class="card-title cv-ct">메들리 <small>이 곡이 든 메들리 · 합친 악보는 메들리에</small></div>${inMd.map((m) => `<button type="button" class="cv-prow" data-sd-md="${m.id}"><span class="cv-ptag">메들리</span><span class="cv-st2"><b>${esc(m.title)}</b><small>${m.used || 0}번 · 악보 ${m.sheets || 0}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}
         <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 깨끗한 악보 · 키별</small></div>
           ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
           ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf" id="sdOrig" hidden></label>` : ""}</section>
@@ -652,6 +725,7 @@
       </div>`);
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-sd=close]")) return closeLayer();
+      const mdb = e.target.closest("[data-sd-md]"); if (mdb) return medleyDetail(+mdb.dataset.sdMd);
       const v = e.target.closest("[data-sd-view]");
       if (v) { const x = (sheets || []).find((s) => s.id === +v.dataset.sdView); if (x) { openViewer(null, { single: { title: `${song.title} · ${x.name}`, key: x.key, path: x.path, pages: x.pages, ink: x.kind === "sheet" ? { key: `s:${x.base_id || x.id}`, song: song.id } : null, shared: x.kind === "sheet" ? { sheet: x.id, date: todayISO(), canEdit: false } : null } }); } }
     });
@@ -672,6 +746,50 @@
     });
   }
 
+  // =================================================================== 026: 메들리 상세 (합친 악보 · 원본 · 레퍼런스 · 곡)
+  async function medleyDetail(mid) {
+    const [{ data: list }, { data: sheets }, up] = await Promise.all([sb.rpc("medley_list"), sb.rpc("medley_sheets", { p_ids: [mid] }), canUpload().catch(() => false)]);
+    const m = (list || []).find((x) => x.id === mid); if (!m) return toast("메들리를 찾을 수 없어요");
+    const orig = (sheets || []).filter((x) => x.kind === "original"), saved = (sheets || []).filter((x) => x.kind === "sheet");
+    const sheetRow = (x) => `<div class="cv-sheet"><span class="cv-thumb ${x.thumb ? "" : "none"}">${x.thumb ? `<img src="${x.thumb}" alt="">` : ""}</span>
+        <span class="cv-st2"><b>${esc(x.name)}</b><small>${x.kind === "original" ? `${x.key ? esc(x.key) + " · " : ""}필기 없음 · ${x.pages}쪽` : `${x.from_date ? md(x.from_date) + " · " : ""}${x.pages}쪽 · ${x.used}번 씀${x.ink ? ` · 필기 ${x.ink}` : ""}`}</small></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-md-view="${x.id}">보기</button></div>`;
+    const el = openLayer("cv-sheetpage", `<div class="cvs-top"><button type="button" class="cvv-back light" data-md="close" aria-label="닫기">${ICO.back}</button><b>메들리</b></div>
+      <div class="cvs-body">
+        <div class="cvs-head"><h2>${esc(m.title)}</h2><span class="small muted">${m.songs.map((x) => `${esc(x.title)}${x.key ? " " + esc(x.key) : ""}`).join(" + ")}</span></div>
+        <div class="cvs-kpis"><div><span>부른 횟수</span><b>${m.used || 0}</b></div><div><span>마지막</span><b>${m.last ? md(m.last) : "–"}</b></div><div><span>메들리 시간</span><b>${m.team_sec ? mmss(m.team_sec) : "–"}</b><small>${m.team_sec ? "예상 RT에 이 시간 하나로" : ""}</small></div></div>
+        <section class="card"><div class="card-title cv-ct">곡 <small>통계 · 부른 기록은 곡마다 따로 쌓여요</small></div>
+          ${m.songs.map((x) => `<button type="button" class="cv-prow" data-md-song="${x.song_id}"><span class="cv-ptag">${x.key ? esc(x.key) : "곡"}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${x.team_bpm ? esc(bpmText(x.team_bpm, x.team_meter)) : ""}</small></span><span class="cv-go">곡 보기</span></button>`).join("")}</section>
+        ${m.ref_yt ? `<section class="card"><div class="card-title cv-ct">레퍼런스</div><div class="cv-ref"><a class="hx-yt" href="${ytLink(m.ref_yt, m.ref_start)}" target="_blank" rel="noopener">▶ 영상</a></div></section>` : ""}
+        <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 합친 악보</small></div>
+          ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
+          ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf" id="mdOrig" hidden></label>` : ""}</section>
+        <section class="card"><div class="card-title cv-ct">저장된 악보 <small>콘티에서 메들리로 저장한 것</small></div>
+          ${saved.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요. 콘티에 이 메들리를 넣고 통합본을 올리면 쌓여요.</p>`}</section>
+      </div>`);
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("[data-md=close]")) return closeLayer();
+      const sg = e.target.closest("[data-md-song]"); if (sg) return songDetail(+sg.dataset.mdSong);
+      const v = e.target.closest("[data-md-view]");
+      if (v) { const x = (sheets || []).find((q) => q.id === +v.dataset.mdView); if (x) openViewer(null, { single: { title: `${m.title} · ${x.name}`, key: x.key, path: x.path, pages: x.pages, ink: x.kind === "sheet" ? { key: `s:${x.base_id || x.id}` } : null, shared: x.kind === "sheet" ? { sheet: x.id, date: todayISO(), canEdit: false } : null } }); }
+    });
+    $("#mdOrig", el)?.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0]; if (!file) return;
+      const key = (prompt("이 원본 악보의 키를 적어 주세요 (예: G-A)", m.songs.map((x) => x.key).filter(Boolean).join("-")) || "").trim();
+      try {
+        toast("올리는 중…", 8000);
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const doc = await (await pdfjs()).getDocument({ data: bytes.slice() }).promise;
+        const path = `originals/${m.songs[0].song_id}/${uuid()}.pdf`;
+        const { error } = await sb.storage.from("sheets").upload(path, bytes, { contentType: "application/pdf", upsert: false });
+        if (error) throw new Error("파일을 올리지 못했어요");
+        const { error: e2 } = await sb.rpc("add_medley_original", { p_medley: mid, p_key: key || null, p_name: `원본${key ? " " + key : ""}`, p_path: path, p_pages: doc.numPages, p_size: bytes.length, p_thumb: await thumbOf(doc) });
+        if (e2) throw new Error(e2.message);
+        toast("원본 악보를 올렸어요"); medleyDetail(mid);
+      } catch (err) { toast(err.message || "올리지 못했어요", 4000); }
+    });
+  }
+
   // =================================================================== 콘티 작성 (인도자 · 밴드 마스터 · 리더십)
   async function openEditor(sid, { after } = {}) {
     let svc;
@@ -679,14 +797,14 @@
     // 023: 그 예배 밴드는 올라온 콘티의 악보만 고쳐요 (곡 · 키 · 순서 · 메모는 그대로)
     const sheetsOnly = !svc.can_edit && !!svc.can_edit_sheets && svc.setlist?.status === "published";
     if (!svc.can_edit && !sheetsOnly) return toast(svc.can_edit_sheets ? "콘티가 올라온 뒤에 악보를 고칠 수 있어요" : "이 예배의 콘티를 고칠 수 있는 사람이 아니에요", 4000);
-    const [sr, H, meRes] = await Promise.all([sb.from("songs").select("id, title, main_key, team_sec, team_bpm, team_meter").order("title"), HISTORY.load().catch(() => null), sb.auth.getUser()]);
+    const [sr, H, meRes, mr] = await Promise.all([sb.from("songs").select("id, title, main_key, team_sec, team_bpm, team_meter").order("title"), HISTORY.load().catch(() => null), sb.auth.getUser(), sb.rpc("medley_list")]);
     const stats = new Map((H?.songs || []).map((x) => [x.id, x]));
     const songs = (sr.data || []).map((x) => ({ ...x, st: stats.get(x.id) }));
     const sl = svc.setlist;
     const E = {
-      svc, base: sl ? sl.version : null, pub: sl?.status === "published", songs, stats,
+      svc, base: sl ? sl.version : null, pub: sl?.status === "published", songs, stats, medleys: mr?.data || [],
       target: sl?.target_sec ?? null, targetDefault: svc.target_sec, sheets: {}, yt: {}, ranges: {}, ytConfigured: true,
-      items: (sl?.items || []).map((x) => ({ song_id: x.song_id, title: x.title, key: x.key || "", medley: x.medley, refs: x.refs || [], dur: x.duration_sec, src: x.duration_src,
+      items: (sl?.items || []).map((x, i) => ({ song_id: x.song_id, title: x.title, key: x.key || "", medley: x.medley, join: i > 0 && !!x.join_prev, medley_id: x.medley_id || null, medley_title: x.medley_title || null, diff: !!x.diff_key, refs: x.refs || [], dur: x.duration_sec, src: x.duration_src,
         memo: x.memo || "", sheet: x.sheet_id ? { mode: "saved", id: x.sheet_id } : sl?.status === "published" ? { mode: "none" } : { mode: "new", name: "" }, page_from: x.page_from, page_to: x.page_to,
         bpm: x.bpm ?? null, meter: x.meter || (x.bpm ? "4/4" : null), bpm0: x.bpm ?? null, meter0: x.meter || (x.bpm ? "4/4" : null) })),
       up: null, dirty: false, open: null, preview: null, more: null, q: "", sheetsOnly,
@@ -699,6 +817,7 @@
     if (saved && saved.base === E.base && saved.items?.length && (!sheetsOnly || saved.items.map((x) => x.song_id).join() === E.items.map((x) => x.song_id).join())) { E.items = saved.items; E.target = saved.target ?? E.target; restored = true; }
     const leaderName = (svc.lineup || []).find((x) => x.pos === "leader")?.name || "";
     await loadSongMeta(E, E.items.map((x) => x.song_id));
+    await loadMedleyMeta(E, E.items.filter((x) => x.medley_id && !x.join).map((x) => x.medley_id));
     const el = openLayer("cv-editor", `<header class="ce-top"><button type="button" class="cvv-back light" data-ce="close" aria-label="닫기">${ICO.back}</button>
         <span><span class="small muted">${esc(svcShort(svc))}</span><b>${esc(svcTitle(svc))} ${sheetsOnly ? "악보 고치기" : `콘티 ${E.pub ? "고치기" : "쓰기"}`}${E.past ? ` <span class="chip chip-gray">지난 예배</span>` : ""}</b></span></header>
       <div class="ce-body" id="ceBody"></div>
@@ -707,9 +826,29 @@
     const persist = () => { E.dirty = true; ls.set(DKEY, { base: E.base, target: E.target, items: E.items.map(({ title, ...x }) => ({ title, ...x })), at: Date.now() }); };
     const target = () => E.target ?? E.targetDefault;
     const songById = (id) => E.songs.find((x) => x.id === id);
+    const gnum = (i) => { let n = 0; for (let k = 0; k <= i; k++) if (!(k > 0 && E.items[k].join)) n++; return n; };
+    // 026: 묶음 정리 — 맨 앞은 이어서 아님, 메들리 id가 묶음 전체에 같지 않으면 그냥 이어 붙인 묶음으로. 뒤 곡 시간은 0, 첫 곡은 묶음 합계(직접 · 메들리 기준이 아니면)
+    function regroup() {
+      if (E.items[0]) E.items[0].join = false;
+      let g = [];
+      const flush = () => {
+        if (!g.length) return;
+        const ids = new Set(g.map((x) => x.medley_id || 0));
+        if (g.length === 1 || ids.size > 1 || ids.has(0)) g.forEach((x) => { if (g.length === 1 || ids.size > 1) { x.medley_id = null; x.medley_title = null; } });
+        const h = g[0];
+        g.slice(1).forEach((x) => { x.dur = 0; x.src = "medley"; });
+        if (g.length > 1 && h.src !== "manual" && !(h.medley_id && h.src === "team")) {
+          const parts = g.map((x) => recompute(E, { ...x, join: false, medley_id: null }).dur);
+          h.dur = parts.every(Boolean) ? parts.reduce((a, b) => a + b, 0) : parts.find(Boolean) ? parts.reduce((a, b) => a + (b || 0), 0) : null; h.src = h.dur ? "medley" : null;
+        }
+        if (g.length === 1 && h.src === "medley") Object.assign(h, recompute(E, h));
+        g = [];
+      };
+      E.items.forEach((x, i) => { if (!(i > 0 && x.join)) flush(); g.push(x); }); flush();
+    }
 
     function rtCard() {
-      const total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), unk = E.items.filter((x) => !x.dur).length, tg = target();
+      const total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), unk = E.items.filter((x) => !x.dur && !x.join).length, tg = target();
       const pct = tg ? Math.min(100, Math.round(100 * total / Math.max(tg, total || 1))) : 0, tick = tg ? Math.min(100, Math.round(100 * tg / Math.max(tg, total))) : 0;
       const diff = tg ? tg - total : null;
       const first = !!svc.communion;
@@ -721,26 +860,30 @@
     }
     function rowHTML(x, i) {
       if (sheetsOnly) return rowSheetHTML(x, i);
-      const s = songById(x.song_id), st = s?.st, list = E.sheets[x.song_id] || [];
+      const s = songById(x.song_id), st = s?.st, list = sheetsOf(E, x);
       const ref = x.refs?.[0], rng = ref ? E.ranges[`${x.song_id}:${ref[0]}`] : null;
       const sheet = x.sheet.mode === "saved" ? list.find((v) => v.id === x.sheet.id) : null;
-      const srcTag = { manual: ["me", `직접${x.orig ? ` · 원래 ${mmss(x.orig)}` : ""}`], team: ["team", "팀 기준"], video: ["vid", "영상"] }[x.src] || ["none", "모름"];
+      const grpHead = !x.join && !!E.items[i + 1]?.join;
+      const srcTag = { manual: ["me", `직접${x.orig ? ` · 원래 ${mmss(x.orig)}` : ""}`], team: ["team", x.medley_id && grpHead ? "메들리 기준" : "팀 기준"], video: ["vid", "영상"], medley: ["team", "메들리 합계"] }[x.src] || ["none", "모름"];
       const open = E.open === i;
-      return `<div class="ce-row" data-i="${i}">
-        <span class="ce-grip" data-grip aria-label="끌어서 순서 바꾸기" role="button" tabindex="0">${ICO.grip}</span><span class="cv-sn">${i + 1}</span>
-        <span class="ce-t"><b>${esc(x.title)}</b><small>${ref ? `<a href="${ytLink(ref[0], rng?.start_sec ?? ref[1])}" target="_blank" rel="noopener">▶ 영상</a>${rng ? ` · 구간 ${mmss(rng.start_sec)}~${rng.end_sec ? mmss(rng.end_sec) : "끝"}` : ""}` : "레퍼런스 없음"}${st?.count ? ` · ${st.count}번` : ""}${st?.last ? ` · 마지막 ${md(st.last)}` : ""}</small></span>
+      return `<div class="ce-row ${x.join ? "join" : ""}" data-i="${i}">
+        <span class="ce-grip" data-grip aria-label="끌어서 순서 바꾸기" role="button" tabindex="0">${ICO.grip}</span><span class="cv-sn">${x.join ? "+" : gnum(i)}</span>
+        <span class="ce-t"><b>${esc(x.title)}</b><small>${x.join ? `<span class="ce-join">앞 곡에 이어서</span> · ` : grpHead ? `<span class="ce-join">메들리${x.medley_id ? ` '${esc(x.medley_title || "")}'` : ""}</span> · ` : ""}${x.diff ? "음원과 키 다름 · " : ""}${ref ? `<a href="${ytLink(ref[0], rng?.start_sec ?? ref[1])}" target="_blank" rel="noopener">▶ 영상</a>${rng ? ` · 구간 ${mmss(rng.start_sec)}~${rng.end_sec ? mmss(rng.end_sec) : "끝"}` : ""}` : "레퍼런스 없음"}${st?.count ? ` · ${st.count}번` : ""}${st?.last ? ` · 마지막 ${md(st.last)}` : ""}</small></span>
         <input class="ce-key" list="ceKeys" value="${esc(x.key)}" data-f="key" aria-label="${esc(x.title)} 키" maxlength="12" placeholder="키">
-        <span class="ce-tm"><input value="${x.dur ? mmss(x.dur) : ""}" data-f="dur" inputmode="numeric" aria-label="${esc(x.title)} 곡 시간" placeholder="0:00"><em class="ce-src ${srcTag[0]}">${srcTag[1]}</em></span>
+        ${x.join ? `<span class="ce-tm"><em class="ce-src team">앞 곡 시간에 포함</em></span>` : `<span class="ce-tm"><input value="${x.dur ? mmss(x.dur) : ""}" data-f="dur" inputmode="numeric" aria-label="${esc(x.title)} ${grpHead ? "메들리 전체 시간" : "곡 시간"}" placeholder="0:00"><em class="ce-src ${srcTag[0]}">${srcTag[1]}</em></span>`}
         ${bpmCell(x)}
         <button type="button" class="ce-x" data-ce="rm" aria-label="${esc(x.title)} 빼기">${ICO.x}</button>
         <div class="ce-sh"><span class="ce-lab">악보</span>${x.sheet.mode === "new"
           ? `<div class="ce-new"><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button>${list.length ? "" : `<span class="small muted ce-hint">저장된 악보가 아직 없어요</span>`}</div>`
           : `<button type="button" class="ce-shsel ${open ? "open" : ""}" data-ce="sheet-open"><span class="nm">${sheet ? esc(sheet.name) : x.sheet.mode === "saved" ? "고른 악보" : "악보 없이"}</span><span class="mt">${sheet ? [sheet.kind === "original" ? "원본 · 필기 없음" : sheet.from_date ? md(sheet.from_date) : "", `${sheet.pages}쪽`, sheet.kind === "sheet" ? `${sheet.used}번 씀` : ""].filter(Boolean).join(" · ") : list.length ? `저장된 악보 ${list.length}개` : ""}</span><span class="cv">▾</span></button>`}
           ${open ? sheetList(x, list) : ""}</div>
-        <div class="ce-more"><button type="button" class="linkbtn" data-ce="more">${E.more === i ? "접기" : `메모 · 레퍼런스${x.memo ? " · 메모 있음" : ""}${x.medley ? " · 메들리" : ""}`}</button>
+        <div class="ce-more"><button type="button" class="linkbtn" data-ce="more">${E.more === i ? "접기" : `메모 · 레퍼런스 · 메들리${x.memo ? " · 메모 있음" : ""}${x.diff ? " · 키 다름*" : ""}`}</button>
           ${E.more === i ? `<div class="ce-morebox">
             <label class="field">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" data-f="memo" value="${esc(x.memo)}" maxlength="200" placeholder="예: A → Bb로 올림"></label>
-            <label class="checkrow"><input type="checkbox" data-f="medley" ${x.medley ? "checked" : ""}><span><b>메들리</b><small>앞 곡과 이어서 불러요</small></span></label>
+            <label class="checkrow"><input type="checkbox" data-f="diff" ${x.diff ? "checked" : ""}><span><b>음원과 키 다름</b><small>레퍼런스와 다른 키로 불러요 · 키 뒤에 * 표시</small></span></label>
+            ${i > 0 ? `<label class="checkrow"><input type="checkbox" data-f="join" ${x.join ? "checked" : ""}><span><b>앞 곡에 이어서 (메들리)</b><small>앞 곡 번호 아래로 · 예상 RT는 묶음 전체 시간 하나로</small></span></label>` : ""}
+            ${grpHead ? (x.medley_id ? `<div class="ce-mdl"><span>메들리 <b>'${esc(x.medley_title || "")}'</b>로 넣었어요 · 악보 · 레퍼런스 · 시간은 메들리 기준</span></div>`
+              : `<div class="ce-mdl"><span>이 묶음을 <b>메들리로 저장</b>하면 다음에 한 번에 넣고, 합친 악보 · 레퍼런스 · 시간을 같이 써요</span><button type="button" class="btn btn-soft btn-sm" data-ce="save-medley">메들리로 저장</button></div>`) : ""}
             <div class="field">레퍼런스 영상<div class="ce-refs">${(st?.refs || []).slice(0, 4).map((r) => `<button type="button" class="pillbtn" data-ref="${esc(r[0])}" data-t="${r[3] || 0}" aria-pressed="${ref?.[0] === r[0]}">${esc(r[0].slice(0, 5))}… ${r[1]}번</button>`).join("")}</div>
               <input class="input" data-f="refurl" placeholder="유튜브 주소 붙여 넣기" value="${ref ? ytLink(ref[0], ref[1] || 0) : ""}"></div>
             ${ref ? `<div class="row ce-range"><span class="small" style="font-weight:700">구간</span><input class="input" data-f="rs" value="${mmss(rng?.start_sec ?? ref[1] ?? 0)}" aria-label="시작"> ~ <input class="input" data-f="re" value="${rng?.end_sec ? mmss(rng.end_sec) : ""}" placeholder="끝" aria-label="끝">
@@ -755,11 +898,11 @@
     }
     // 밴드: 곡은 읽기만, 악보 · BPM 칸만
     function rowSheetHTML(x, i) {
-      const list = E.sheets[x.song_id] || [], open = E.open === i;
+      const list = sheetsOf(E, x), open = E.open === i;
       const sheet = x.sheet.mode === "saved" ? list.find((v) => v.id === x.sheet.id) : null;
       return `<div class="ce-row ro" data-i="${i}"><span></span><span class="cv-sn">${i + 1}</span>
-        <span class="ce-t"><b>${esc(x.title)}</b><small>${x.memo ? esc(x.memo) : x.medley ? "메들리" : ""}</small></span>
-        <span class="cv-key">${esc(x.key || "–")}</span><span></span>${bpmCell(x)}<span></span>
+        <span class="ce-t"><b>${esc(x.title)}</b><small>${x.memo ? esc(x.memo) : x.join ? "앞 곡에 이어서" : x.medley ? "메들리" : ""}</small></span>
+        <span class="cv-key">${esc(keyText({ key: x.key, diff_key: x.diff }))}</span><span></span>${bpmCell(x)}<span></span>
         <div class="ce-sh"><span class="ce-lab">악보</span>${x.sheet.mode === "new"
           ? `<div class="ce-new"><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button></div>`
           : `<button type="button" class="ce-shsel ${open ? "open" : ""}" data-ce="sheet-open"><span class="nm">${sheet ? esc(sheet.name) : x.sheet.mode === "saved" ? "고른 악보" : "악보 없이"}</span><span class="mt">${sheet ? [sheet.kind === "original" ? "원본 · 필기 없음" : sheet.from_date ? md(sheet.from_date) : "", `${sheet.pages}쪽`].filter(Boolean).join(" · ") : list.length ? `저장된 악보 ${list.length}개` : ""}</span><span class="cv">▾</span></button>`}
@@ -777,9 +920,14 @@
     }
     function searchHTML() {
       const q = E.q.trim().toLowerCase().replace(/\s/g, ""), total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), tg = target();
-      const hits = q ? E.songs.filter((s) => s.title.toLowerCase().replace(/\s/g, "").includes(q)).sort((a, b) => (b.st?.count || 0) - (a.st?.count || 0)).slice(0, 8) : [];
+      const hits = q ? E.songs.filter((s) => KO.match(s.title, q)).sort((a, b) => (b.st?.count || 0) - (a.st?.count || 0)).slice(0, 8) : [];
       const exact = E.songs.some((s) => s.title.toLowerCase().replace(/\s/g, "") === q);
-      return q ? `<div class="ce-drop" id="ceDrop">${hits.map((s) => {
+      // 026: 메들리도 찾아요 (메들리 이름 · 안에 든 곡 이름)
+      const mh = q ? (E.medleys || []).filter((m) => KO.match(m.title, E.q) || m.songs.some((x) => KO.match(x.title, E.q))).slice(0, 4) : [];
+      const mHTML = mh.map((m) => { const d = m.team_sec, after = total + (d || 0);
+        const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-warn">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
+        return `<button type="button" class="ce-o" data-addm="${m.id}"><b><span class="tag-m">메들리</span>${esc(m.title)}</b><small>${m.songs.map((x) => esc(x.title) + (x.key ? " " + esc(x.key) : "")).join(" + ")}${m.used ? ` · ${m.used}번` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>`; }).join("");
+      return q ? `<div class="ce-drop" id="ceDrop">${mHTML}${hits.map((s) => {
           const d = guessDur(E, s, null), after = total + (d || 0);
           const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-warn">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
           return `<button type="button" class="ce-o" data-add="${s.id}"><b>${esc(s.title)}</b><small>${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>`;
@@ -862,7 +1010,13 @@
         if (t.value.trim() && v == null) { toast("곡 시간은 4:30처럼 적어 주세요"); t.value = x.dur ? mmss(x.dur) : ""; return; }
         if (v !== x.dur) { if (x.src !== "manual") x.orig = x.dur; x.dur = v; x.src = v ? "manual" : null; if (!v) Object.assign(x, recompute(E, x)); persist(); redrawList(); }
       }
-      if (f === "medley") { x.medley = t.checked; persist(); }
+      if (f === "diff") { x.diff = t.checked; persist(); return redrawList(); }
+      if (f === "join") {
+        x.join = t.checked;
+        if (!x.join) { x.medley_id = null; x.medley_title = null; Object.assign(x, recompute(E, x)); const l = sheetsOf(E, x); if (x.sheet.mode === "none" && l[0]) x.sheet = { mode: "saved", id: l[0].id }; }
+        else if (x.sheet.mode === "new" && !E.up) x.sheet = { mode: "none" };
+        regroup(); persist(); return redrawList();
+      }
       if (f === "bpm") {
         const v = t.value.trim(), n = v ? +v : null;
         if (v && !(Number.isInteger(n) && n >= 20 && n <= 320)) { toast("BPM은 20~320 사이 숫자로 적어 주세요"); t.value = x.bpm || ""; return; }
@@ -889,6 +1043,8 @@
     el.addEventListener("click", async (e) => {
       const add = e.target.closest("[data-add]");
       if (add) { await addSong(+add.dataset.add); return; }
+      const addm = e.target.closest("[data-addm]");
+      if (addm) { await addMedley(+addm.dataset.addm); return; }
       const pg = e.target.closest("[data-pg]"); if (pg) { E.pgPick = E.pgPick === +pg.dataset.pg ? null : +pg.dataset.pg; return redrawList(); }
       const ps = e.target.closest("[data-pgset]"); if (ps) { setTag(E.up, E.pgPick, +ps.dataset.pgset); E.pgPick = null; await checkSame(E); return redrawList(); }
       const cmp = e.target.closest("[data-cmp]"); if (cmp) { const x = E.items[+cmp.dataset.i]; x.cmp = cmp.dataset.cmp; if (x.cmp === "new") { x.sheet = { mode: "new", name: defaultName(x), fromId: x.sheet.id }; } persist(); return redrawList(); }
@@ -908,15 +1064,16 @@
         if (!songById(data)) E.songs.push({ id: data, title: E.q.trim(), main_key: null, team_sec: null, st: null });
         return addSong(data);
       }
-      if (a === "rm") { E.items.splice(i, 1); if (E.up) E.up.tags = E.up.tags.map((t) => (t == null ? null : t === i ? null : t > i ? t - 1 : t)); E.open = E.more = null; persist(); return redrawList(); }
+      if (a === "rm") { if (!x.join && E.items[i + 1]?.join) { E.items[i + 1].join = false; E.items[i + 1].medley_id = null; } E.items.splice(i, 1); regroup(); if (E.up) E.up.tags = E.up.tags.map((t) => (t == null ? null : t === i ? null : t > i ? t - 1 : t)); E.open = E.more = null; persist(); return redrawList(); }
       if (a === "more") { E.more = E.more === i ? null : i; return redrawList(); }
       if (a === "sheet-open") { E.open = E.open === i ? null : i; E.preview = null; return redrawList(); }
       if (a === "sheet-pv") { E.preview = { song: x.song_id, id: +b.dataset.id }; return redrawList(); }
       if (a === "sheet-use") { x.sheet = { mode: "saved", id: +b.dataset.id }; x.cmp = null; E.open = null; E.preview = null; await checkSame(E); persist(); return redrawList(); }
-      if (a === "sheet-big") { const v = (E.sheets[x.song_id] || []).find((s) => s.id === +b.dataset.id); if (v) openViewerOver(x.title, v, svc.date); return; }
+      if (a === "sheet-big") { const v = sheetsOf(E, x).find((s) => s.id === +b.dataset.id); if (v) openViewerOver(x.title, v, svc.date); return; }
       if (a === "sheet-new") { x.sheet = { mode: "new", name: defaultName(x) }; x.cmp = null; E.open = null; persist(); return redrawList(); }
       if (a === "sheet-none") { x.sheet = { mode: "none" }; x.cmp = null; E.open = null; persist(); return redrawList(); }
-      if (a === "sheet-cancel") { const list = E.sheets[x.song_id] || []; x.sheet = x.sheet.fromId ? { mode: "saved", id: x.sheet.fromId } : list[0] ? { mode: "saved", id: list[0].id } : { mode: "none" }; x.cmp = x.sheet.fromId ? "keep" : null; persist(); return redrawList(); }
+      if (a === "sheet-cancel") { const list = sheetsOf(E, x); x.sheet = x.sheet.fromId ? { mode: "saved", id: x.sheet.fromId } : list[0] ? { mode: "saved", id: list[0].id } : { mode: "none" }; x.cmp = x.sheet.fromId ? "keep" : null; persist(); return redrawList(); }
+      if (a === "save-medley") return saveGroupAsMedley(i, b);
       if (a === "draft") return downloadDraft(E, svc);
       if (a === "save") return submit(false, b);
       if (a === "publish") return submit(true, b);
@@ -940,7 +1097,7 @@
         if (to !== from) {
           const [it] = E.items.splice(from, 1); E.items.splice(to, 0, it);
           if (E.up) { const map = E.items.map((x) => x); E.up.tags = E.up.tags.map((t) => (t == null ? null : map.indexOf(E.prevOrder[t]))); }
-          E.open = E.more = null; persist();
+          E.open = E.more = null; regroup(); persist();
         }
         E.prevOrder = E.items.slice(); redrawList();
       };
@@ -964,7 +1121,41 @@
       E.items.push(x); E.q = ""; persist(); redrawList();
       setTimeout(() => $("#ceQ", el)?.focus(), 0);
     }
-    function defaultName(x) { return `${leaderName || "인도자"} ${x.key || ""}`.trim(); }
+    // 026: 메들리 넣기 — 곡들이 한 번호 아래로, 첫 곡에 메들리 악보 · 레퍼런스 · 시간
+    async function addMedley(mid) {
+      const m = (E.medleys || []).find((q) => q.id === mid); if (!m) return;
+      if (E.items.length + m.songs.length > 30) return toast("곡은 30곡까지 넣을 수 있어요");
+      await loadSongMeta(E, m.songs.map((x) => x.song_id)); await loadMedleyMeta(E, [mid]);
+      if (m.ref_yt) await loadYt(E, [m.ref_yt]);
+      const ms = E.sheets["m" + mid] || [];
+      m.songs.forEach((ms_, k) => {
+        const so = songById(ms_.song_id) || { id: ms_.song_id, title: ms_.title };
+        const x = { song_id: ms_.song_id, title: so.title, key: ms_.key || so.main_key || "", medley: true, join: k > 0, medley_id: mid, medley_title: m.title, diff: false,
+          refs: k === 0 && m.ref_yt ? [[m.ref_yt, m.ref_start || 0, ""]] : [], dur: k === 0 ? m.team_sec || null : 0, src: k === 0 ? (m.team_sec ? "team" : null) : "medley", memo: "",
+          sheet: { mode: "none" }, bpm: so.team_bpm || null, meter: so.team_meter || (so.team_bpm ? "4/4" : null) };
+        if (k === 0) { const v = ms.find((q) => q.kind === "sheet") || ms[0]; x.sheet = v ? { mode: "saved", id: v.id } : { mode: "new", name: `${leaderName || "인도자"} ${m.title}`.slice(0, 60) }; }
+        E.items.push(x);
+      });
+      regroup(); E.q = ""; persist(); redrawList();
+      toast(`메들리 '${m.title}'를 넣었어요 · ${m.songs.length}곡이 한 번호 아래로`, 3000);
+    }
+    async function saveGroupAsMedley(i, btn) {
+      const g = [E.items[i]]; for (let k = i + 1; k < E.items.length && E.items[k].join; k++) g.push(E.items[k]);
+      if (g.length < 2) return toast("앞 곡에 이어서 부르는 곡이 있어야 메들리로 저장해요");
+      const def = g.map((x) => x.title).join(" + ");
+      const title = prompt("메들리 이름 (곡 라이브러리에 메들리로 저장돼요)", def); if (title === null) return;
+      const h = g[0], ref = h.refs?.[0], rng = ref ? E.ranges[`${h.song_id}:${ref[0]}`] : null;
+      btn.disabled = true;
+      const { data, error } = await sb.rpc("save_medley", { p_id: null, p_service: svc.id, p_data: { title: title.trim() || def, songs: g.map((x) => ({ song_id: x.song_id, key: x.key || null })),
+        ref_yt: ref?.[0] || null, ref_start: rng?.start_sec ?? ref?.[1] ?? null, ref_end: rng?.end_sec ?? null, team_sec: h.dur || null, sheet_id: h.sheet.mode === "saved" ? h.sheet.id : null } });
+      btn.disabled = false;
+      if (error) return toast(error.message || "메들리를 저장하지 못했어요", 4000);
+      const r = await sb.rpc("medley_list"); E.medleys = r.data || E.medleys;
+      g.forEach((x) => { x.medley_id = data.id; x.medley_title = data.title; });
+      delete E.sheets["m" + data.id]; delete E.sheets[h.song_id]; await loadSongMeta(E, [h.song_id]); await loadMedleyMeta(E, [data.id]);
+      persist(); redrawList(); toast(`메들리 '${data.title}'로 저장했어요 · 다음부터 곡 찾기에서 메들리로 넣을 수 있어요`, 4000);
+    }
+    function defaultName(x) { return `${leaderName || "인도자"} ${x.medley_id && !x.join && x.medley_title ? x.medley_title : x.key || ""}`.trim().slice(0, 60); }
     async function pickPdf(file) {
       if (!file) return;
       if (file.type && file.type !== "application/pdf") return toast("PDF 파일을 골라 주세요");
@@ -1002,7 +1193,8 @@
         let PL = null, srcPdf = null;
         for (let i = 0; i < E.items.length; i++) {
           const x = E.items[i], p = plan.find((q) => q.i === i);
-          const it = { song_id: x.song_id, key: x.key || null, medley: !!x.medley, refs: x.refs || [], duration_sec: x.dur || null, duration_src: x.dur ? x.src : null, memo: x.memo || null, sheet_id: null,
+          const it = { song_id: x.song_id, key: x.key || null, medley: !!x.medley, join_prev: i > 0 && !!x.join, medley_id: x.medley_id || null, diff_key: !!x.diff,
+            refs: x.join ? [] : x.refs || [], duration_sec: x.join ? 0 : x.dur || null, duration_src: x.join ? "medley" : x.dur ? x.src : null, memo: x.memo || null, sheet_id: null,
             bpm: x.bpm || null, meter: x.bpm ? x.meter || "4/4" : null };
           if (x.ref_range) it.ref_range = x.ref_range;
           if (p) { it.page_from = p.from + 1; it.page_to = p.to + 1; }
@@ -1067,6 +1259,12 @@
     const yts = E.items.filter((x) => ids.includes(x.song_id)).map((x) => x.refs?.[0]?.[0]).filter(Boolean);
     await loadYt(E, yts);
   }
+  async function loadMedleyMeta(E, ids) {
+    ids = [...new Set(ids)].filter((id) => id && !E.sheets["m" + id]);
+    if (!ids.length) return;
+    const { data } = await sb.rpc("medley_sheets", { p_ids: ids });
+    ids.forEach((id) => (E.sheets["m" + id] = (data || []).filter((v) => v.medley_id === id).sort((a, b) => (a.kind === b.kind ? b.created_at.localeCompare(a.created_at) : a.kind === "sheet" ? -1 : 1))));
+  }
   async function loadYt(E, ids) {
     ids = [...new Set(ids)].filter((id) => id && !E.yt[id]);
     if (!ids.length) return;
@@ -1088,6 +1286,7 @@
     return null;
   }
   function recompute(E, x) {
+    if (x.medley_id && !x.join) { const m = (E.medleys || []).find((q) => q.id === x.medley_id); if (m?.team_sec) return { dur: m.team_sec, src: "team" }; }
     const s = E.songs.find((q) => q.id === x.song_id);
     if (s?.team_sec) return { dur: s.team_sec, src: "team" };
     const d = guessDur(E, { ...s, team_sec: null, id: x.song_id }, x);
@@ -1095,7 +1294,7 @@
   }
   // 올린 통합본 쪽 → 곡 (곡 순서대로). 고른 악보가 있으면 그 쪽 수, 나머지는 남는 쪽을 고르게
   function suggestTags(E, n) {
-    const want = E.items.map((x) => { const v = x.sheet.mode === "saved" ? (E.sheets[x.song_id] || []).find((s) => s.id === x.sheet.id) : null; return v ? v.pages : null; });
+    const want = E.items.map((x) => { if (x.join && x.sheet.mode === "none") return 0; const v = x.sheet.mode === "saved" ? sheetsOf(E, x).find((s) => s.id === x.sheet.id) : null; return v ? v.pages : null; });
     const known = want.reduce((a, w) => a + (w || 0), 0), unk = want.filter((w) => w == null).length;
     const each = unk ? Math.max(1, Math.floor((n - known) / unk)) : 0;
     let extra = unk ? Math.max(0, n - known - each * unk) : 0;
@@ -1116,11 +1315,11 @@
     const U = E.up; if (!U) return [];
     return E.items.map((x, i) => {
       const r = rangeOf(U, i); const base = { i, title: x.title, ...(r || {}) };
-      if (!r) return { ...base, state: "none", text: x.sheet.mode === "saved" ? "올린 쪽 없음 · 고른 악보를 그대로 써요" : "올린 쪽 없음 · 악보 없이" };
+      if (!r) return { ...base, state: "none", text: x.sheet.mode === "saved" ? "올린 쪽 없음 · 고른 악보를 그대로 써요" : x.join ? "메들리 · 앞 곡 악보에 함께" : "올린 쪽 없음 · 악보 없이" };
       const n = r.to - r.from + 1;
       if (x.sheet.mode === "new") return { ...base, state: "new", text: `새로 저장 → '${esc(x.sheet.name || "")}' · ${n}쪽` };
       if (x.sheet.mode === "saved") {
-        const v = (E.sheets[x.song_id] || []).find((s) => s.id === x.sheet.id);
+        const v = sheetsOf(E, x).find((s) => s.id === x.sheet.id);
         if (x.cmp === "keep") return { ...base, state: "keep", text: `'${esc(v?.name || "")}'를 그대로 써서 저장하지 않아요 (올린 ${n}쪽은 쓰지 않음)` };
         if (x.same === false) return { ...base, state: "ask", text: "", old: v?.thumb, oldName: v?.name || "", neu: U.thumbs[r.from] };
         return { ...base, state: "keep", text: `'${esc(v?.name || "")}'를 그대로 써서 저장하지 않아요` };
@@ -1132,7 +1331,7 @@
     const U = E.up; if (!U) return;
     for (let i = 0; i < E.items.length; i++) {
       const x = E.items[i]; if (x.sheet.mode !== "saved") { x.same = null; continue; }
-      const v = (E.sheets[x.song_id] || []).find((s) => s.id === x.sheet.id), r = rangeOf(U, i);
+      const v = sheetsOf(E, x).find((s) => s.id === x.sheet.id), r = rangeOf(U, i);
       if (!v || !r) { x.same = null; continue; }
       x.same = r.to - r.from + 1 === v.pages && v.thumb ? await looksSame(v.thumb, U.thumbs[r.from]) : false;
     }
@@ -1145,7 +1344,8 @@
       const out = await PL.PDFDocument.create();
       let have = 0;
       for (const x of E.items) {
-        const v = x.sheet.mode === "saved" ? (E.sheets[x.song_id] || []).find((s) => s.id === x.sheet.id) : null;
+        if (x.join && x.sheet.mode !== "saved") continue;   // 026: 메들리 뒤 곡 · 합친 악보는 앞 곡에
+        const v = x.sheet.mode === "saved" ? sheetsOf(E, x).find((s) => s.id === x.sheet.id) : null;
         if (v && v.ink && window.INK) {
           // 025: 공유 필기가 있는 악보는 필기를 그려 넣은 쪽으로
           const doc = await sheetDoc(v.path), ink = await INK.sharedFor([v.id], svc.date);
@@ -1288,7 +1488,7 @@
             <td><span class="chip ${c}">${t}</span>${items.length ? ` <span class="small muted">${items.length}곡</span>` : ""}</td>
             <td class="small">${esc(dlText(s.deadline))}${s.setlist?.deadline ? ` <span class="chip chip-gray">바꿈</span>` : ""}</td>
             <td class="n small">${items.length ? mmss(rt) : "—"}${s.target_sec ? ` / ${mmss(s.target_sec)}` : ""}</td>
-            <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button>${s.ministry_id ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-ca="communion" aria-pressed="${!!s.communion}">${s.communion ? "성찬식 빼기" : "성찬식 넣기"}</button>`}</td></tr>`; }).join("")
+            <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button><button type="button" class="btn btn-ghost btn-sm" data-ca="copy">카톡 복사</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button>${s.ministry_id ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-ca="communion" aria-pressed="${!!s.communion}">${s.communion ? "성찬식 빼기" : "성찬식 넣기"}</button>`}</td></tr>`; }).join("")
           || `<tr><td colspan="6" class="muted">앞으로 8주 안에 배치된 예배가 없어요.</td></tr>`}</tbody></table></div></section>
       <section class="panel" id="caSet"><h2>기본값 <small>예배마다 '마감 · 목표'로 따로 바꿀 수 있어요</small></h2>
         <div class="row"><span style="font-weight:700">주일 콘티 마감</span><select class="select" id="caDow" style="width:auto">${KDOW.map((w, i) => `<option value="${i}" ${C.deadline_dow === i ? "selected" : ""}>${w}요일</option>`).join("")}</select><select class="select" id="caHour" style="width:auto">${hours(C.deadline_hour)}</select></div>
@@ -1300,6 +1500,7 @@
       const b = e.target.closest("[data-ca]"); if (b) {
         const s = rows.find((x) => x.id === b.closest("tr").dataset.sid);
         if (b.dataset.ca === "view") return openViewer(s, {});
+        if (b.dataset.ca === "copy") return copyPop(s);
         if (b.dataset.ca === "edit") return openEditor(s.id, { after: () => mountAdmin(outer) });
         if (b.dataset.ca === "applied") return openApplied(s, { after: () => mountAdmin(outer) });
         // 024: 이 주일 성찬식 켬 · 끔 (첫째 주는 자동으로 켜져 있어요) — 성찬 찬양 · 목표 RT가 따라감
@@ -1331,7 +1532,7 @@
     };
   }
 
-  window.CONTI = { mountWeek, mountAdmin, openEditor, openViewer, openApplied, songDetail, loadOne, closeLayer, onBackup: null, METRO, bpmText, viewerItems,
+  window.CONTI = { mountWeek, mountAdmin, openEditor, openViewer, openApplied, songDetail, medleyDetail, contiText, loadOne, closeLayer, onBackup: null, METRO, bpmText, viewerItems,
     // 023: 백업찬양 · 예배 진행곡 화면이 함께 씀
     lib: { openLayer, closeLayer, sheetBytes, sheetDoc, sheetImage, renderPage, drawPageInto, thumbOf, compressPdf, compressImage, uploadImages, pdfjs, pdflib, uuid, ICO, mb, isImg, procPages, PROC, PROC_ORDER, CACHE, ckey, isAdminPage, meApi, wake, fileOf, anorm },
     _test: { suggestTags, setTag, parseMmss, mmss, looksSame } };

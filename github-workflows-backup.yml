@@ -1,0 +1,85 @@
+# Pole2 찬양팀 — 자동 백업 (v26)
+#  매주 일요일 새벽 3시 17분(한국 시간)에 DB 전체 + 악보 파일(Storage)을 받아 암호화해서
+#  이 저장소 Actions 실행 기록에 보관해요. 새 백업이 잘 올라간 다음에만 오래된 것을 지워서 최근 4개를 남겨요.
+#  필요한 Secrets (Settings › Secrets and variables › Actions):
+#    SUPABASE_DB_URL           : Supabase › Connect › Session pooler 주소 (비밀번호 넣은 것)
+#    BACKUP_PASSPHRASE         : 백업 파일 암호 (잃어버리면 백업을 못 열어요 — 팀 계정 메모 등 바깥에도 적어 두기)
+#    SUPABASE_URL              : https://xxxx.supabase.co            (악보 파일 백업용)
+#    SUPABASE_SERVICE_ROLE_KEY : Project Settings › API Keys › service_role (악보 파일 백업용)
+#  지금 바로 해 보기: Actions › DB 백업 › Run workflow
+name: DB 백업
+
+on:
+  schedule:
+    - cron: "17 18 * * 6"   # UTC 토 18:17 = 한국 일 03:17
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write          # 오래된 백업 지우기
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pg_dump 17 설치
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 >/dev/null
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: 백업 · 악보 파일 · 암호화
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "${DB_URL}" ] || [ -z "${PASS}" ]; then echo "::error::SUPABASE_DB_URL, BACKUP_PASSPHRASE Secrets를 먼저 넣어 주세요"; exit 1; fi
+          bash scripts/backup.sh
+
+      - name: 보관 (최대 90일 · 아래에서 최근 4개만 남김)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.FILE }}
+          retention-days: 90
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: 오래된 백업 지우기 (새 백업이 올라간 뒤에만)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          KEEP: "4"
+          MAX_MB: ${{ vars.BACKUP_MAX_MB || '450' }}
+        run: python3 scripts/prune_backups.py
+
+      - name: 사이트에 '마지막 백업' 남기기
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          NOTE="run $GITHUB_RUN_ID · ${KEPT_NOTE:-}"
+          /usr/lib/postgresql/17/bin/psql "$DB_URL" -v ON_ERROR_STOP=1 -q \
+            -v size="$SIZE" -v note="$NOTE" -v counts="$COUNTS" -v files="$FILES" -v art="$NAME" <<'SQL'
+          insert into public.backup_log (kind, ok, size_bytes, note, counts, files, artifact)
+          values ('backup', true, :'size'::bigint, :'note', nullif(:'counts', '')::jsonb, nullif(:'files', '-1')::int, :'art');
+          SQL
+
+      - name: 실패 기록
+        if: failure()
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          SQL="insert into public.backup_log (kind, ok, note) values ('backup', false, 'run $GITHUB_RUN_ID failed')"
+          if [ -n "$DB_URL" ]; then /usr/lib/postgresql/17/bin/psql "$DB_URL" -q -c "$SQL" || true; fi

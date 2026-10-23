@@ -1938,6 +1938,8 @@ body.cv-open { overflow: hidden; }
 .cvv-dot.on::after { opacity: 1; inset: 3px; background: #3DDC97; }
 .cvv-dot.on.acc::after { background: #FFD25A; }
 .cvv-vol { width: 84px; accent-color: #3DDC97; }
+.cvv-sub { flex: none; min-width: 38px; height: 30px; padding: 0 8px; border-radius: 15px; border: 1px solid rgba(255,255,255,.35); background: transparent; color: #fff; font: 700 13px/1 inherit; cursor: pointer; letter-spacing: -1px; }
+.cvv-sub[aria-pressed="true"] { border-color: #3DDC97; color: #3DDC97; background: rgba(61,220,151,.14); }
 /* 공유 필기 · 내 메모 겹 */
 .iv-stage { isolation: isolate; }
 .iv-stage canvas.iv-tape { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; background: transparent; box-shadow: none; }
@@ -2007,3 +2009,44 @@ body.cv-open { overflow: hidden; }
   .cvv-bpmbox { padding-left: 10px; }
   .cvv-vol { width: 64px; }
 }
+
+/* 026: 메들리 묶음 · 음원과 키 다름 · 카톡 복사 */
+.cv-srow.join { border-top: 0; padding-top: 0; }
+.cv-srow.join .cv-sn { background: transparent; color: var(--violet); font-size: 15px; }
+.cv-srow.join .cv-st b::before { content: ""; }
+.cv-dk { margin: 6px 0 0; }
+.cv-copyrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.cp-modal .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cp-modal .modal-head b { font-size: 18px; font-weight: 800; }
+.cp-text { font: 500 14px/1.55 "Pretendard Variable", Pretendard, sans-serif; min-height: 220px; resize: vertical; white-space: pre-wrap; word-break: break-all; overflow: auto; }
+.ce-row.join { border-top: 0; padding-top: 2px; }
+.ce-row.join > .cv-sn { background: transparent; font-size: 15px; }
+.ce-join { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--violet); }
+.ce-dk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.ce-mdl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--tint-1, #FAF7FE); }
+.ce-o .tag-m { font-size: 11px; font-weight: 700; color: var(--violet); background: var(--tint-2); border-radius: 999px; padding: 2px 8px; margin-right: 6px; }
+.plus-row { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.plus-row:first-of-type { border-top: 0; }
+.plus-h { display: flex; flex-direction: column; gap: 2px; }
+.plus-parts { display: flex; flex-direction: column; gap: 6px; }
+.plus-part { display: flex; align-items: center; gap: 8px; }
+.plus-part .n { width: 18px; font-weight: 800; color: var(--violet); }
+.plus-part .input { flex: 1; max-width: 360px; }
+.plus-part .ph { flex: none; }
+/* 026: 백업 · 복원 · 안내서 · 비밀값 메모 */
+.guide { display: flex; flex-direction: column; gap: 10px; line-height: 1.7; font-size: 15px; }
+.guide h2 { font-size: 19px; font-weight: 800; margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.guide h2:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.guide h3 { font-size: 16px; font-weight: 800; margin: 8px 0 0; color: var(--violet); }
+.guide p, .guide ul, .guide ol { margin: 0; }
+.guide ul, .guide ol { padding-left: 22px; display: flex; flex-direction: column; gap: 4px; }
+.guide li > ul, .guide li > ol { margin-top: 4px; }
+.guide code { font-size: 13px; background: var(--tint-2); color: var(--violet); padding: 1px 6px; border-radius: 5px; word-break: break-all; }
+.guide a { color: var(--violet); word-break: break-all; }
+.sec-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
+.sec-row:first-child { border-top: 0; }
+.sec-k { display: flex; flex-direction: column; flex: 1 1 240px; min-width: 0; }
+.sec-k small { color: var(--muted); font-size: 12px; }
+.sec-v { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
+.sec-v code { font-size: 12px; word-break: break-all; }
+.bk-count td.n, .bk-count th.n { text-align: right; }

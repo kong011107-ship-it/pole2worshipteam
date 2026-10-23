@@ -168,7 +168,7 @@
     routed = location.hash;
     const h = location.hash.slice(1) || "dashboard";
     const [view, id, sub] = h.split("/");
-    const navOf = { app: "pipeline", member: "members", ministry: "schedule", audit: "settings", respond: "schedule" };
+    const navOf = { app: "pipeline", member: "members", ministry: "schedule", audit: "settings", respond: "schedule", backup: "settings", "backup-guide": "settings" };
     $$(".side nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === (navOf[view] || view)));
     updateTodoCount();
     navSync();
@@ -187,6 +187,8 @@
     if (view === "forecast") return renderForecast();
     if (view === "sharing") return renderSharing();
     if (view === "audit") return renderAudit();
+    if (view === "backup") return renderBackup();
+    if (view === "backup-guide") return renderGuide();
     if (view === "songs") return renderSongs();
     if (view === "conti") return renderConti();
     if (view === "history") return renderHistory();
@@ -1083,7 +1085,7 @@
     };
     const q = (S.memberQuery || "").trim();
     const list = S.members.filter((m) => f === "all" ? m.is_active : f === "trainee" ? m.is_active && m.status === "trainee"
-      : f === "active" ? m.is_active && m.status === "active" : f === "obs" ? m.is_active && isObs(m) : f === "first" ? firstLogin(m) : !m.is_active).filter((m) => !q || m.name.includes(q));
+      : f === "active" ? m.is_active && m.status === "active" : f === "obs" ? m.is_active && isObs(m) : f === "first" ? firstLogin(m) : !m.is_active).filter((m) => !q || KO.match(m.name, q));
     const rowHTML = (m) => {
       const s = stat(m);
       const badges = [leaderChip(m), firstLogin(m) && `<span class="chip chip-first">첫 로그인 전</span>`,
@@ -2638,7 +2640,7 @@
         else { const n = commonWith(m); tags.push(n ? `<span class="chip chip-ok">연습 맞음 ${n}</span>` : `<span class="chip chip-warn">넣으면 연습 시간 없음</span>`); }
       }
       const pos = posOfM(m).filter((c) => partOfPos(c) === part).map((c) => `${POS_SHORT[c] || positionName(c)}${skillSet(m.id, c) ? " " + LEVEL[skillSet(m.id, c)] : ""}`).join(" · ");
-      return `<div class="lu-cand ${V.picked === m.id ? "picked" : ""} ${placedPart ? "placed" : ""} ${sun === false ? "unavail" : ""}" draggable="true" data-who="${m.id}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
+      return `<div class="lu-cand ${V.picked === m.id ? "picked" : ""} ${placedPart ? "placed" : ""} ${sun === false ? "unavail" : ""}" draggable="true" data-who="${m.id}" data-nm="${esc(m.name)}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
         <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(m.name)}${part === "vocal" && m.gender ? ` <span class="gtag ${m.gender}">${GENDER[m.gender]}</span>` : ""}</b><span class="small muted">${pos}</span></span>
         ${tags.join("")}<b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
     };
@@ -2647,14 +2649,14 @@
     const observers = S.members.filter((m) => m.is_active && isObs(m)).sort((a, b) => a.status.localeCompare(b.status) || a.name.localeCompare(b.name, "ko"));
     const obsHTML = (m) => {
       const placedHere = asgOf(selCol).find((x) => x.member_id === m.id);
-      return `<div class="lu-cand guest ${V.picked === m.id ? "picked" : ""} ${placedHere ? "placed" : ""}" draggable="true" data-who="${m.id}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
+      return `<div class="lu-cand guest ${V.picked === m.id ? "picked" : ""} ${placedHere ? "placed" : ""}" draggable="true" data-who="${m.id}" data-nm="${esc(m.name)}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
         <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(m.name)}</b><span class="small muted">어느 자리든</span></span>
         ${placedHere ? `<span class="chip chip-violet">배치됨</span>` : obsChip(m)}<b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
     };
     const guestHTML = (g) => {
       const placed = asgOf(selCol).some((x) => x.guest_id === g.id);
       const key = "g:" + g.id;
-      return `<div class="lu-cand guest ${V.picked === key ? "picked" : ""} ${placed ? "placed" : ""}" draggable="true" data-who="${key}" tabindex="0" role="button" aria-pressed="${V.picked === key}">
+      return `<div class="lu-cand guest ${V.picked === key ? "picked" : ""} ${placed ? "placed" : ""}" draggable="true" data-who="${key}" data-nm="${esc(g.name)}" tabindex="0" role="button" aria-pressed="${V.picked === key}">
         <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(g.name)}</b><span class="small muted">${g.positions.map((c) => POS_SHORT[c] || positionName(c)).join(" · ")}${g.note ? " · " + esc(g.note) : ""}</span></span>
         ${placed ? `<span class="chip chip-violet">배치됨</span>` : `<span class="chip chip-gray">객원</span>`}</div>`;
     };
@@ -2680,6 +2682,7 @@
         </div></section>
         <aside class="lu-pool ${V.drag?.from ? "drop" : ""}" id="luPool" aria-label="후보">
           <div><h2 style="font-size:17px;font-weight:800">${esc(selCol.title)} 후보</h2><span class="muted small">${PART_NAME[part]} 포지션 · 가능 응답 우선 · 이번 달 섬김 횟수(주일+사역)</span></div>
+          <input class="search lu-q" id="luQ" type="search" placeholder="이름 찾기 · 초성도 (ㄱㅈㅎ)" value="${esc(LUQ.q)}" aria-label="후보 이름 찾기" autocomplete="off">
           <div style="display:flex;flex-direction:column;gap:6px">${pool.map(candHTML).join("") || `<span class="muted small">가능한 팀원이 없어요</span>`}</div>
           ${unavailable.length ? `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px">
             <span class="small muted"><b style="color:var(--ink-2)">불가로 응답</b> · 일정이 바뀌었으면 끌어다 놓을 수 있어요</span>
@@ -2701,8 +2704,17 @@
           <li><b>점수로 골라요</b> (설정에서 순서 변경) — ${(S.settings?.rec_order || []).map((k, i) => `${"①②③④"[i]} ${{ skill: `실력 균형: 주마다 ${part === "vocal" ? "싱어" : "밴드"} 숙련도 평균을 비슷하게`, balance: `골고루: ${V.basis === "quarter" ? "최근 3개월" : "이번 달"} 섬김 횟수(주일+사역)가 적은 사람 먼저`, consecutive: "연속 감점: 2주 연속은 작게, 3주 이상은 크게 (같은 주말 주일+사역은 한 번)", gender: "성비: 인도자+싱어에 남녀 최소 1명씩, 되도록 반반" }[k]}`).join(" ")}. 주 포지션이 추가 포지션보다 앞서요.${part === "vocal" ? " 남녀 최소 1명씩은 순서와 상관없이 강하게 지켜요." : ""}</li>
           <li>싱어 리더·밴드 마스터와 객원은 추천하지 않아요. 직접 지정하세요.</li>
         </ol></details>`;
+    luApplyQ();
     bindBoardEvents({ canPlace, published });
   }
+
+  // 026: 배치표 후보 이름 찾기 (초성도) — 다시 그려도 찾던 말은 그대로
+  const LUQ = { q: "" };
+  function luApplyQ() {
+    const pool = document.getElementById("luPool"); if (!pool) return;
+    pool.querySelectorAll(".lu-cand[data-nm]").forEach((c) => { c.hidden = !!LUQ.q && !KO.match(c.dataset.nm, LUQ.q); });
+  }
+  document.addEventListener("input", (e) => { if (e.target.id === "luQ") { LUQ.q = e.target.value; luApplyQ(); } });
 
   // ---- 연습 시간 맞추기 패널 (가능 시간을 취합하는 사역 예배를 골랐을 때)
   function practicePanel(col) {
@@ -4559,7 +4571,7 @@
     const list = inRange.filter((p) => (SH.state === "hidden" ? !shown(p) : SH.state === "shown" ? shown(p) : true)
       && (SH.week === "all" || p.week_of === SH.week) && (SH.who === "all" || p.member_id === SH.who)
       && (SH.by === "all" || (SH.by === "self" ? !p.author_id || p.author_id === p.member_id : p.author_id && p.author_id !== p.member_id))
-      && (!q || p.body.includes(q) || nameOf(p.member_id).includes(q)));
+      && (!q || KO.match(p.body, q) || KO.match(nameOf(p.member_id), q)));
     [...SH_PICK].forEach((id) => { if (!list.some((p) => String(p.id) === id)) SH_PICK.delete(id); });
     const seg = (key, opts) => `<div class="seg" data-sh="${key}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${SH[key] === v}">${l}</button>`).join("")}</div>`;
     const row = (p) => {
@@ -5063,7 +5075,8 @@
     const orderHTML = () => order.map((k, i) => `<div class="ordrow"><span class="n">${i + 1}</span><span><b>${REC_LABEL[k][0]}</b><br><span class="small muted">${REC_LABEL[k][1]}</span></span>
       <span class="row" style="gap:4px"><button type="button" class="btn btn-ghost btn-sm" data-up="${i}" ${i ? "" : "disabled"} aria-label="${REC_LABEL[k][0]} 위로">↑</button><button type="button" class="btn btn-ghost btn-sm" data-down="${i}" ${i < order.length - 1 ? "" : "disabled"} aria-label="${REC_LABEL[k][0]} 아래로">↓</button></span></div>`).join("");
     // 020: 마지막 자동 백업
-    const { data: bks } = await sb.from("backup_log").select("*").order("at", { ascending: false }).limit(1);
+    let { data: bks, error: bkErr } = await sb.from("backup_log").select("*").eq("kind", "backup").order("at", { ascending: false }).limit(1);
+    if (bkErr) ({ data: bks } = await sb.from("backup_log").select("*").order("at", { ascending: false }).limit(1));   // migration_025 전
     const bk = bks?.[0], bkAge = bk ? Math.floor((Date.now() - Date.parse(bk.at)) / 864e5) : null;
     const bkChip = !bk ? `<span class="chip chip-warn">백업 기록 없음</span>`
       : !bk.ok ? `<span class="chip chip-bad">마지막 백업 실패 · ${fmtDate(bk.at, { month: "numeric", day: "numeric" })}</span>`
@@ -5083,10 +5096,13 @@
       <section class="card bordered" id="safeCard" style="display:flex;flex-direction:column;gap:12px">
         <h2 style="font-size:17px;font-weight:800">백업 · 변경 기록</h2>
         <div class="owner-row">${bkChip}
-          <span class="small muted" style="flex:1 1 260px">${bk ? "매주 일요일 새벽, GitHub이 데이터 전체를 암호화해서 백업해요 (90일 보관)." : "자동 백업이 아직 한 번도 돌지 않았어요. 업데이트 안내(UPDATE-020)의 '백업 설정'을 따라 GitHub에 설정해 주세요."}</span></div>
+          <span class="small muted" style="flex:1 1 260px">${bk ? "매주 일요일 새벽, GitHub이 데이터 전체와 악보 파일을 암호화해서 백업해요 (최근 4개 보관)." : "자동 백업이 아직 한 번도 돌지 않았어요. 업데이트 안내(UPDATE-020)의 '백업 설정'을 따라 GitHub에 설정해 주세요."}</span></div>
         <div class="owner-row"><b style="font-size:15px">변경 기록</b>
           <span class="small muted" style="flex:1 1 260px">누가 언제 무엇을 바꿨는지 1년 동안 남아요. 실수로 지운 출석 · 배치 · 메모는 여기서 되살릴 수 있어요.</span>
           <a class="btn btn-ghost btn-sm" href="#audit">변경 기록 보기</a></div>
+        <div class="owner-row"><b style="font-size:15px">사고 대응</b>
+          <span class="small muted" style="flex:1 1 260px">백업 목록 · 결과 확인 표 · 복원 버튼 쓰는 법 · 팀장 교체나 팀 계정으로 옮길 때(이관) 순서</span>
+          <a class="btn btn-ghost btn-sm" href="#backup">백업 · 복원</a><a class="btn btn-ghost btn-sm" href="#backup-guide">사고 대응 · 이관 안내서</a></div>
       </section>
       <div class="two">
         <section class="card bordered" style="display:flex;flex-direction:column;gap:14px">
@@ -5340,19 +5356,22 @@
     $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">곡</h1>
         <div class="row"><button type="button" class="btn btn-ghost btn-sm" id="songYt">영상 길이 채우기</button><button type="button" class="btn btn-primary btn-sm" id="songAdd">곡 추가</button></div></div>
       <p class="lead">콘티에 쓰는 곡 목록이에요. 곡 이름을 누르면 악보 · 레퍼런스 · 부른 기록을 봐요. 곡 시간(팀 기준)은 콘티 RT 계산에 써요. 콘티에서 시간을 직접 고치면 그 값이 팀 기준이 돼요.</p>
+      <div id="songPlus" style="display:contents"></div>
+      <div id="songMedley" style="display:contents"></div>
       <div id="songExtra" style="display:contents"></div>
       <section class="panel">
-        <div class="hx-fr"><input type="search" class="hx-search" id="songQ" placeholder="곡 이름 찾기" aria-label="곡 이름 찾기" value="${esc(SG.q)}">
+        <div class="hx-fr"><input type="search" class="hx-search" id="songQ" placeholder="곡 이름 찾기 · 초성도 (ㅁㅇㅇㅇㅂ)" aria-label="곡 이름 찾기" value="${esc(SG.q)}">
           <div class="hx-seg" id="songSort">${[["n", "많이 부른 순"], ["last", "최근 순"], ["name", "가나다 순"]].map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${SG.sort === k}">${l}</button>`).join("")}</div></div>
         <div class="small muted" id="songSum"></div>
         <div class="song-wrap"><table class="hx-lead song-table"><thead><tr><th>곡</th><th>대표 키</th><th class="n">부른 횟수</th><th>마지막</th><th class="n">곡 시간</th><th class="n">악보</th><th class="wide">쓴 키</th><th class="wide">메모</th><th></th></tr></thead><tbody id="songBody"></tbody></table></div>
         <button type="button" class="hx-more" id="songMore">더 보기</button>
       </section>`;
+    renderMedleys(all);
     // 023: 백업찬양 악보집 · 예배 진행곡
     if (window.BACKUP) BACKUP.mountAdmin($("#songExtra"));
     const draw = () => {
       const q = SG.q.toLowerCase().replace(/\s/g, "");
-      let rows = all.filter((x) => !q || x.title.toLowerCase().replace(/\s/g, "").includes(q));
+      let rows = all.filter((x) => !q || KO.match(x.title, q));
       const cmp = { n: (a, b) => b.st.count - a.st.count, last: (a, b) => (b.st.last || "").localeCompare(a.st.last || ""), name: () => 0 }[SG.sort];
       rows.sort((a, b) => cmp(a, b) || a.title.localeCompare(b.title, "ko"));
       $("#songSum").textContent = `${rows.length}곡${q ? ` · '${SG.q}'` : ""} · 전체 ${all.length}곡`;
@@ -5388,7 +5407,7 @@
           <label class="field">대표 키 <span class="hint">· 비우면 가장 많이 부른 키로 보여요</span><input type="text" id="sgKey" maxlength="12" value="${esc(x?.main_key || "")}" placeholder="예: G" autocomplete="off"></label>
           <label class="field">곡 시간 (팀 기준) <span class="hint">· 4:30처럼 · 비우면 레퍼런스 영상 길이로 셈</span><input type="text" id="sgSec" maxlength="5" inputmode="numeric" value="${x?.team_sec ? `${Math.floor(x.team_sec / 60)}:${String(x.team_sec % 60).padStart(2, "0")}` : ""}" placeholder="예: 4:30" autocomplete="off"></label>
           <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:1">BPM (팀 기준) <span class="hint">· 콘티에 넣으면 자동으로 채워져요</span><input type="text" id="sgBpm" maxlength="3" inputmode="numeric" value="${x?.team_bpm || ""}" placeholder="예: 72" autocomplete="off"></label>
-            <label class="field" style="flex:0 0 110px">박자<select class="select" id="sgMeter">${["4/4", "3/4", "6/8"].map((m) => `<option ${(x?.team_meter || "4/4") === m ? "selected" : ""}>${m}</option>`).join("")}</select></label></div>
+            <label class="field" style="flex:0 0 110px">박자<select class="select" id="sgMeter">${["4/4", "3/4", "6/8", "1/4"].map((m) => `<option ${(x?.team_meter || "4/4") === m ? "selected" : ""}>${m}</option>`).join("")}</select></label></div>
           <label class="field">메모<textarea id="sgMemo" maxlength="300" rows="3" placeholder="예: 후렴 두 번 반복">${esc(x?.memo || "")}</textarea></label>
           ${x && x.st.count ? `<p class="small muted" style="margin:0">콘티 ${x.st.count}번에 쓰인 곡이에요. 이름을 바꾸면 지난 기록에도 바뀐 이름으로 보여요.</p>` : ""}
           <span class="small bk-err" id="sgErr"></span>`,
@@ -5408,15 +5427,195 @@
     }
   }
 
+  // =================================================================== 026: 메들리 · '+' 곡 정리 (찬양 › 곡)
+  const MD = { q: "" };
+  async function renderMedleys(allSongs) {
+    const box = $("#songMedley"), plusBox = $("#songPlus"); if (!box) return;
+    const [ml, pc] = await Promise.all([sb.rpc("medley_list"), sb.rpc("plus_song_candidates")]);
+    if (ml.error) { box.innerHTML = `<section class="panel"><h2>메들리</h2><p class="small muted">메들리를 불러오지 못했어요. migration_025를 실행했는지 확인해 주세요.</p></section>`; return; }
+    const list = ml.data || [], cands = (pc.data || []).filter((c) => !c.medley);
+    const mm = (n) => (n ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}` : "—");
+    const songOpts = `<datalist id="mdSongs">${allSongs.map((x) => `<option value="${esc(x.title)}">`).join("")}</datalist>`;
+    const byNorm = new Map(allSongs.map((x) => [x.title.toLowerCase().replace(/\s/g, ""), x]));
+    const partHint = (t) => { const m = byNorm.get(String(t || "").toLowerCase().replace(/\s/g, "")); return m ? `<span class="chip chip-ok">있는 곡 · ${m.st?.count || 0}번</span>` : t.trim() ? `<span class="chip chip-gray">새 곡으로 만들어요</span>` : ""; };
+    // '+' 곡 정리
+    plusBox.innerHTML = cands.length ? `<section class="panel" id="plusCard"><h2>'+' 곡 정리 <small>${cands.length}곡 · 이름에 '+'가 있는 곡을 메들리로</small></h2>
+        <p class="small muted" style="margin:0">곡은 따로 두고(통계는 곡마다), 합친 악보 · 레퍼런스 · 곡 시간은 <b>메들리</b>로 옮겨요. 이 곡을 부른 기록은 곡마다 한 줄씩(한 번호 아래 이어서) 바뀌고, 원래 곡은 지워져요. 나눈 이름이 라이브러리 곡 이름과 같으면 그 곡으로, 아니면 새 곡으로 만들어요.</p>
+        ${cands.map((c) => `<div class="plus-row" data-plus="${c.id}"><div class="plus-h"><b>${esc(c.title)}</b><span class="small muted">${c.used}번 부름${c.last ? ` · 마지막 ${c.last.slice(2).replace(/-/g, ".")}` : ""} · 악보 ${c.sheets} · 레퍼런스 ${c.refs}${c.team_sec ? ` · ${mm(c.team_sec)}` : ""}</span></div>
+          <div class="plus-parts">${(c.parts || []).map((p, k) => `<label class="plus-part"><span class="n">${k + 1}</span><input class="input" list="mdSongs" data-pp="${k}" value="${esc(p.match?.title || p.title)}" aria-label="${k + 1}번째 곡"><span class="ph">${partHint(p.match?.title || p.title)}</span></label>`).join("")}</div>
+          <div class="row"><button type="button" class="btn btn-primary btn-sm" data-plus-go>메들리로 정리</button><span class="small muted">메들리 이름: '${esc(c.title)}'</span></div></div>`).join("")}${songOpts}</section>` : "";
+    // 메들리 목록
+    const draw = () => {
+      const rows = list.filter((m) => !MD.q || KO.match(m.title, MD.q) || m.songs.some((x) => KO.match(x.title, MD.q)));
+      box.innerHTML = `<section class="panel" id="medleyCard"><div class="row" style="justify-content:space-between"><h2>메들리 <small>${list.length}개 · 콘티에서 곡 찾기로 한 번에 넣어요</small></h2><button type="button" class="btn btn-soft btn-sm" data-md="new">+ 메들리 만들기</button></div>
+        <div class="hx-fr"><input type="search" class="hx-search" id="mdQ" placeholder="메들리 · 곡 이름 찾기 (초성도)" value="${esc(MD.q)}" aria-label="메들리 찾기"></div>
+        <div class="song-wrap"><table class="hx-lead song-table"><thead><tr><th>메들리</th><th>곡 · 키</th><th class="n">부른 횟수</th><th>마지막</th><th class="n">시간</th><th class="n">악보</th><th></th></tr></thead><tbody>
+        ${rows.map((m) => `<tr data-md-id="${m.id}"><td><button type="button" class="linkbtn song-name" data-md="detail">${esc(m.title)}</button>${m.ref_yt ? ` <a class="hx-yt" href="https://youtu.be/${esc(m.ref_yt)}${m.ref_start ? `?t=${m.ref_start}` : ""}" target="_blank" rel="noopener">▶</a>` : ""}${m.from_song ? ` <span class="chip chip-gray">'+' 곡에서</span>` : ""}</td>
+            <td class="small">${m.songs.map((x) => `${esc(x.title)}${x.key ? ` <b>${esc(x.key)}</b>` : ""}`).join(" + ")}</td><td class="n">${m.used || 0}</td><td class="small">${m.last ? m.last.slice(2).replace(/-/g, ".") : "—"}</td>
+            <td class="n small">${mm(m.team_sec)}</td><td class="n small">${m.sheets || "—"}</td>
+            <td class="ca-acts"><button type="button" class="btn btn-ghost btn-sm" data-md="edit">고치기</button><button type="button" class="btn btn-ghost btn-sm" data-md="del">지우기</button></td></tr>`).join("")
+          || `<tr><td colspan="7" class="muted">${list.length ? "찾는 메들리가 없어요." : "아직 메들리가 없어요. 콘티에서 '앞 곡에 이어서'로 묶고 '메들리로 저장'하거나 여기서 만들어요."}</td></tr>`}</tbody></table></div>${cands.length ? "" : songOpts}</section>`;
+    };
+    draw();
+    box.oninput = (e) => { if (e.target.id === "mdQ") { MD.q = e.target.value; const pos = e.target.selectionStart; draw(); const i = $("#mdQ"); i.focus(); i.setSelectionRange(pos, pos); } };
+    plusBox.oninput = (e) => { const inp = e.target.closest("[data-pp]"); if (inp) inp.parentElement.querySelector(".ph").innerHTML = partHint(inp.value); };
+    plusBox.onclick = async (e) => {
+      const go = e.target.closest("[data-plus-go]"); if (!go) return;
+      const row = go.closest("[data-plus]"), c = cands.find((x) => x.id === +row.dataset.plus);
+      const parts = [...row.querySelectorAll("[data-pp]")].map((i) => i.value.trim()).filter(Boolean);
+      if (parts.length < 2) return toast("곡을 2곡 이상 적어 주세요");
+      const body = parts.map((t) => { const m = byNorm.get(t.toLowerCase().replace(/\s/g, "")); return m ? { song_id: m.id } : { title: t }; });
+      modal({ title: `'${c.title}' 메들리로 정리`, confirmLabel: "정리하기",
+        body: `<p style="margin:0">${parts.map((t, k) => `${k + 1}. <b>${esc(t)}</b> ${body[k].song_id ? "(있는 곡)" : "(새 곡)"}`).join("<br>")}</p>
+          <ul class="small" style="margin:0;padding-left:18px"><li>메들리 '${esc(c.title)}'를 만들고 악보 ${c.sheets}개 · 레퍼런스 · 곡 시간을 옮겨요</li><li>부른 기록 ${c.used}번은 곡마다 한 줄씩 바뀌어 곡별 통계에 들어가요</li><li>원래 곡 '${esc(c.title)}'은 지워요 (되돌리기 어려워요)</li></ul>`,
+        onConfirm: async (close) => {
+          const { data, error } = await sb.rpc("convert_plus_song", { p_song: c.id, p_parts: body });
+          if (error) throw new Error(error.message || "정리하지 못했어요");
+          close(); HISTORY.reset(); toast(`'${data.title}'를 메들리로 정리했어요 · 콘티 ${data.contis}개의 기록을 곡마다 나눴어요`, 4500); renderSongs();
+        } });
+    };
+    box.onclick = async (e) => {
+      const b = e.target.closest("[data-md]"); if (!b) return;
+      const m = list.find((x) => x.id === +b.closest("[data-md-id]")?.dataset.mdId);
+      if (b.dataset.md === "detail") return CONTI.medleyDetail(m.id);
+      if (b.dataset.md === "del") {
+        modal({ title: `메들리 '${m.title}' 지우기`, confirmLabel: "지우기", danger: true,
+          body: `<p style="margin:0">메들리만 지워요. 곡 · 부른 기록은 그대로 남고, 메들리 악보 ${m.sheets || 0}개는 첫 곡 악보로 돌아가요.</p>`,
+          onConfirm: async (close) => { const { error } = await sb.rpc("delete_medley", { p_id: m.id }); if (error) throw new Error(error.message); close(); toast("메들리를 지웠어요"); renderSongs(); } });
+        return;
+      }
+      if (b.dataset.md === "edit" || b.dataset.md === "new") return medleyEdit(m || null);
+    };
+    function medleyEdit(m) {
+      const rows = m ? m.songs.map((x) => ({ title: x.title, key: x.key || "" })) : [{ title: "", key: "" }, { title: "", key: "" }];
+      const ref = m?.ref_yt ? `https://youtu.be/${m.ref_yt}${m.ref_start ? `?t=${m.ref_start}` : ""}` : "";
+      const songRows = () => rows.map((r, k) => `<div class="row md-srow" data-k="${k}"><span class="small" style="width:18px;font-weight:800">${k + 1}</span><input class="input" list="mdSongs" data-mf="title" value="${esc(r.title)}" placeholder="곡 이름" style="flex:1"><input class="input" data-mf="key" value="${esc(r.key)}" placeholder="키" maxlength="12" style="width:70px">${rows.length > 2 ? `<button type="button" class="btn btn-ghost btn-sm" data-mf="rm">빼기</button>` : ""}</div>`).join("");
+      modal({ title: m ? "메들리 고치기" : "메들리 만들기", confirmLabel: "저장", wide: true,
+        body: `<label class="field">메들리 이름 <span class="hint">· 비우면 '곡 + 곡'</span><input class="input" id="mdTitle" maxlength="120" value="${esc(m?.title || "")}"></label>
+          <div class="field">곡 · 키 <span class="hint">· 라이브러리에 있는 곡 이름으로 (없으면 저장하지 않아요)</span><div id="mdRows" style="display:flex;flex-direction:column;gap:6px">${songRows()}</div>
+            <button type="button" class="btn btn-ghost btn-sm" data-mf="add" style="align-self:flex-start">+ 곡 더하기</button></div>
+          <label class="field">레퍼런스 영상<input class="input" id="mdRef" value="${esc(ref)}" placeholder="유튜브 주소"></label>
+          <label class="field">메들리 전체 시간 <span class="hint">· 4:30처럼 · 콘티 예상 RT에 이 시간 하나로</span><input class="input" id="mdSec" value="${m?.team_sec ? mm(m.team_sec) : ""}" inputmode="numeric" maxlength="5"></label>
+          ${songOpts}<span class="small bk-err" id="mdErr"></span>`,
+        onInput: (e) => {
+          if (!e) return;
+          const t = e.target, row = t.closest?.(".md-srow");
+          if (e.type === "input" && row) rows[+row.dataset.k][t.dataset.mf] = t.value;
+          if (e.type === "click" && t.dataset?.mf === "add" && rows.length < 8) { rows.push({ title: "", key: "" }); $("#mdRows").innerHTML = songRows(); }
+          if (e.type === "click" && t.dataset?.mf === "rm" && row) { rows.splice(+row.dataset.k, 1); $("#mdRows").innerHTML = songRows(); }
+        },
+        onConfirm: async (close) => {
+          const err = (t) => { $("#mdErr").textContent = t; };
+          const songs = [];
+          for (const r of rows) { if (!r.title.trim()) continue; const so = byNorm.get(r.title.toLowerCase().replace(/\s/g, "")); if (!so) return err(`'${r.title}'은 곡 라이브러리에 없어요. 먼저 곡을 추가해 주세요.`); songs.push({ song_id: so.id, key: r.key.trim() || null }); }
+          if (songs.length < 2) return err("곡을 2곡 이상 넣어 주세요");
+          const rv = $("#mdRef").value.trim(), yt = rv.match(/(?:youtu\.be\/|v=|shorts\/|live\/)([A-Za-z0-9_-]{11})/)?.[1] || null;
+          if (rv && !yt) return err("유튜브 주소를 확인해 주세요");
+          const tv = $("#mdSec").value.trim(), tm = tv.match(/^(\d{1,2}):([0-5]\d)$/);
+          if (tv && !tm) return err("시간은 4:30처럼 적어 주세요");
+          const { error } = await sb.rpc("save_medley", { p_id: m?.id || null, p_service: null, p_data: { title: $("#mdTitle").value.trim(), songs, ref_yt: yt, ref_start: yt ? +(rv.match(/[?&]t=(\d+)/)?.[1] || 0) : null, team_sec: tm ? +tm[1] * 60 + +tm[2] : null } });
+          if (error) return err(error.message || "저장하지 못했어요");
+          close(); toast(m ? "메들리를 고쳤어요" : "메들리를 만들었어요"); renderSongs();
+        } });
+    }
+  }
+
+  // =================================================================== 026: 백업 · 복원 (설정 › 백업)
+  const COUNT_LABEL = { members: "팀원", auth_users: "로그인 계정", applications: "지원서", services: "예배 일정", assignments: "배치", attendance: "출석",
+    setlists: "콘티", setlist_items: "콘티 곡", songs: "곡", sheet_versions: "악보", prayers: "기도제목", notifications: "알림", storage_objects: "악보 파일" };
+  function countTable(cols, cmp = true) {
+    const keys = Object.keys(COUNT_LABEL).filter((k) => cols.some((c) => c.v && c.v[k] != null));
+    if (!keys.length) return `<p class="small muted" style="margin:0">개수 기록이 없어요 (v25까지의 백업).</p>`;
+    const base = cols[0].v || {};
+    return `<div class="song-wrap"><table class="hx-lead bk-count"><thead><tr><th>항목</th>${cols.map((c) => `<th class="n">${esc(c.label)}</th>`).join("")}${cmp && cols.length > 1 ? "<th></th>" : ""}</tr></thead><tbody>
+      ${keys.map((k) => { const vals = cols.map((c) => c.v?.[k]); const same = vals.every((v) => v == null || v === vals[0]);
+        return `<tr><td>${COUNT_LABEL[k]}</td>${vals.map((v) => `<td class="n">${v ?? "—"}</td>`).join("")}${cmp && cols.length > 1 ? `<td>${same ? `<span class="chip chip-ok">같음</span>` : `<span class="chip chip-warn">다름</span>`}</td>` : ""}</tr>`; }).join("")}</tbody></table></div>`;
+  }
+  async function renderBackup() {
+    $("#content").innerHTML = `<a href="#settings" class="back" style="align-self:flex-start">설정으로 돌아가기</a><div class="page-head"><h1 class="page-title">백업 · 복원</h1></div><div class="empty">불러오는 중…</div>`;
+    const { data: B, error } = await sb.rpc("backup_status");
+    if (error || !B) { $("#content").innerHTML = `<a href="#settings" class="back">설정으로 돌아가기</a><div class="empty">백업 기록을 불러오지 못했어요. migration_025를 실행했는지 확인해 주세요.</div>`; return; }
+    const last = B.backups[0], rs = B.restores[0];
+    const age = last ? Math.floor((Date.now() - Date.parse(last.at)) / 864e5) : null;
+    $("#content").innerHTML = `<a href="#settings" class="back" style="align-self:flex-start">설정으로 돌아가기</a>
+      <div class="page-head"><h1 class="page-title">백업 · 복원</h1><a class="btn btn-ghost btn-sm" href="#backup-guide">사고 대응 · 이관 안내서</a></div>
+      <p class="lead">매주 일요일 새벽 3시 17분, GitHub이 <b>DB 전체 + 악보 파일</b>을 암호화해서 저장소 Actions에 보관해요. 새 백업이 잘 올라간 뒤에만 오래된 것을 지워서 <b>최근 4개</b>를 남겨요. Supabase가 통째로 날아가면 GitHub에서 <b>DB 복원</b>을 눌러 새 프로젝트에 되살려요.</p>
+      <section class="card bordered" style="display:flex;flex-direction:column;gap:12px"><h2 style="font-size:17px;font-weight:800">최근 백업</h2>
+        ${!last ? `<p class="notice warn" style="margin:0">아직 백업 기록이 없어요. 안내서 '처음 설정'을 따라 GitHub Secrets를 넣고 Actions › DB 백업 › Run workflow를 눌러 주세요.</p>`
+          : !last.ok ? `<p class="notice warn" style="margin:0">마지막 백업이 실패했어요 (${fmtDateTime(last.at)}). GitHub 저장소 › Actions › DB 백업에서 빨간 실행을 눌러 이유를 확인해 주세요.</p>`
+          : age > 8 ? `<p class="notice warn" style="margin:0">마지막 백업이 ${age}일 전이에요. GitHub › Actions › DB 백업에서 예약 실행이 꺼져 있지 않은지 확인해 주세요.</p>` : ""}
+        <div class="song-wrap"><table class="hx-lead"><thead><tr><th>날짜</th><th></th><th class="n">크기</th><th class="n">악보 파일</th><th class="wide">메모</th></tr></thead><tbody>
+          ${B.backups.map((b) => `<tr><td>${fmtDateTime(b.at)}</td><td>${b.ok ? `<span class="chip chip-ok">성공</span>` : `<span class="chip chip-bad">실패</span>`}</td><td class="n small">${b.size_bytes ? sizeText(b.size_bytes) : "—"}</td><td class="n small">${b.files == null ? (b.ok ? "DB만" : "—") : b.files}</td><td class="wide small muted">${esc(b.artifact || "")}${b.note ? ` · ${esc(b.note)}` : ""}</td></tr>`).join("")
+            || `<tr><td colspan="5" class="muted">기록 없음</td></tr>`}</tbody></table></div></section>
+      <section class="card bordered" style="display:flex;flex-direction:column;gap:12px"><h2 style="font-size:17px;font-weight:800">결과 확인 표 <small class="muted" style="font-weight:600;font-size:13px">${rs ? `복원 ${fmtDateTime(rs.at)}${rs.source_at ? ` · ${fmtDateTime(rs.source_at)} 백업에서` : ""}` : "마지막 백업과 지금"}</small></h2>
+        ${rs ? `<p class="small muted" style="margin:0">${rs.ok ? "복원한 개수가 백업과 모두 같아요." : "백업과 다른 줄이 있어요 — GitHub › Actions › DB 복원 실행 기록의 오류를 확인하세요."}</p>${countTable([{ label: "백업", v: rs.counts?.backup }, { label: "복원", v: rs.counts?.restored }])}`
+          : `<p class="small muted" style="margin:0">복원한 적이 없어요. 아래는 마지막 백업 때와 지금의 개수예요 (그 뒤로 늘어난 건 정상이에요).</p>${countTable([{ label: "마지막 백업", v: last?.counts }, { label: "지금", v: B.now }], false)}`}</section>
+      <section class="card bordered" style="display:flex;flex-direction:column;gap:10px"><h2 style="font-size:17px;font-weight:800">복원 버튼</h2>
+        <ol class="small" style="margin:0;padding-left:20px;line-height:1.8"><li>Supabase에서 <b>새 프로젝트</b>를 만들어요 (지금 쓰는 프로젝트에는 덮어쓰지 않아요)</li>
+          <li>GitHub 저장소 › Settings › Secrets에 새 프로젝트의 <code>RESTORE_DB_URL</code> · <code>RESTORE_SUPABASE_URL</code> · <code>RESTORE_SERVICE_ROLE_KEY</code></li>
+          <li>Actions › <b>DB 복원</b> › Run workflow › 백업 날짜(비우면 가장 최근) · 확인 칸에 <code>RESTORE</code></li>
+          <li>끝나면 실행 화면 아래 <b>결과 확인 표</b> · 새 사이트 설정 › 백업에도 같은 표가 떠요</li>
+          <li>Vercel 환경변수 · <code>assets/config.js</code>를 새 프로젝트 것으로 바꾸고 다시 배포</li></ol>
+        <a class="btn btn-soft btn-sm" href="#backup-guide" style="align-self:flex-start">안내서에서 자세히</a></section>
+      ${isOwner() ? `<section class="card bordered" id="secCard" style="display:flex;flex-direction:column;gap:10px"></section>` : ""}`;
+    if (isOwner()) renderSecrets($("#secCard"));
+  }
+  // 최상위 리더십만: 이관 · 복원 때 필요한 비밀값 메모
+  const SECRET_NAMES = [["BACKUP_PASSPHRASE", "백업 파일 암호 · GitHub Secrets", "잃어버리면 백업을 못 열어요. 여기에만 두지 말고 팀 계정 메모에도"],
+    ["SUPABASE_DB_URL", "Session pooler 주소(비밀번호 포함) · GitHub Secrets", "DB 비밀번호를 바꾸면 같이 바꿔요"],
+    ["SUPABASE_SERVICE_ROLE_KEY", "service_role 키 · Vercel 환경변수 · GitHub Secrets", "새 프로젝트로 옮기면 바뀌어요"],
+    ["VAPID_PUBLIC_KEY", "푸시 알림 공개 키 · Vercel 환경변수", "이관할 때 그대로 옮겨야 팀원 알림이 이어져요"],
+    ["VAPID_PRIVATE_KEY", "푸시 알림 비밀 키 · Vercel 환경변수", "이관할 때 그대로 옮겨야 팀원 알림이 이어져요"],
+    ["VAPID_SUBJECT", "푸시 알림 연락처 · Vercel 환경변수", "예: mailto:팀 계정"],
+    ["CRON_SECRET", "예약 알림 키 · Vercel 환경변수 · cron_012 · GitHub Secrets", "바꾸면 cron_012.sql도 다시 실행"],
+    ["YOUTUBE_API_KEY", "영상 길이 가져오기 · Vercel 환경변수 (선택)", ""],
+    ["DB_PASSWORD", "Supabase DB 비밀번호", "Project Settings › Database"]];
+  async function renderSecrets(box) {
+    const { data, error } = await sb.rpc("ops_secret_list");
+    if (error) { box.innerHTML = `<h2 style="font-size:17px;font-weight:800">비밀값 메모</h2><p class="small muted" style="margin:0">불러오지 못했어요 (migration_025).</p>`; return; }
+    const have = new Map((data || []).map((x) => [x.name, x]));
+    const show = new Set();
+    const draw = () => {
+      box.innerHTML = `<h2 style="font-size:17px;font-weight:800">비밀값 메모 <span class="chip chip-owner">최상위 리더십만</span></h2>
+        <p class="small muted" style="margin:0">이관 · 복원할 때 필요한 값을 적어 둬요. <b>최상위 리더십만</b> 보고 고쳐요(다른 리더 · 팀원은 못 봐요). 백업에도 암호화된 채로 들어가요. 백업 암호는 DB가 날아가면 같이 없어지니 <b>팀 계정 메모 등 바깥에도</b> 꼭 적어 두세요.</p>
+        <div style="display:flex;flex-direction:column;gap:8px">${SECRET_NAMES.map(([k, where, tip]) => { const v = have.get(k);
+          return `<div class="sec-row" data-sec="${k}"><span class="sec-k"><b>${k}</b><small>${esc(where)}${tip ? ` · ${esc(tip)}` : ""}</small></span>
+            <span class="sec-v">${v ? `<code>${show.has(k) ? esc(v.value) : "•".repeat(Math.min(16, v.value.length))}</code><small class="muted">${fmtDateTime(v.updated_at)}${v.by ? ` · ${esc(v.by)}` : ""}</small>` : `<span class="small muted">비어 있음</span>`}</span>
+            <span class="row" style="gap:4px;flex:none">${v ? `<button type="button" class="btn btn-ghost btn-sm" data-sec-a="show">${show.has(k) ? "숨기기" : "보기"}</button><button type="button" class="btn btn-ghost btn-sm" data-sec-a="copy">복사</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-sec-a="edit">${v ? "고치기" : "적기"}</button></span></div>`; }).join("")}</div>`;
+    };
+    draw();
+    box.onclick = async (e) => {
+      const b = e.target.closest("[data-sec-a]"); if (!b) return;
+      const k = b.closest("[data-sec]").dataset.sec, v = have.get(k);
+      if (b.dataset.secA === "show") { show.has(k) ? show.delete(k) : show.add(k); return draw(); }
+      if (b.dataset.secA === "copy") return toast((await copyText(v.value)) ? `${k}를 복사했어요` : "복사하지 못했어요");
+      modal({ title: `${k} ${v ? "고치기" : "적기"}`, confirmLabel: "저장",
+        body: `<label class="field">값 <span class="hint">· 비우고 저장하면 지워요</span><textarea id="secV" rows="3" maxlength="4000" autocomplete="off" spellcheck="false">${esc(v?.value || "")}</textarea></label>`,
+        onConfirm: async (close) => {
+          const { error } = await sb.rpc("ops_secret_set", { p_name: k, p_value: $("#secV").value, p_note: null });
+          if (error) throw new Error(error.message);
+          close(); toast("저장했어요"); renderSecrets(box);
+        } });
+    };
+  }
+  async function renderGuide() {
+    $("#content").innerHTML = `<a href="#backup" class="back" style="align-self:flex-start">백업 · 복원으로 돌아가기</a>
+      <div class="page-head"><h1 class="page-title">사고 대응 · 이관 안내서</h1></div>
+      <article class="card bordered guide">${window.GUIDE_HTML || "안내서를 불러오지 못했어요. RESTORE-GUIDE.md를 보세요."}</article>`;
+  }
+
   async function renderAudit() {
     $("#content").innerHTML = `<a href="#settings" class="back" style="align-self:flex-start">설정으로 돌아가기</a>
       <div class="page-head"><h1 class="page-title">변경 기록</h1></div><div class="empty">불러오는 중…</div>`;
-    let q = sb.from("audit_log").select("*").order("id", { ascending: false }).limit(AUD.limit + 1);
+    // 026: 초성으로 찾으면 최근 기록을 받아 와서 이 기기에서 걸러요
+    const cho = /[ㄱ-ㅎ]/.test(AUD.q);
+    let q = sb.from("audit_log").select("*").order("id", { ascending: false }).limit(cho ? 2000 : AUD.limit + 1);
     if (AUD.group === "del") q = q.eq("op", "DELETE");
     else if (AUD.group !== "all") q = q.in("tbl", AUD_GROUP[AUD.group]);
-    if (AUD.q.trim()) q = q.ilike("label", `%${AUD.q.trim().replace(/[%_]/g, "")}%`);
-    const { data, error } = await q;
+    if (AUD.q.trim() && !cho) q = q.ilike("label", `%${AUD.q.trim().replace(/[%_]/g, "")}%`);
+    let { data, error } = await q;
     if (error) { $("#content").innerHTML = `<div class="empty">변경 기록을 불러오지 못했어요. migration_019를 실행했는지 확인해 주세요.</div>`; return; }
+    if (cho) data = (data || []).filter((x) => KO.match(x.label || "", AUD.q));
     const rows = (data || []).slice(0, AUD.limit), more = (data || []).length > AUD.limit;
     const day = (iso) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
     let prevDay = "";

@@ -1,7 +1,7 @@
 #!/bin/bash
 B=/home/claude/base; W=/home/claude/wp; P=/home/claude/pgrst
 pg_ctlcluster 16 main start 2>/dev/null; for i in 1 2 3 4 5; do pg_isready -q && break; sleep 1; done
-MIGS="schema migration_002 migration_003 migration_004 migration_005 migration_006 migration_007 migration_008 migration_009 migration_010 ${EXTRA_MIGS-migration_011 migration_012 migration_013 migration_014 migration_015 migration_016 migration_017 migration_018 migration_019 migration_020 migration_020_history migration_021 migration_022 migration_023 migration_024}"
+MIGS="schema migration_002 migration_003 migration_004 migration_005 migration_006 migration_007 migration_008 migration_009 migration_010 ${EXTRA_MIGS-migration_011 migration_012 migration_013 migration_014 migration_015 migration_016 migration_017 migration_018 migration_019 migration_020 migration_020_history migration_021 migration_022 migration_023 migration_024 migration_025}"
 for f in $MIGS; do if [ -f $W/supabase/$f.sql ]; then cp $W/supabase/$f.sql /tmp/$f.sql; else cp $B/supabase/$f.sql /tmp/$f.sql; fi; done
 cp $B/dev/shim.sql $B/dev/stack_extra.sql /tmp/; chmod 644 /tmp/*.sql
 [ -n "$(pidof postgrest)" ] && kill $(pidof postgrest)

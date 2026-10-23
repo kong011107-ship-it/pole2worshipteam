@@ -9,6 +9,28 @@
   window.esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+  // 026: 찾기 — 띄어쓰기 · 대소문자 무시 + 초성 (ㅁㅇㅇㅇㅂ → 마음의 예배, 섞어서 마ㅇㅇ도). 쌍자음(ㄲ ㄸ ㅃ ㅆ ㅉ)은 따로
+  //   KO.match(이름, 찾는 말) → true/false · KO.norm(문자열) · KO.has(찾는 말이 있는지)
+  window.KO = (() => {
+    const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+    const norm = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, "");
+    const isCho = (c) => CHO.includes(c);
+    const choOf = (c) => { const n = c.charCodeAt(0) - 0xac00; return n >= 0 && n < 11172 ? CHO[Math.floor(n / 588)] : null; };
+    function match(hay, q) {
+      const Q = norm(q); if (!Q) return true;
+      const H = norm(hay); if (!H) return false;
+      if (![...Q].some(isCho)) return H.includes(Q);
+      const qa = [...Q], ha = [...H];
+      for (let i = 0; i + qa.length <= ha.length; i++) {
+        let ok = true;
+        for (let j = 0; j < qa.length; j++) { const a = qa[j], b = ha[i + j]; if (a === b || (isCho(a) && choOf(b) === a)) continue; ok = false; break; }
+        if (ok) return true;
+      }
+      return false;
+    }
+    return { norm, match, has: (q) => !!norm(q) };
+  })();
+
   window.toast = (msg, ms = 2600) => {
     document.querySelectorAll(".toast").forEach((t) => t.remove());
     const el = document.createElement("div");

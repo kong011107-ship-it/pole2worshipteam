@@ -144,7 +144,7 @@ async function share(db, body) {
     db.from("worship_proc").select("id, kind, title, key, path, pages, images, start_date").order("start_date", { ascending: false }).order("id", { ascending: false }),
   ]);
   const slIds = (sls.data || []).map((x) => x.id);
-  const { data: items } = slIds.length ? await db.from("setlist_items").select("setlist_id, ord, key, bpm, meter, medley, memo, sheet_id, songs(title, team_bpm, team_meter), sheet_versions(id, path, pages)").in("setlist_id", slIds).order("ord") : { data: [] };
+  const { data: items } = slIds.length ? await db.from("setlist_items").select("setlist_id, ord, key, bpm, meter, medley, diff_key, join_prev, memo, sheet_id, songs(title, team_bpm, team_meter), sheet_versions(id, path, pages)").in("setlist_id", slIds).order("ord") : { data: [] };
   const sheetIds = [...new Set((items || []).map((x) => x.sheet_id).filter(Boolean))];
   const { data: inks } = sheetIds.length ? await db.from("sheet_ink").select("sheet_id, page, stroke, valid_from, deleted_from").in("sheet_id", sheetIds).order("id") : { data: [] };
   const procFor = (date, communion, special) => {
@@ -161,7 +161,7 @@ async function share(db, body) {
     const communion = !s.ministry_id && (s.communion ?? +s.service_date.slice(8, 10) <= 7);
     const sl = (sls.data || []).find((x) => x.service_id === s.id);
     const its = sl ? (items || []).filter((x) => x.setlist_id === sl.id).map((x) => ({
-      ord: x.ord, title: x.songs?.title || "", key: x.key, bpm: x.bpm ?? null, meter: x.meter || (x.bpm ? "4/4" : null), medley: x.medley, memo: x.memo,
+      ord: x.ord, title: x.songs?.title || "", key: x.key, bpm: x.bpm ?? null, meter: x.meter || (x.bpm ? "4/4" : null), medley: x.medley, diff_key: !!x.diff_key, join_prev: !!x.join_prev, memo: x.memo,
       sheet: x.sheet_versions ? { id: x.sheet_versions.id, path: fileOf(x.sheet_versions.path), pages: x.sheet_versions.pages,
         ink: (inks || []).filter((k) => k.sheet_id === x.sheet_id && k.valid_from <= s.service_date && (!k.deleted_from || k.deleted_from > s.service_date)).map((k) => ({ page: k.page, ...k.stroke })) } : null,
     })) : [];

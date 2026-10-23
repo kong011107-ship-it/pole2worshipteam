@@ -66,8 +66,8 @@
         ${f.setlist ? `<button type="button" class="cv-pdfbar" data-sh="open"><span class="cv-pdfic">PDF</span><span class="cv-pdft"><b>악보 보기</b><span class="small muted">${ch?.at ? `${kdt(ch.at)} 수정됨` : f.setlist.published_at ? `${kdt(f.setlist.published_at)} 올라옴` : ""}</span></span><span class="btn btn-primary btn-sm">열기</span></button>`
           : `<div class="cv-wait"><span><b>아직 콘티가 올라오지 않았어요</b><span class="small muted">올라오면 이 화면에 바로 보여요</span></span></div>`}
         ${items.length ? `<section class="card"><div class="card-title cv-ct">곡 순서 <span class="cv-chips">${ch?.text?.length ? `<span class="chip chip-mid" title="${esc(ch.text.join(" · "))}">수정됨 · ${esc(ch.text.slice(0, 2).join(" · "))}${ch.text.length > 2 ? " 외" : ""}</span>` : ""}${sc && (!ch?.at || sc.at > ch.at) ? `<span class="chip chip-violet">악보 바뀜 · ${esc(kdt(sc.at))}</span>` : ""}</span></div>
-          <div class="cv-slist">${items.map((x, i) => `<div class="cv-srow"><span class="cv-sn">${i + 1}</span><button type="button" class="cv-st" data-sh-at="c:${i}"><b>${esc(x.title)}</b><small>${x.sheet ? `${x.sheet.pages}쪽` : "악보 없음"}${x.medley ? " · 메들리" : ""}</small></button><span></span>
-            ${x.bpm ? `<span class="cv-bpm">♩=${x.bpm}${x.meter && x.meter !== "4/4" ? ` · ${esc(x.meter)}` : ""}</span>` : "<span></span>"}<span class="cv-key">${esc(x.key || "–")}</span>${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`).join("")}</div></section>` : ""}
+          <div class="cv-slist">${items.map((x, i) => { const jn = i > 0 && x.join_prev; return `<div class="cv-srow ${jn ? "join" : ""}"><span class="cv-sn">${jn ? "+" : gno(items, i)}</span><button type="button" class="cv-st" data-sh-at="c:${i}"><b>${esc(x.title)}</b><small>${jn ? "앞 곡에 이어서" : `${x.sheet ? `${x.sheet.pages}쪽` : "악보 없음"}${items[i + 1]?.join_prev ? " · 메들리" : ""}`}</small></button><span></span>
+            ${x.bpm ? `<span class="cv-bpm">♩=${x.bpm}${x.meter && x.meter !== "4/4" ? ` · ${esc(x.meter)}` : ""}</span>` : "<span></span>"}<span class="cv-key">${esc(kt(x))}</span>${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`; }).join("")}</div>${items.some((x) => x.diff_key) ? `<p class="small muted cv-dk">* 음원(레퍼런스)과 키가 달라요</p>` : ""}</section>` : ""}
         ${f.applied.length ? `<section class="card"><div class="card-title cv-ct">적용찬양 <small>${f.applied.length}곡</small></div>${f.applied.map((x, i) => `<button type="button" class="cv-prow" data-sh-at="a:${i}"><span class="cv-ptag">적용</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, `${(x.images || []).length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}
         ${f.proc.length ? `<section class="card"><div class="card-title cv-ct">예배 진행곡 <small>${f.communion ? "성찬식 주일" : ""}</small></div>${f.proc.map((x) => `<button type="button" class="cv-prow" data-sh-at="p:${x.kind}"><span class="cv-ptag">${PROC[x.kind][0]}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, x.images?.length ? `${x.images.length}장` : x.pages ? `${x.pages}쪽` : ""].filter(Boolean).map(esc).join(" · ")}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}`
         : `<div class="empty">앞으로 2주 안에 공개된 예배가 없어요.</div>`}
@@ -176,8 +176,12 @@
     } catch { WAKE.lock = null; }
   }
   const procPages = (x) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? (isImg(x.path) ? [{ img: x.path }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 }))) : []);
+  // 026: 음원과 키 다름(*) · 메들리 번호
+  const kt = (x) => (x.key ? `${x.key}${x.diff_key ? "*" : ""}` : x.diff_key ? "*" : "–");
+  const gno = (items, i) => { let n = 0; for (let k = 0; k <= i; k++) if (!(k > 0 && items[k].join_prev)) n++; return n; };
   function serviceItems(f) {
-    const out = (f?.setlist?.items || []).map((x, i) => ({ id: `c:${i}`, tag: String(i + 1), title: x.title, key: x.key, bpm: x.bpm, meter: x.meter,
+    const it0 = f?.setlist?.items || [];
+    const out = it0.map((x, i) => ({ id: `c:${i}`, tag: i > 0 && x.join_prev ? "+" : String(gno(it0, i)), title: x.title, key: kt(x) === "–" ? "" : kt(x), bpm: x.bpm, meter: x.meter,
       src: x.sheet ? Array.from({ length: x.sheet.pages || 1 }, (_, k) => ({ path: x.sheet.path, p: k + 1, ink: (x.sheet.ink || []).filter((s) => s.page === k + 1) })) : [] }));
     (f?.applied || []).forEach((x, i) => out.push({ id: `a:${i}`, tag: "적용", kind: "applied", title: x.title, key: x.key, src: (x.images || []).map((img) => ({ img })) }));
     (f?.proc || []).forEach((x) => out.push({ id: `p:${x.kind}`, tag: PROC[x.kind][1], kind: "proc", title: x.title, key: x.key, src: procPages(x) }));
