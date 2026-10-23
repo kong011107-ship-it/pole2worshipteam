@@ -1,0 +1,90 @@
+# Pole2 찬양팀 — 백업으로 되살리기 (v26)
+#  Supabase 프로젝트가 통째로 망가졌거나 지워졌을 때, '새' Supabase 프로젝트에 백업을 그대로 되살려요.
+#  지금 쓰는 프로젝트에는 덮어쓰지 않아요 (같은 프로젝트거나 팀원이 들어 있으면 멈춰요).
+#  먼저 넣을 Secrets (새 프로젝트 것):
+#    RESTORE_DB_URL            : 새 프로젝트 › Connect › Session pooler 주소 (비밀번호 넣은 것)
+#    RESTORE_SUPABASE_URL      : 새 프로젝트 주소 https://yyyy.supabase.co
+#    RESTORE_SERVICE_ROLE_KEY  : 새 프로젝트 service_role 키
+#  그대로 쓰는 Secrets: BACKUP_PASSPHRASE · SUPABASE_DB_URL(지금 프로젝트 — 덮어쓰기 막기용) · CRON_SECRET(있으면 예약 알림 등록)
+#  실행: Actions › DB 복원 › Run workflow › 백업 날짜(비우면 가장 최근) · 확인 칸에 RESTORE
+#  자세한 순서: 사이트 설정 › 백업 › '사고 대응 · 이관 안내서' 또는 RESTORE-GUIDE.md
+name: DB 복원
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup:
+        description: "되살릴 백업 날짜 (예: 20261025) · 비우면 가장 최근"
+        required: false
+        default: ""
+      site_url:
+        description: "사이트 주소 (예약 알림 등록용, 예: https://pole2worshipteam.vercel.app)"
+        required: false
+        default: ""
+      confirm:
+        description: "확인: RESTORE 라고 적어 주세요"
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: db-restore
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: 확인
+        run: |
+          if [ "${{ inputs.confirm }}" != "RESTORE" ]; then echo "::error::확인 칸에 RESTORE를 그대로 적어 주세요"; exit 1; fi
+      - uses: actions/checkout@v4
+
+      - name: pg 17 설치
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 >/dev/null
+
+      - name: 백업 고르기 · 내려받기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ inputs.backup }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" > arts.json
+          python3 - <<'PY' > pick.txt
+          import json, os
+          a = [x for x in json.load(open("arts.json"))["artifacts"] if x["name"].startswith("pole2-backup-") and not x["expired"]]
+          w = os.environ.get("WANT", "").strip()
+          if w: a = [x for x in a if w in x["name"]]
+          a.sort(key=lambda x: x["created_at"], reverse=True)
+          if not a: raise SystemExit("맞는 백업이 없어요")
+          print(a[0]["id"], a[0]["name"], a[0]["created_at"])
+          PY
+          read -r ID NAME AT < pick.txt
+          echo "고른 백업: $NAME ($AT)"
+          gh api "repos/${{ github.repository }}/actions/artifacts/$ID/zip" > b.zip
+          mkdir -p bk && unzip -q b.zip -d bk
+          echo "ARCHIVE=$(ls bk/*.tar.gpg | head -1)" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "SOURCE_AT=$AT" >> "$GITHUB_ENV"
+
+      - name: 되살리기 · 결과 확인 표
+        env:
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+          T_DB: ${{ secrets.RESTORE_DB_URL }}
+          T_URL: ${{ secrets.RESTORE_SUPABASE_URL }}
+          T_KEY: ${{ secrets.RESTORE_SERVICE_ROLE_KEY }}
+          CUR_DB: ${{ secrets.SUPABASE_DB_URL }}
+          CUR_URL: ${{ secrets.SUPABASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SITE_URL: ${{ inputs.site_url || vars.SITE_URL }}
+        run: |
+          if [ -z "$T_DB" ] || [ -z "$PASS" ]; then echo "::error::RESTORE_DB_URL · BACKUP_PASSPHRASE Secrets를 먼저 넣어 주세요"; exit 1; fi
+          bash scripts/restore.sh
