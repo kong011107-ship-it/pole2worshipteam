@@ -988,13 +988,45 @@
   //  (주일 배치만. 사역 예배는 사역 화면에서 따로 봄)
   const ACT_KINDS = { practice: "토요 연습", meeting: "팀모임", rehearsal: "주일 리허설" };
   async function loadActivity(fromDate) {
-    const [tm, sv] = await Promise.all([
+    const cut = cutoverDate();
+    const [tm, sv, lh] = await Promise.all([
       sb.from("team_meetings").select("id, meeting_date, meeting_status, practice_cancelled, attendance(*)").gte("meeting_date", fromDate).order("meeting_date"),
       sb.from("services").select("service_date, status, assignments(member_id, position_code, slot, is_singer_leader, is_band_master)").is("ministry_id", null).gte("service_date", fromDate).order("service_date"),
+      loadLineupHistory({ from: fromDate }),
     ]);
     if (tm.error || sv.error) console.error(tm.error || sv.error);
-    return { meetings: tm.data || [], services: sv.data || [] };
+    // 027: 전환일 전 = 콘티방 라인업 기록, 전환일부터 = 공개된 플랫폼 배치표
+    const services = (sv.data || []).filter((s) => s.service_date >= cut).concat(histServices(lh)).sort((a, b) => a.service_date.localeCompare(b.service_date));
+    return { meetings: tm.data || [], services };
   }
+  // ---------------------------------------------------------------- 지난 라인업 (027)
+  //  lineup_history(카톡 콘티방 기록)에서 멤버와 연결된 줄만 → 배치표와 같은 모양으로
+  //  전환일(설정 lineup_cutover, 기본 2026-10-25) 전 기록만 쓰고, 그날부터는 플랫폼 배치표
+  const cutoverDate = () => String(S.settings?.lineup_cutover || "2026-10-25").slice(0, 10);
+  async function loadLineupHistory({ from, member } = {}) {
+    const cut = cutoverDate();
+    if (from && from >= cut) return [];
+    const out = [];
+    for (let off = 0; off < 20000; off += 1000) {
+      let q = sb.from("lineup_history").select("service_date, position, slot, member_id").not("member_id", "is", null).lt("service_date", cut);
+      if (from) q = q.gte("service_date", from);
+      if (member) q = q.eq("member_id", member);
+      const { data, error } = await q.order("service_date").order("id").range(off, off + 999);
+      if (error) { console.error(error); break; }
+      out.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    return out;
+  }
+  const histServices = (rows) => {
+    const by = new Map();
+    rows.forEach((r) => {
+      let s = by.get(r.service_date);
+      if (!s) by.set(r.service_date, (s = { service_date: r.service_date, status: "published", hist: true, assignments: [] }));
+      s.assignments.push({ member_id: r.member_id, position_code: r.position, slot: r.slot, is_singer_leader: false, is_band_master: false, hist: true });
+    });
+    return [...by.values()];
+  };
   const recOf = (mt, mid, kind) => (mt?.attendance || []).find((r) => r.member_id === mid && r.kind === kind);
   const reasonText = (r) => [r?.reason_tag, r?.reason].filter(Boolean).join(" · ");
   // 그 사람이 섬긴(공개된) 주일 목록
@@ -1583,6 +1615,25 @@
   }
 
   // ---------------------------------------------------------------- 멤버 상세
+  // 027: 멤버 상세 '최근 2년' — 콘티방 기록(전환일 전) + 공개된 주일 배치표(전환일부터)
+  async function loadServed2y(id, today) {
+    const from = addDays(today, -730), cut = cutoverDate();
+    const [lh, sv] = await Promise.all([
+      loadLineupHistory({ from, member: id }),
+      sb.from("services").select("service_date, status, assignments!inner(member_id, position_code)").is("ministry_id", null).eq("status", "published")
+        .eq("assignments.member_id", id).gte("service_date", from > cut ? from : cut).lte("service_date", today).order("service_date"),
+    ]);
+    if (sv.error) console.error(sv.error);
+    return lh.map((r) => ({ date: r.service_date, pos: r.position }))
+      .concat((sv.data || []).flatMap((s) => (s.assignments || []).filter((a) => a.member_id === id).map((a) => ({ date: s.service_date, pos: a.position_code }))));
+  }
+  function served2ySummary(rows) {
+    const dates = [...new Set(rows.map((r) => r.date))].sort();
+    const pos = {}, yrs = {};
+    [...new Set(rows.map((r) => r.date + "|" + r.pos))].forEach((k) => { const c = k.split("|")[1]; pos[c] = (pos[c] || 0) + 1; });
+    dates.forEach((d) => { yrs[d.slice(0, 4)] = (yrs[d.slice(0, 4)] || 0) + 1; });
+    return { n: dates.length, first: dates[0], pos: Object.entries(pos).sort((a, b) => b[1] - a[1]), years: Object.entries(yrs).sort((a, b) => a[0].localeCompare(b[0])) };
+  }
   async function renderMemberDetail(id) {
     const m = S.members.find((x) => x.id === id);
     if (!m) { $("#content").innerHTML = `<div class="empty">멤버를 찾을 수 없어요. <a href="#members">멤버로</a></div>`; return; }
@@ -1590,7 +1641,7 @@
     const lastSat = lastSaturday(today);
     const weeks = Array.from({ length: 12 }, (_, i) => addDays(lastSat, -7 * (11 - i)));
     const from = addDays(monthOf(today), -31 * 6).slice(0, 8) + "01";
-    const [act, note, avail] = await Promise.all([
+    const [act, note, avail, y2rows] = await Promise.all([
       loadActivity(from < weeks[0] ? from : weeks[0]),
       sb.from("member_notes").select("*").eq("member_id", id).maybeSingle(),
       (async () => {
@@ -1600,7 +1651,9 @@
         const { data } = await sb.from("availability").select("date").eq("member_id", id).gte("date", slots[0].date).lte("date", slots[slots.length - 1].date);
         return { open, total: slots.length, done: (data || []).length };
       })(),
+      loadServed2y(id, today),
     ]);
+    const y2 = served2ySummary(y2rows);
     const mt = (d) => act.meetings.find((x) => x.meeting_date === d);
     const served = servedList(act.services, id);
     const past = served.filter((s) => s.date <= today);
@@ -1695,10 +1748,12 @@
 
       <div class="two">
         <section class="panel">
-          <h2>섬김 통계 <small>공개된 주일 배치표 기준</small></h2>
+          <h2>섬김 통계 <small>${md(cutoverDate())} 전은 콘티방 기록 · 그날부터 공개된 배치표</small></h2>
           <div class="bars" role="img" aria-label="최근 6개월 월별 섬김 횟수">${months.map((mo, i) => `<div><b>${perMonth[i]}</b><i class="${i === 5 ? "cur" : ""}" style="height:${Math.max(4, Math.round(100 * perMonth[i] / maxM))}%" title="${monthLabel(mo)} ${perMonth[i]}회"></i>${monthLabel(mo)}</div>`).join("")}</div>
           <div class="split">${Object.entries(byPosCount).map(([c, n]) => `<span>${esc(positionName(c))}<b>${n}</b></span>`).join("")}
             ${sl ? `<span>싱어 리더<b>${sl}</b></span>` : ""}${bm ? `<span>밴드 마스터<b>${bm}</b></span>` : ""}${!past.length ? `<span class="muted">최근 6개월 섬김 기록 없음</span>` : ""}</div>
+          <div class="y2"><b class="small">최근 2년</b> <span class="small muted">${y2.n ? `${y2.n}회 · ${y2.years.map(([y, n]) => `${y}년 ${n}`).join(" · ")} · 처음 기록 ${fmtDate(y2.first, { year: "numeric", month: "numeric", day: "numeric" })}` : "기록 없음"}</span>
+            ${y2.n ? `<div class="split" style="margin-top:6px">${y2.pos.map(([c, n]) => `<span>${esc(positionName(c))}<b>${n}</b></span>`).join("")}</div>` : ""}</div>
           ${recent.length ? `<div><b class="small">최근 섬김</b><div class="hist" style="margin-top:4px">${recent.map((s) => `<div><b>${md(s.date)}</b>
             <span>${esc(positionName(s.position_code))} ${s.is_singer_leader ? `<span class="chip chip-violet">싱어 리더</span>` : ""}${s.is_band_master ? `<span class="chip chip-violet">밴마</span>` : ""}</span>${sunStatus(s)}</div>`).join("")}</div></div>` : ""}
         </section>
