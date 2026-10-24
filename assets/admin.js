@@ -443,7 +443,8 @@
   const NOTIFY_NAME = { open: "섬김 응답 열림", minopen: "사역 응답 열림", poll: "연습 시간 요청", remind: "마감 임박", lineup: "배치표 공개", practice: "연습 시간 확정", apply: "새 지원서", trainee: "수습 기록 차례", notice: "리더 공지",
     prayer_new: "기도제목 올라옴", prayer_remind: "주중 함께 기도", prayer_urgent: "급한 기도", birthday_soon: "생일 다가옴", birthday_today: "생일 당일",
     conti_open: "콘티 준비 안내", conti_remind: "콘티 마감 임박", conti_up: "콘티 올라옴", conti_edit: "콘티 수정됨",
-    sat_vote: "연습 시간 변경 투표", sat_decide: "연습 시간 결정 · 취소", proc: "예배 진행곡 바뀜" };
+    sat_vote: "연습 시간 변경 투표", sat_decide: "연습 시간 결정 · 취소", proc: "예배 진행곡 바뀜",
+    applied_up: "적용찬양 올라옴", backup_pick: "백업찬양 확정", backup_edit: "백업찬양 수정" };
   async function notifyEnabled(kind) {
     const { data } = await sb.from("notify_settings").select("enabled").eq("kind", kind).maybeSingle();
     return data ? data.enabled : true;
@@ -4697,7 +4698,7 @@
   const NV = { tab: "send", sel: "remind", draft: null, target: "all", date: null, pick: new Set(), title: "", body: "", vote: null };
   // 016: 공지에 붙이는 투표 (기본: 하나만 · 실명 · 사흘 뒤 밤 9시 마감)
   const newVote = () => ({ on: false, options: ["", ""], multi: false, anonymous: false, date: addDays(todayISO(), 3), hour: 21 });
-  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent", "birthday_soon", "birthday_today", "conti_open", "conti_remind", "conti_up", "conti_edit", "sat_vote", "sat_decide", "proc"];
+  const NKINDS = ["open", "minopen", "poll", "remind", "lineup", "practice", "apply", "trainee", "notice", "prayer_new", "prayer_remind", "prayer_urgent", "birthday_soon", "birthday_today", "conti_open", "conti_remind", "conti_up", "conti_edit", "applied_up", "backup_pick", "backup_edit", "sat_vote", "sat_decide", "proc"];
   const NINFO = {
     open: { who: "정식 팀원 전체", when: "리더가 월말 응답을 열 때 (확인 창에서 고름)", vars: ["월", "마감일", "이름"] },
     minopen: { who: "그 사역 응답 대상", when: "따로 받는 사역을 만들거나 응답을 다시 열 때 (확인 창에서 고름)", vars: ["사역", "마감일", "이름"] },
@@ -4720,13 +4721,16 @@
     sat_vote: { who: "시간을 바꿀 때 고른 대상 (그 주 섬김 인원 · 배치 전이면 토요 연습 '가능' 응답자)", when: "섬김 일정에서 토요 연습 시간을 바꾸며 '가능 여부 묻기'를 고를 때", vars: ["날짜", "시간", "마감", "원래 시간", "이름"] },
     sat_decide: { who: "그 투표 대상 (투표 없이 취소하면 그 주 대상)", when: "바꾼 시간 확정 · 원래 시간으로 · 연습 취소를 고를 때 (확인 창에서 고름)", vars: ["날짜", "결정", "내용", "이름"] },
     proc: { who: "팀원 전체", when: "찬양 › 곡에서 예배 진행곡을 바꿀 때 (확인 창에서 고름)", vars: ["곡", "이름"] },
+    applied_up: { who: "그 예배 라인업 (올린 사람 빼고)", when: "그 예배 적용찬양을 처음 올릴 때만 (그 뒤로 고치면 알림 없이 '수정됨')", vars: ["예배", "곡", "올린 사람", "이름"] },
+    backup_pick: { who: "그 예배 라인업 (확정한 사람 빼고)", when: "인도자가 백업찬양 후보를 '확정'할 때 · 확정 전에는 팀원에게 후보가 안 보여요", vars: ["예배", "곡", "인도자", "이름"] },
+    backup_edit: { who: "그 예배 라인업 (수정한 사람 빼고)", when: "확정한 백업찬양 후보를 고쳐서 '수정'을 누를 때", vars: ["예배", "바뀐 것", "곡", "인도자", "이름"] },
   };
   const NSAMPLE = { "월": "11월", "마감일": "10/31(토)", "사역": "원스텝", "무엇": "11월 섬김 응답", "남은 것": "3개 남았어요", "이름": "이은혜",
     "내 섬김": "11/8 싱어 리더 · 11/15 섬겨요", "연습 일시": "11/10(화) 19:00–21:00", "지원자": "이도현", "포지션": "싱어", "수습생": "이도현", "주차": "3",
     "제목": "이번 주 팀모임은 없어요", "내용": "토요 연습은 그대로 11:00에 있어요", "인원": "12", "개수": "12", "대상": "김하늘",
     "생일자": "김하늘", "며칠": "3일", "날짜": "10/23(금)", "정산": "생일선물 정산 참여 · 선물 준비해요",
     "예배": "11/8 주일", "마감": "11/4(수) 22:00", "곡": "주님 다시 오실 때까지 · 은혜 · 송축해 내 영혼", "바뀐 것": "키 A → Bb · 곡 추가: 은혜", "올린 사람": "이은혜",
-    "시간": "14:00–17:00", "원래 시간": "13:00–16:00", "결정": "없어요" };
+    "시간": "14:00–17:00", "원래 시간": "13:00–16:00", "결정": "없어요", "인도자": "이은혜" };
   const NDEF = {
     open: ["{월} 섬김 응답을 받고 있어요", "{마감일}까지 토요 연습·주일 가능 여부를 체크해 주세요"],
     minopen: ["{사역} 섬김 응답을 받고 있어요", "{마감일}까지 가능 여부를 체크해 주세요"],
@@ -4749,6 +4753,9 @@
     sat_vote: ["[투표] {날짜} 토요 연습 시간이 바뀌었어요", "{시간}에 연습할 수 있는지 알려 주세요 · {마감} 마감"],
     sat_decide: ["{날짜} 토요 연습 {결정}", "{내용}"],
     proc: ["예배 진행곡이 바뀌었어요", "{곡}"],
+    applied_up: ["{예배} 적용찬양이 올라왔어요", "{곡}"],
+    backup_pick: ["{예배} 백업찬양 후보가 정해졌어요", "{곡}"],
+    backup_edit: ["{예배} 백업찬양 후보가 바뀌었어요", "{바뀐 것}"],
   };
   const NSCHED = { remind: [{ days: 1, hour: 18 }, { days: 0, hour: 10 }], trainee: { dow: 6, hour: 18 }, prayer_new: { dow: 6, hour: 21 }, prayer_remind: { days: [2, 4], hour: 20 }, birthday_soon: { days: 3, hour: 9 }, birthday_today: { hour: 9 },
     conti_open: { days: 7, hour: 18 }, conti_remind: [{ days: 1, hour: 18 }, { days: 0, hour: 18 }] };

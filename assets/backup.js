@@ -50,17 +50,22 @@
     const p = procOf(v), name = L().PROC[v]?.[0] || v;
     return { ref, code: L().PROC[v]?.[1] || "", title: p ? `${name} · ${p.title}` : name, proc: p, kind: v };
   }
+  // 027: 악보 고치기(공유 필기) — 이번 백업찬양 예배의 인도자 · 밴드 마스터 · 리더십 · 밴드. 그 예배 날짜 기준
+  const shCtx = () => (B.live?.service_id ? { svc: B.live.service_id, date: B.live.service_date || todayISO(), canEdit: !!B.live.can_ink, canEraseAll: !!B.live.can_ink_all } : null);
   function pagesOf(ref) {
     const r = refInfo(ref); if (!r) return [];
+    const ctx = shCtx();
     if (r.song) {
-      const s = r.song;
+      const s = r.song, ver = s.book_id ? String(s.book_id) : `c${s.id}`;
       // 024: 내 메모는 곡 코드 기준 (악보집이 새 판으로 바뀌면 '이전 판 메모')
-      const ink = (k) => ({ key: `b:${s.code}`, page: k + 1, ver: s.book_id ? String(s.book_id) : `c${s.id}` });
-      if (s.images?.length) return s.images.map((img, k) => ({ img, ink: ink(k) }));
-      if (B.book && s.page) return Array.from({ length: s.pages || 1 }, (_, k) => ({ path: B.book.path, p: s.page + k, ink: ink(k) }));
+      const ink = (k) => ({ key: `b:${s.code}`, page: k + 1, ver });
+      // 027: 공유 필기도 곡 코드 기준으로 주마다 쌓임 · 새 판이면 이어 쓰지 않고 '이전 판 필기 보기'
+      const shared = (k) => (ctx ? { sheet: `b:${s.code}`, ver, page: k + 1, date: ctx.date, svc: ctx.svc, canEdit: ctx.canEdit, canEraseAll: ctx.canEraseAll, kind: "extra", name: s.title } : null);
+      if (s.images?.length) return s.images.map((img, k) => ({ img, ink: ink(k), shared: shared(k) }));
+      if (B.book && s.page) return Array.from({ length: s.pages || 1 }, (_, k) => ({ path: B.book.path, p: s.page + k, ink: ink(k), shared: shared(k) }));
       return [];
     }
-    return r.proc ? L().procPages(r.proc) : [];
+    return r.proc ? L().procPages(r.proc, ctx) : [];
   }
   const codeHTML = (c, cls = "") => `<span class="bk-code ${cls}">${esc(c || "")}</span>`;
 
@@ -135,18 +140,41 @@
       <div class="bk-head"><h2>백업찬양 후보</h2><span class="small muted">${B.book ? `악보집 ${esc(B.book.label)} · ${B.songs.filter((s) => s.book_id).length}곡 · <span id="bkSaved">${savedHTML()}</span>` : "악보집이 아직 없어요"}</span></div>
       ${slots ? `<div class="bk-slots">${Array.from({ length: slots }, (_, i) => { const s = cs[i];
           return s ? `<button type="button" class="bk-slot" data-bk-view="${s.id}"><span class="h">${codeHTML(s.code)}<span class="n">${i + 1}</span></span><b>${esc(s.title)}</b></button>` : `<div class="bk-slot empty">${i + 1}</div>`; }).join("")}</div>`
-        : `<p class="muted small" style="margin:0">아직 후보가 없어요. 이번 주 인도자가 고르면 여기에 보여요.</p>`}
-      ${lead ? `<span class="small muted">누른 순서대로 1 · 2 · 3번 후보가 돼요. 다시 누르면 빠져요 · 고르는 즉시 팀원 화면에도 보여요</span>` : ""}
+        : `<p class="muted small" style="margin:0">${lead ? "아직 후보가 없어요. 아래 목록에서 눌러 골라요." : "아직 후보가 없어요. 이번 주 인도자가 확정하면 여기에 보여요."}</p>`}
+      ${lead ? `<span class="small muted">누른 순서대로 1 · 2 · 3번 후보가 돼요. 다시 누르면 빠져요</span>${confirmHTML(cs)}` : B.live?.confirmed && cs.length && !live ? `<span class="small muted">${esc(B.live.confirmed_by || "인도자")} 확정 · ${esc(fmtDateTime(B.live.confirmed_at))}${B.live.service_name ? ` · ${esc(B.live.service_name)}` : ""}</span>` : ""}
       ${B.songs.length || lead ? `<div class="bk-qrow">${B.songs.length ? `<input class="input bk-q" id="bkQ" value="${esc(B.q)}" placeholder="코드나 곡 이름 (예: g5, 성령)" autocomplete="off" aria-label="백업찬양 찾기">` : ""}${lead ? `<button type="button" class="btn btn-soft btn-sm bk-addbtn" data-bk="add" aria-expanded="${B.adding}">+ 이미지로 곡 더하기</button>` : ""}</div>` : ""}
       ${lead && B.adding ? `<div id="bkAddSlot">${keepForm ? "" : addHTML()}</div>` : ""}
       ${B.songs.length ? `
         <div class="bk-kchips" role="group" aria-label="키">${KEYS.map((k) => `<button type="button" data-bk-key="${k}" aria-pressed="${B.keys.has(k)}">${k}</button>`).join("")}</div>
         <div class="bk-tchips" role="group" aria-label="주제"><button type="button" data-bk-topic="" aria-pressed="${!B.topics.size}">전체</button>${Object.entries(T).map(([k, v]) => `<button type="button" data-bk-topic="${k}" aria-pressed="${B.topics.has(k)}">${esc(v)}</button>`).join("")}${B.songs.some((s) => !s.book_id) ? `<button type="button" data-bk-topic="x" aria-pressed="${B.topics.has("x")}">직접 더한 곡</button>` : ""}</div>
         ${listHTML(lead)}` : `<div class="empty">${B.book ? "곡 목록이 비어 있어요." : "리더십이 관리자 화면 찬양 › 곡에서 악보집을 올리면 여기에 보여요."}</div>`}
-      ${lead ? `<div class="bk-foot"><span>후보는 팀원 화면에 바로 보여요 · 기록은 남기지 않아요</span>${live ? `<button type="button" class="btn btn-primary" data-bk="join">진행 화면</button>` : `<button type="button" class="btn btn-primary" data-bk="start" ${cs.length ? "" : "disabled"}>기도회 시작</button>`}</div>` : ""}`;
+      ${lead ? `<div class="bk-foot"><span>${live ? "진행 중에는 고른 후보가 팀원 화면에 바로 보여요" : B.live?.confirmed ? "후보를 고쳤으면 '수정'을 눌러야 팀원에게 보여요" : "확정하면 팀원에게 보이고 라인업에 알림이 가요"}</span>
+          ${live ? "" : B.live?.confirmed ? `<button type="button" class="btn btn-soft" data-bk="edit" ${sameAsPub() ? "disabled" : ""}>수정</button>` : `<button type="button" class="btn btn-soft" data-bk="confirm" ${cs.length ? "" : "disabled"}>확정</button>`}
+          ${live ? `<button type="button" class="btn btn-primary" data-bk="join">진행 화면</button>` : `<button type="button" class="btn btn-primary" data-bk="start" ${cs.length ? "" : "disabled"}>기도회 시작</button>`}</div>` : ""}`;
     if (keepForm) root.querySelector("#bkAddSlot")?.replaceChildren(keepForm);
     if (focus) { const q = root.querySelector("#bkQ"); q?.focus(); try { q?.setSelectionRange(pos, pos); } catch {} }
     root.onclick = onHomeClick; root.oninput = onHomeInput; root.onchange = onHomeChange;
+  }
+  // 027: 확정 · 수정 — 확정한 후보만 팀원에게 보여요 (기도회 중에는 지금 후보 그대로)
+  const sameAsPub = () => { const a = (B.live?.candidates || []).map(Number), b = (B.live?.pub_candidates || []).map(Number); return a.length === b.length && a.every((x, i) => x === b[i]); };
+  function confirmHTML(cs) {
+    const lv = B.live || {};
+    if (lv.active) return "";
+    if (!lv.confirmed) return `<div class="bk-conf"><span class="chip chip-gray">확정 전</span><span class="small muted">${cs.length ? "팀원에게는 아직 안 보여요 · 확정하면 라인업에 알림이 가요" : "후보를 고른 뒤 확정해요"}</span></div>`;
+    const same = sameAsPub(), pub = (lv.pub_candidates || []).map(songOf).filter(Boolean);
+    return `<div class="bk-conf"><span class="chip chip-ok">확정됨</span><span class="small muted">${esc(lv.confirmed_by || "")} · ${esc(fmtDateTime(lv.confirmed_at))}${lv.service_name ? ` · ${esc(lv.service_name)}` : ""}</span>
+      ${same ? "" : `<span class="chip chip-warn">수정 전</span><span class="small muted">팀원에게는 확정한 후보(${pub.map((x) => esc(x.code)).join(" · ") || "없음"})가 보여요 · '수정'을 누르면 바뀌고 알림이 가요</span>`}</div>`;
+  }
+  async function flushCands() { if (candT) { clearTimeout(candT); candT = null; return update({ candidates: (B.live?.candidates || []).map(Number) }); } return true; }
+  async function doConfirm(b, edit) {
+    b.disabled = true;
+    if (!(await flushCands())) { b.disabled = false; return; }
+    const { data, error } = await sb.rpc("backup_confirm");
+    if (error) { toast(error.message || "확정하지 못했어요", 4000); b.disabled = false; return; }
+    B.live = data; drawHome();
+    let msg = edit ? "후보를 수정했어요" : "후보를 확정했어요 · 팀원에게 보여요";
+    try { const r = await L().meApi("/api/conti", { action: "backup-notify" }); if (!r.skipped) msg += ` · ${r.recipients}명에게 알렸어요`; } catch { msg += " · 알림은 보내지 못했어요"; }
+    toast(msg, 3500);
   }
   // 코드 자동 추천: 키 · 주제를 고르면 그 키 · 주제에서 비어 있는 다음 번호 (예: g51 · g54 · g56 → g57)
   //  키나 주제를 '모름'으로 두면 비워서 x1, x2 … 로
@@ -204,17 +232,20 @@
       const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
       if (next.length > 16) return toast("후보는 16곡까지예요");
       B.live = { ...B.live, candidates: next }; drawHome();
-      clearTimeout(candT); candT = setTimeout(() => update({ candidates: B.live.candidates }), 250);
+      clearTimeout(candT); candT = setTimeout(() => { candT = null; update({ candidates: B.live.candidates }); }, 250);
       return;
     }
     const b = e.target.closest("[data-bk]"); if (!b) return;
     const a = b.dataset.bk;
     if (a === "save") { b.disabled = true; b.textContent = "받는 중…"; try { await L().sheetBytes(B.book.path); B.saved = true; toast("악보집을 이 기기에 저장했어요"); } catch (err) { toast(err.message, 4000); } return checkSaved(); }
     if (a === "join") return openLive();
+    if (a === "confirm" || a === "edit") return doConfirm(b, a === "edit");
     if (a === "start") {
-      clearTimeout(candT);
+      clearTimeout(candT); candT = null;
       const cs = (B.live?.candidates || []).map(Number);
       if (!cs.length) return toast("후보를 먼저 골라 주세요");
+      // 027: 확정 없이 시작할 수 있지만 한 번 물어봐요
+      if (!B.live?.confirmed && !confirm("아직 확정 전이에요. 확정 없이 기도회를 시작할까요?\n라인업에 알림은 가지 않고, 시작하면 후보가 팀원 화면에 보여요.")) return;
       b.disabled = true;
       if (await update({ candidates: cs, active: true, now: `b:${cs[0]}`, next: cs[1] ? `b:${cs[1]}` : null })) openLive();
       else b.disabled = false;
@@ -295,8 +326,8 @@
     const el = B.layer; if (!el) return;
     const lv = B.live, lead = amLeader(), now = refInfo(lv.now), nx = refInfo(lv.next), cs = cands();
     $("#bkBar", el).innerHTML = lead
-      ? `<span><span class="bk-dot"></span>기도회 진행 중 · 내가 인도</span><span class="sp"></span>${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="end">끝내기</button><button type="button" class="bk-pill" data-bkl="close">나가기</button>`
-      : `<span><span class="bk-dot"></span>${esc(lv.leader || "인도자")} 인도 · 백업찬양</span><span class="sp"></span><button type="button" class="bk-pill ${B.follow ? "on" : ""}" data-bkl="follow" aria-pressed="${B.follow}">${B.follow ? "● 따라가는 중" : "따라가기"}</button>${canLead() ? `<button type="button" class="bk-pill" data-bkl="take">내가 이어서 진행</button>` : ""}${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="close">나가기</button>`;
+      ? `<span><span class="bk-dot"></span>기도회 진행 중 · 내가 인도</span><span class="sp"></span>${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen bk-fix hidden" data-iv="fix"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="end">끝내기</button><button type="button" class="bk-pill" data-bkl="close">나가기</button>`
+      : `<span><span class="bk-dot"></span>${esc(lv.leader || "인도자")} 인도 · 백업찬양</span><span class="sp"></span><button type="button" class="bk-pill ${B.follow ? "on" : ""}" data-bkl="follow" aria-pressed="${B.follow}">${B.follow ? "● 따라가는 중" : "따라가기"}</button>${canLead() ? `<button type="button" class="bk-pill" data-bkl="take">내가 이어서 진행</button>` : ""}${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen bk-fix hidden" data-iv="fix"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="close">나가기</button>`;
     B.iv?.sync();
     $("#bkBand", el).innerHTML = `<div class="now"><small>지금</small>${now ? `${codeHTML(now.code)}<b>${esc(now.title)}</b>` : `<b class="muted">아직 없음</b>`}</div>
       <div class="nx"><small>다음</small>${nx ? `${codeHTML(nx.code, "inv")}<b>${esc(nx.title)}</b>` : `<b>${lead ? "후보를 눌러 예약" : "아직 없음"}</b>`}</div>`;

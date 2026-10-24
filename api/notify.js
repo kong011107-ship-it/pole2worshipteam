@@ -6,7 +6,7 @@ import { settingOf, fill, deliver, activeMembers, targetsOf, pollPeople, wasSent
 export const ME_URL = /^\/me\.html(#[a-z]+(\/[A-Za-z0-9:_.-]{1,80})?)?$/;
 
 const SAMPLE = {
-  "월": "11월", "마감일": "10/31(토)", "사역": "원스텝", "무엇": "11월 섬김 응답", "남은 것": "3개 남았어요", "이름": "",
+  "월": "11월", "마감일": "10/31(토)", "사역": "원스텝", "무엇": "11월 섬김 응답", "남은 것": "3개 남았어요", "이름": "", "인도자": "이은혜",
   "내 섬김": "11/8 싱어 리더 · 11/15 섬겨요", "연습 일시": "11/10(화) 19:00–21:00", "지원자": "이도현", "포지션": "싱어",
   "수습생": "이도현", "주차": "3", "제목": "공지 제목", "내용": "공지 내용",
   "인원": "12", "개수": "12", "대상": "김하늘",
@@ -44,7 +44,7 @@ export default handler(async (req, body) => {
   if (kind === "test") {
     const vars = { ...SAMPLE, "이름": user.email };
     const t = fill(body.title ?? st.title, vars), b = fill(body.body ?? st.body, vars);
-    return deliver(db, { kind: String(body.test_kind).startsWith("prayer") ? "prayer" : String(body.test_kind).startsWith("birthday") ? "birthday" : String(body.test_kind).startsWith("conti") ? "conti" : /^(sat_|proc)/.test(body.test_kind) ? "notice" : body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
+    return deliver(db, { kind: String(body.test_kind).startsWith("prayer") ? "prayer" : String(body.test_kind).startsWith("birthday") ? "birthday" : /^(conti|applied|backup)/.test(String(body.test_kind)) ? "conti" : /^(sat_|proc)/.test(body.test_kind) ? "notice" : body.test_kind, items: [{ member_id: user.id, title: t, body: b }], url: "/me.html#alerts", label: "테스트 · 나에게", by: user.id });
   }
 
   // ---------- 월말 응답 열림

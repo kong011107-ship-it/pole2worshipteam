@@ -155,6 +155,7 @@
       w = Math.floor(im.naturalWidth * fit); h = Math.floor(im.naturalHeight * fit);
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
       const g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      if (pg.ink?.length) paintInk(g, pg.ink, cv.width);   // 027: 사진 악보에도 공유 필기
     } else {
       const d = await doc(pg.path), page = await d.getPage(pg.p), v1 = page.getViewport({ scale: 1 });
       const fit = Math.min(r.width / v1.width, r.height / v1.height); w = Math.floor(v1.width * fit); h = Math.floor(v1.height * fit);
@@ -175,7 +176,9 @@
       if (!on && WAKE.lock) { const l = WAKE.lock; WAKE.lock = null; await l.release(); }
     } catch { WAKE.lock = null; }
   }
-  const procPages = (x) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? (isImg(x.path) ? [{ img: x.path }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 }))) : []);
+  // 027: 공유 필기(악보 고치기)는 쪽마다 — 적용찬양 · 예배 진행곡 · 백업찬양
+  const inkOf = (x, k) => (x.ink || []).filter((s) => s.page === k + 1);
+  const procPages = (x) => (x.images?.length ? x.images.map((img, k) => ({ img, ink: inkOf(x, k) })) : x.path ? (isImg(x.path) ? [{ img: x.path, ink: inkOf(x, 0) }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1, ink: inkOf(x, k) }))) : []);
   // 026: 음원과 키 다름(*) · 메들리 번호
   const kt = (x) => (x.key ? `${x.key}${x.diff_key ? "*" : ""}` : x.diff_key ? "*" : "–");
   const gno = (items, i) => { let n = 0; for (let k = 0; k <= i; k++) if (!(k > 0 && items[k].join_prev)) n++; return n; };
@@ -183,13 +186,13 @@
     const it0 = f?.setlist?.items || [];
     const out = it0.map((x, i) => ({ id: `c:${i}`, tag: i > 0 && x.join_prev ? "+" : String(gno(it0, i)), title: x.title, key: kt(x) === "–" ? "" : kt(x), bpm: x.bpm, meter: x.meter,
       src: x.sheet ? Array.from({ length: x.sheet.pages || 1 }, (_, k) => ({ path: x.sheet.path, p: k + 1, ink: (x.sheet.ink || []).filter((s) => s.page === k + 1) })) : [] }));
-    (f?.applied || []).forEach((x, i) => out.push({ id: `a:${i}`, tag: "적용", kind: "applied", title: x.title, key: x.key, src: (x.images || []).map((img) => ({ img })) }));
+    (f?.applied || []).forEach((x, i) => out.push({ id: `a:${i}`, tag: "적용", kind: "applied", title: x.title, key: x.key, src: (x.images || []).map((img, k) => ({ img, ink: inkOf(x, k) })) }));
     (f?.proc || []).forEach((x) => out.push({ id: `p:${x.kind}`, tag: PROC[x.kind][1], kind: "proc", title: x.title, key: x.key, src: procPages(x) }));
     return out;
   }
   function backupItems() {
     const D = S.data, bk = D.backup, lv = S.live || bk, f = D.services.find((s) => s.date >= D.today) || D.services[0];
-    const pagesOf = (s) => (s.images?.length ? s.images.map((img) => ({ img })) : bk.book && s.page ? Array.from({ length: s.pages || 1 }, (_, k) => ({ path: bk.book.path, p: s.page + k })) : []);
+    const pagesOf = (s) => (s.images?.length ? s.images.map((img, k) => ({ img, ink: inkOf(s, k) })) : bk.book && s.page ? Array.from({ length: s.pages || 1 }, (_, k) => ({ path: bk.book.path, p: s.page + k, ink: inkOf(s, k) })) : []);
     const out = lv.candidates.map((id) => bk.songs.find((x) => x.id === id)).filter(Boolean).map((s) => ({ id: `b:${s.id}`, tag: s.code, title: s.title, src: pagesOf(s) }));
     [lv.now, lv.next].forEach((r) => { if (r?.startsWith("b:") && !out.some((x) => x.id === r)) { const s = bk.songs.find((x) => x.id === +r.slice(2)); if (s) out.push({ id: r, tag: s.code, title: s.title, src: pagesOf(s) }); } });
     (f?.proc || []).filter((x) => x.kind !== "entrance").forEach((x) => out.push({ id: `p:${x.kind}`, tag: PROC[x.kind][1], kind: "proc", title: x.title, key: x.key, src: procPages(x) }));

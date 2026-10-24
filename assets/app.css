@@ -2050,3 +2050,28 @@ body.cv-open { overflow: hidden; }
 .sec-v { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
 .sec-v code { font-size: 12px; word-break: break-all; }
 .bk-count td.n, .bk-count th.n { text-align: right; }
+
+/* =====================================================================
+   027 (v28): 악보 고치기 넓히기 · 적용찬양 수정됨 · 백업찬양 확정 · 메트로놈 함께
+   ===================================================================== */
+.bk-pen.bk-fix[aria-pressed=true] { background: #3DDC97; border-color: #3DDC97; color: #0C3B27; }
+.iv-hint { display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 20px); }
+.iv-hint button.sh { border-color: rgba(61,220,151,.6); background: rgba(12,59,39,.86); color: #BFF3DA; }
+.cv-aped { margin-left: 6px; font-size: 11.5px; }
+/* 백업찬양 확정 */
+.bk-conf { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.bk-conf .chip { flex: none; }
+.bk-foot .btn-soft { min-height: 50px; padding: 0 18px; }
+@media (max-width: 520px) {
+  .bk-foot { flex-wrap: wrap; }
+  .bk-foot > span { flex: 1 0 100%; }
+  .bk-foot .btn { flex: 1; padding: 0 12px; }
+}
+/* 메트로놈 함께 맞추기 */
+.cvv-sync { flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 11px; border-radius: 15px; border: 1px solid rgba(255,255,255,.35); background: transparent; color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.cvv-sync.on { background: #3DDC97; border-color: #3DDC97; color: #0C3B27; }
+.cvv-sync:disabled { opacity: .5; cursor: default; }
+.cvv-synctag { flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 11px; border-radius: 15px; background: rgba(61,220,151,.16); border: 1px solid rgba(61,220,151,.5); color: #BFF3DA; font-size: 12.5px; font-weight: 800; white-space: nowrap; max-width: 52vw; overflow: hidden; text-overflow: ellipsis; }
+.cvv-dot.sync { box-shadow: 0 0 0 3px rgba(61,220,151,.28); }
+.cvv-bpmbox { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.cvv-bpmbox::-webkit-scrollbar { display: none; }

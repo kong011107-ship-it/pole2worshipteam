@@ -66,6 +66,7 @@
     grip: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 8h14M5 12h14M5 16h14"/></svg>`,
     x: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
     play: `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`,
+    sync: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c.8-3 2.8-4.5 5-4.5s4.2 1.5 5 4.5M11 19c.8-3 2.8-4.5 5-4.5s4.2 1.5 5 4.5"/></svg>`,
   };
 
   // ------------------------------------------------------------------ 025: BPM · 박자 · 메트로놈 · 화면 켜 두기
@@ -130,12 +131,14 @@
     if (!SUBS.includes(st.sub)) st.sub = 1;
     st.mode = 0;   // 열 때마다 꺼진 상태로 시작
     let ctx = null, gain = null, timer = 0, raf = 0, bpm = 0, beats = 4, flat = false, t0 = 0, aT0 = 0, nextTick = 0, lastN = -1, clicks = 0, subClicks = 0;
+    // 027: 함께 맞추기 — anchor = 첫 박 시각(performance.now 기준). 함께일 때는 쪽을 넘겨도 내 BPM으로 바뀌지 않음
+    let anchor = null, sync = null, own = { b: 0, meter: "4/4" }, beatsSeen = [];
     const els = new Set();
     const save = () => ls.set("pole2.metro", { vol: st.vol, sub: st.sub });
     const MODE = ["메트로놈 꺼짐", "깜빡임", "깜빡임 + 소리"];
     function paint() {
       els.forEach((el) => { if (!document.body.contains(el)) return els.delete(el);
-        el.className = `cvv-dot m${st.mode}`; el.setAttribute("aria-label", `메트로놈: ${MODE[st.mode]}`); el.title = MODE[st.mode];
+        el.className = `cvv-dot m${st.mode}${sync ? " sync" : ""}`; el.setAttribute("aria-label", `메트로놈${sync ? "(함께)" : ""}: ${MODE[st.mode]}`); el.title = MODE[st.mode];
         const box = el.parentElement;
         const v = box?.querySelector(".cvv-vol"); if (v) { v.classList.toggle("hidden", st.mode !== 2); v.value = String(Math.round(st.vol * 100)); }
         const s = box?.querySelector(".cvv-sub"); if (s) { s.classList.toggle("hidden", st.mode !== 2); s.textContent = SUB_LABEL[st.sub]; s.setAttribute("aria-label", `박 쪼개기: ${SUB_NAME[st.sub]}`); s.title = SUB_NAME[st.sub]; s.setAttribute("aria-pressed", String(st.sub > 1)); } });
@@ -161,33 +164,115 @@
       if (main) clicks++; else subClicks++;
     }
     function stop() { clearInterval(timer); cancelAnimationFrame(raf); timer = 0; raf = 0; lastN = -1; }
+    function use(b, meter, anc) { const nb = +b || 0, nm = beatsOf(meter), nf = meter === "1/4"; if (nb === bpm && nm === beats && nf === flat && anc === anchor) return false; bpm = nb; beats = nm; flat = nf; anchor = anc; return true; }
     function start() {
       stop();
       if (!st.mode || !bpm) return paint();
       const per = 60 / bpm;
       if (st.mode === 2 && audio()) {
         const sub = st.sub, step = per / sub;
-        aT0 = ctx.currentTime + 0.08; t0 = performance.now() + 80; nextTick = 0;
+        if (anchor != null) {   // 함께: 정해진 첫 박에 맞춰 이어서 (지나간 박은 건너뜀)
+          aT0 = ctx.currentTime + (anchor - performance.now()) / 1000; t0 = anchor;
+          nextTick = Math.max(0, Math.ceil((ctx.currentTime + 0.05 - aT0) / step));
+        } else { aT0 = ctx.currentTime + 0.08; t0 = performance.now() + 80; nextTick = 0; }
         const sched = () => { while (aT0 + nextTick * step < ctx.currentTime + 0.15) { click(aT0 + nextTick * step, nextTick, sub); nextTick++; } };
         sched(); timer = setInterval(sched, 25);
-      } else t0 = performance.now();
+      } else t0 = anchor ?? performance.now();
       const loop = () => {
         const n = Math.floor((performance.now() - t0) / (per * 1000));
-        if (n >= 0 && n !== lastN) { lastN = n; flash(!flat && n % beats === 0); }
+        if (n >= 0 && n !== lastN) { lastN = n; flash(!flat && n % beats === 0); if (sync) { beatsSeen.push(performance.now()); if (beatsSeen.length > 8) beatsSeen.shift(); } }
         raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop); paint();
     }
     return {
       bind(el) { els.add(el); paint(); },
-      set(b, meter) { const nb = +b || 0, nm = beatsOf(meter), nf = meter === "1/4"; if (nb === bpm && nm === beats && nf === flat) return; bpm = nb; beats = nm; flat = nf; start(); },
+      set(b, meter) { own = { b, meter }; if (!sync && use(b, meter, null)) start(); },
+      // 027: x = { bpm, meter, anchor, by } · null이면 함께 끝 (내 메트로놈은 꺼진 채로)
+      follow(x) {
+        const was = !!sync; sync = x || null;
+        if (sync) { const ch = use(x.bpm, x.meter, x.anchor); if (!was && !st.mode) st.mode = 1; if (ch || !was) { beatsSeen = []; start(); } }
+        else if (was) { st.mode = 0; use(own.b, own.meter, null); start(); }
+        paint();
+      },
       cycle() { st.mode = (st.mode + 1) % 3; if (st.mode === 2) audio(); save(); start(); return st.mode; },
       cycleSub() { st.sub = SUBS[(SUBS.indexOf(st.sub) + 1) % SUBS.length]; save(); start(); return st.sub; },
       volume(v) { st.vol = Math.max(0, Math.min(1, v)); if (gain) gain.gain.value = st.vol; save(); },
       off() { st.mode = 0; stop(); paint(); },
-      get state() { return { mode: st.mode, bpm, beats, flat, sub: st.sub, running: !!raf, audio: ctx ? ctx.state : null, clicks, subClicks, vol: st.vol }; },
+      get state() { return { mode: st.mode, bpm, beats, flat, sub: st.sub, running: !!raf, audio: ctx ? ctx.state : null, clicks, subClicks, vol: st.vol,
+        sync: !!sync, anchor, by: sync?.by || null, beatsSeen: beatsSeen.slice(), lastN }; },
     };
   })();
+  // =================================================================== 027: 메트로놈 함께 맞추기 (예배마다 metro_live 한 줄)
+  //  인도자 · 밴드 마스터 · 드럼이 '함께'를 켜면 그 예배 라인업 기기가 같은 BPM · 박자 · 첫 박으로 깜빡여요 (소리는 각자 켬)
+  //  서버 시계와 이 기기 시계의 차이를 재서(가장 빨리 돌아온 응답 기준) 첫 박 시각을 이 기기 시계로 바꿔요
+  //  켠 사람이 다른 곡으로 넘기면 그 곡 BPM을 따라가요 (다른 사람이 넘기는 건 영향 없음). Realtime이 없으면 몇 초마다 확인
+  function metroSync(svc, onChange) {
+    const M = { row: null, on: false, can: !!svc?.can_metro, me: null, off: null, rtt: null, ch: null, timer: 0, dead: false, inLineup: false, pend: 0, last: "" };
+    if (!svc?.id) return null;
+    const fresh = (r) => !!r?.on_ && r.bpm && (M.off == null || Date.now() + M.off - Date.parse(r.updated_at) < 3 * 3600e3);
+    async function clock() {
+      let best = null;
+      for (let i = 0; i < 4; i++) {
+        const a = Date.now(), { data, error } = await sb.rpc("metro_now"), b = Date.now();
+        if (error || data == null) continue;
+        const rtt = b - a, off = Number(data) - (a + b) / 2;
+        if (!best || rtt < best.rtt) best = { rtt, off };
+      }
+      if (best) { M.off = best.off; M.rtt = best.rtt; }
+      return !!best;
+    }
+    const perfOf = (serverMs) => serverMs - M.off - Date.now() + performance.now();
+    async function apply(r) {
+      if (M.dead) return;
+      M.row = r || null;
+      const on = fresh(r) && (M.inLineup || M.can);
+      if (on && M.off == null && !(await clock())) return;
+      const sig = on ? `${r.seq}:${r.bpm}:${r.meter}:${r.t0}` : "off";
+      M.on = on;
+      if (sig !== M.last) { M.last = sig; METRO.follow(on ? { bpm: r.bpm, meter: r.meter, anchor: perfOf(Number(r.t0)), by: r.by_name } : null); }
+      onChange?.();
+    }
+    async function fetchRow() {
+      if (M.dead || M.pend) return;
+      const { data, error } = await sb.from("metro_live").select("*").eq("service_id", svc.id).maybeSingle();
+      if (!error) await apply(data);
+    }
+    (async () => {
+      const { data: { session } } = await sb.auth.getSession();
+      M.me = session?.user?.id || null;
+      M.inLineup = (svc.lineup || []).some((x) => x.member_id && x.member_id === M.me);
+      if (!M.inLineup && !M.can) return;
+      await fetchRow();
+      M.timer = setInterval(() => { if (!document.hidden) fetchRow(); }, 4000);
+      try { M.ch = sb.channel(`metro-${svc.id}`).on("postgres_changes", { event: "*", schema: "public", table: "metro_live", filter: `service_id=eq.${svc.id}` }, () => fetchRow()).subscribe(); } catch { M.ch = null; }
+    })();
+    async function set(p) {
+      M.pend++;
+      try {
+        if (M.off == null) await clock();
+        const { data, error } = await sb.rpc("metro_set", { p_service: svc.id, p });
+        if (error) throw new Error(error.message || "메트로놈을 맞추지 못했어요");
+        await apply({ on_: data.on, bpm: data.bpm, meter: data.meter, t0: data.t0, ord: data.ord, title: data.title, by_id: data.by_id, by_name: data.by_name, seq: data.seq, updated_at: data.updated_at });
+        return data;
+      } finally { M.pend--; }
+    }
+    let followT = 0;
+    return {
+      get on() { return M.on; }, get row() { return M.row; }, get can() { return M.can; }, get driving() { return M.on && M.row?.by_id === M.me; },
+      get state() { return { on: M.on, can: M.can, inLineup: M.inLineup, off: M.off, rtt: M.rtt, row: M.row, driving: M.on && M.row?.by_id === M.me }; },
+      start: (x) => set({ on: true, bpm: x.bpm, meter: x.meter || "4/4", ord: x.ord ?? null, title: x.title || null }),
+      stop: () => set({ on: false }),
+      // 켠 사람이 다른 곡으로 넘기면 그 곡 BPM으로 (0.4초 머물면)
+      follow(x) {
+        clearTimeout(followT);
+        if (!this.driving || !x?.song || !x.bpm) return;
+        if (x.bpm === M.row.bpm && (x.meter || "4/4") === M.row.meter && (x.ord ?? null) === (M.row.ord ?? null)) return;
+        followT = setTimeout(() => set({ on: true, bpm: x.bpm, meter: x.meter || "4/4", ord: x.ord ?? null, title: x.title || null }).catch(() => {}), 400);
+      },
+      destroy() { M.dead = true; clearInterval(M.timer); clearTimeout(followT); try { M.ch && sb.removeChannel(M.ch); } catch {} if (M.on) METRO.follow(null); },
+    };
+  }
   // 악보 보는 동안 화면이 꺼지지 않게 (지원하는 기기만)
   const WAKE = { lock: null, want: false };
   async function wake(on) {
@@ -439,7 +524,8 @@
   function appliedCard(f) {
     const list = f.applied || [];
     if (!list.length && !f.can_applied) return "";
-    return `<section class="card"><div class="card-title cv-ct">적용찬양 <small>${list.length ? `${list.length}곡` : "아직 없어요"}</small></div>
+    const ed = list.length && f.applied_meta?.edited_at ? f.applied_meta : null;
+    return `<section class="card"><div class="card-title cv-ct">적용찬양 <small>${list.length ? `${list.length}곡` : "아직 없어요"}</small>${ed ? `<span class="chip chip-mid cv-aped" title="${esc(ed.edited_by || "")}">수정됨 · ${esc(fmtDateTime(ed.edited_at))}</span>` : ""}</div>
       ${list.map((x) => `<button type="button" class="cv-prow" data-cv-at="a:${x.id}"><span class="cv-ptag">적용</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</small></span><span class="cv-go">보기</span></button>`).join("")}
       ${f.can_applied ? `<button type="button" class="btn btn-soft btn-sm" data-cv-applied style="align-self:flex-start">${list.length ? "적용찬양 고치기" : "+ 적용찬양 올리기"}</button>` : ""}</section>`;
   }
@@ -466,8 +552,10 @@
   const PROC = { blessing: ["축복송", "축복"], communion: ["성찬 찬양 1", "성찬 1"], communion2: ["성찬 찬양 2", "성찬 2"], offering: ["봉헌송", "봉헌"], benediction: ["축도송", "축도"], entrance: ["등단송", "등단"] };
   const PROC_ORDER = ["blessing", "communion", "communion2", "offering", "benediction", "entrance"];
   // 024: 쪽마다 내 메모 자리(ink) — 예배 진행곡은 그 곡(id) × 쪽
-  const procPages = (x) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? (isImg(x.path) ? [{ img: x.path }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 }))) : [])
-    .map((pg, k) => (x.id ? { ...pg, ink: { key: `p:${x.id}`, page: k + 1 } } : pg));
+  // 027: ctx = { svc, date, canEdit, canEraseAll } 가 있으면 공유 필기(악보 고치기)도 — 리더십이 그 곡을 바꿀 때까지 쌓여요
+  const procPages = (x, ctx) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? (isImg(x.path) ? [{ img: x.path }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 }))) : [])
+    .map((pg, k) => (x.id ? { ...pg, ink: { key: `p:${x.id}`, page: k + 1 },
+      shared: ctx?.svc ? { sheet: `p:${x.id}`, page: k + 1, date: ctx.date, svc: ctx.svc, canEdit: !!ctx.canEdit, canEraseAll: !!ctx.canEraseAll, kind: "extra", name: x.title } : null } : pg));
   function viewerItems(svc) {
     const sl = svc.setlist, pub = sl?.status === "published";
     const leader = (svc.lineup || []).find((x) => x.pos === "leader")?.name || "";
@@ -483,11 +571,14 @@
     for (let k = out.length - 1; k > 0; k--) if (out[k].join && !out[k].src.length && out[k - 1].song) {
       out[k - 1].title += ` + ${out[k].title}`; if (out[k].key) out[k - 1].key = [out[k - 1].key, out[k].key].filter(Boolean).join(" / "); out.splice(k, 1);
     }
+    // 027: 적용찬양 · 예배 진행곡도 악보 고치기 (권한 · 지우기는 콘티와 같아요) — 적용찬양은 그 예배 사진에만
+    const ctx = { svc: svc.id, date: svc.date, canEdit: !!svc.can_edit_sheets, canEraseAll: !!svc.can_edit };
     (svc.applied || []).forEach((x) => out.push({ id: `a:${x.id}`, tag: "적용", kind: "applied", title: x.title, key: x.key,
-      src: (x.images || []).map((img, k) => ({ img, ink: { key: `a:${x.id}`, page: k + 1, anorm: x.norm || null } })) }));
+      src: (x.images || []).map((img, k) => ({ img, ink: { key: `a:${x.id}`, page: k + 1, anorm: x.norm || null },
+        shared: { sheet: `a:${x.id}`, page: k + 1, date: svc.date, svc: svc.id, canEdit: ctx.canEdit, canEraseAll: ctx.canEraseAll, kind: "extra", name: x.title, anorm: x.norm || null } })) }));
     const special = !!svc.ministry_id;
     (svc.proc || []).filter((x) => x.kind !== "entrance" || special).sort((a, b) => PROC_ORDER.indexOf(a.kind) - PROC_ORDER.indexOf(b.kind))
-      .forEach((x) => out.push({ id: `p:${x.kind}`, tag: PROC[x.kind][1], kind: "proc", title: x.title, key: x.key, src: procPages(x) }));
+      .forEach((x) => out.push({ id: `p:${x.kind}`, tag: PROC[x.kind][1], kind: "proc", title: x.title, key: x.key, src: procPages(x, ctx) }));
     return out;
   }
   async function openViewer(svc, { song = 0, at = null, single = null, items: given = null, title: givenTitle = null } = {}) {
@@ -523,7 +614,7 @@
       <div class="cvv-stage" id="cvvStage"><canvas id="cvvCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="cvvBlank"></div>
         <button type="button" class="cvv-tap l" data-cvv="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-cvv="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="cvvLoad">불러오는 중…</div></div>
-      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.ink?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); });
+      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.ink?.destroy(); V.ms?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); });
     wake(true);
     // 024: 내 메모 · 확대 (INK) — 밀어서 넘기기 · 크기 맞춤도 여기서
     if (window.INK) {
@@ -532,15 +623,25 @@
     }
     // 025: BPM (곡 칩 옆) · 메트로놈 점
     const canBpm = hasBpm && !!svc?.can_edit_sheets && svc?.setlist?.status === "published";
+    // 027: 메트로놈 함께 맞추기 — 함께 켜져 있으면 적용찬양 · 예배 진행곡 쪽에서도 깜빡임은 계속
+    V.ms = hasBpm ? metroSync(svc, () => drawBpm()) : null;
     const drawBpm = () => {
       const box = $("#cvvBpm", el); if (!box) return;
-      const x = items[pages[V.cur]?.i];
-      if (!x?.song) { box.innerHTML = ""; box.classList.add("hidden"); METRO.set(0); return; }
+      const x = items[pages[V.cur]?.i], ms = V.ms, sync = !!ms?.on, r = ms?.row;
+      if (!x?.song && !sync) { box.innerHTML = ""; box.classList.add("hidden"); METRO.set(0); return; }
       box.classList.remove("hidden");
-      box.innerHTML = x.bpm ? `<button type="button" class="cvv-bpm" data-cvv="bpm" ${canBpm ? "" : "disabled"} aria-label="BPM ${x.bpm}${canBpm ? " 고치기" : ""}"><b>♩=${x.bpm}</b>${x.meter && x.meter !== "4/4" ? `<small>${esc(x.meter)}</small>` : ""}</button><button type="button" class="cvv-dot" data-cvv="metro"></button><button type="button" class="cvv-sub hidden" data-cvv="sub"></button><input type="range" class="cvv-vol hidden" min="0" max="100" aria-label="메트로놈 음량">`
-        : canBpm ? `<button type="button" class="cvv-bpm none" data-cvv="bpm">BPM 입력</button>` : "";
+      const own = x?.song ? x : null;
+      const dotHTML = `<button type="button" class="cvv-dot" data-cvv="metro"></button><button type="button" class="cvv-sub hidden" data-cvv="sub"></button><input type="range" class="cvv-vol hidden" min="0" max="100" aria-label="메트로놈 음량">`;
+      const bpmHTML = own?.bpm ? `<button type="button" class="cvv-bpm" data-cvv="bpm" ${canBpm ? "" : "disabled"} aria-label="BPM ${own.bpm}${canBpm ? " 고치기" : ""}"><b>♩=${own.bpm}</b>${own.meter && own.meter !== "4/4" ? `<small>${esc(own.meter)}</small>` : ""}</button>`
+        : own && canBpm ? `<button type="button" class="cvv-bpm none" data-cvv="bpm">BPM 입력</button>` : "";
+      const syncHTML = sync
+        ? (ms.can ? `<button type="button" class="cvv-sync on" data-cvv="sync" aria-pressed="true" title="함께 맞추기 끄기">${ICO.sync}<span>함께 ♩=${r.bpm}${r.meter !== "4/4" ? ` ${esc(r.meter)}` : ""}</span></button>`
+                  : `<span class="cvv-synctag" title="${esc(r.by_name || "")}님이 켠 메트로놈">${ICO.sync}<span>함께 ♩=${r.bpm}${r.meter !== "4/4" ? ` ${esc(r.meter)}` : ""} · ${esc(r.by_name || "")}</span></span>`)
+        : ms?.can && own?.bpm ? `<button type="button" class="cvv-sync" data-cvv="sync" aria-pressed="false" title="라인업 기기를 같은 박으로">${ICO.sync}<span>함께</span></button>` : "";
+      box.innerHTML = `${bpmHTML}${sync || own?.bpm ? dotHTML : ""}${syncHTML}`;
       const dot = box.querySelector(".cvv-dot"); if (dot) METRO.bind(dot);
-      METRO.set(x.bpm || 0, x.meter);
+      METRO.set(own?.bpm || 0, own?.meter);
+      if (sync && own) ms.follow(own);
     };
     const draw = async () => {
       const pg = pages[V.cur]; if (!pg) return;
@@ -570,7 +671,13 @@
       const b = e.target.closest("[data-cvv]"); if (b) { const a = b.dataset.cvv; if (a === "close") return closeLayer(); if (a === "prev") return go(V.cur - 1); if (a === "next") return go(V.cur + 1);
         if (a === "backup") { closeLayer(); return setTimeout(() => CONTI.onBackup?.(), 300); }
         if (a === "sub") { const n = METRO.cycleSub(); toast(SUB_NAME[n] + (n > 1 ? " · 쪼갠 박은 작은 소리" : ""), 1600); return; }
-        if (a === "metro") { const m = METRO.cycle(); toast(["메트로놈을 껐어요", "박자에 맞춰 깜빡여요", "소리도 나요 · 예배 중에는 이어폰으로 · 무음 모드면 안 들릴 수 있어요"][m], m === 2 ? 4000 : 1800); return; }
+        if (a === "metro") { const m = METRO.cycle(); toast(["메트로놈을 껐어요", "박자에 맞춰 깜빡여요", "소리도 나요 · 예배 중에는 이어폰으로 · 무음 모드면 안 들릴 수 있어요"][m] + (V.ms?.on && m === 0 ? " · 이 기기만 (함께 맞추기는 그대로)" : ""), m === 2 ? 4000 : 1800); return; }
+        if (a === "sync" && V.ms?.can) {
+          const x = items[pages[V.cur].i]; b.disabled = true;
+          (V.ms.on ? V.ms.stop() : V.ms.start(x)).then((d) => toast(d.on ? "라인업 기기가 같은 박으로 깜빡여요 · 소리는 각자 켜요 · 내가 곡을 넘기면 그 곡 BPM으로 바뀌어요" : "함께 맞추기를 껐어요", d.on ? 4500 : 2000))
+            .catch((err) => toast(err.message, 4000)).finally(() => { b.disabled = false; drawBpm(); });
+          return;
+        }
         if (a === "bpm" && canBpm) { const x = items[pages[V.cur].i]; return bpmPop(b, x, async (bpm, meter) => { await saveBpm(svc, x.ord, bpm, meter); x.bpm = bpm; x.meter = bpm ? meter : null; drawBpm(); toast(bpm ? `${x.title} ${bpmText(bpm, meter)} · 팀 기준으로 저장했어요` : "BPM을 지웠어요"); }); }
         return; }
       const s = e.target.closest("[data-cvv-song]"); if (s) go(pages.findIndex((p) => p.i === +s.dataset.cvvSong));
@@ -630,7 +737,8 @@
         <section class="card"><div class="card-title cv-ct">올린 곡 <small>${list.length}곡</small></div>
           ${list.map((x, i) => `<div class="cv-sheet" data-ap="${x.id}"><span class="cv-thumb ap" data-ap-thumb="${esc(x.images[0])}"></span>
             <span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</small></span>
-            <span class="row" style="gap:6px">${i ? `<button type="button" class="btn btn-ghost btn-sm" data-apa="up">위로</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-apa="del">지우기</button></span></div>`).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}</section>
+            <span class="row" style="gap:6px">${i ? `<button type="button" class="btn btn-ghost btn-sm" data-apa="up">위로</button>` : ""}<label class="btn btn-ghost btn-sm cv-upl">사진 바꾸기<input type="file" accept="image/*" multiple data-apa-img hidden></label><button type="button" class="btn btn-ghost btn-sm" data-apa="del">지우기</button></span></div>`).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}</section>
+        <p class="small muted" style="margin:0">${svc.applied_meta?.notified_at ? "처음 올릴 때 라인업에 알렸어요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요" : "처음 올리면 이 예배 라인업에 알림이 가요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요"}</p>
         <section class="card ap-form"><div class="card-title cv-ct">곡 더하기</div>
           <label class="field">곡 이름 <span class="hint">· 전에 쓴 이름을 고르면 같은 곡으로 묶여 기록에 쌓여요</span><input class="input" id="apTitle" maxlength="80" list="apSug" autocomplete="off" placeholder="예: 주의 손에 나의 손을 포개고"></label>
           <datalist id="apSug">${SUG.map((x) => `<option value="${esc(x.title)}">${x.n}번</option>`).join("")}</datalist>
@@ -655,7 +763,23 @@
       const near = SUG.filter((x) => x.norm !== q && (x.norm.includes(q) || q.includes(x.norm) || KO.match(x.title, e.target.value))).slice(0, 4);
       box.innerHTML = `${same ? `<span class="chip chip-ok">같은 곡으로 묶여요 · 지금까지 ${same.n}번</span>` : `<span class="chip chip-gray">처음 쓰는 이름</span>`}${near.map((x) => `<button type="button" class="pillbtn" data-ap-pick="${esc(x.title)}">${esc(x.title)} · ${x.n}번</button>`).join("")}`;
     });
-    el.addEventListener("change", (e) => { if (e.target.id === "apFiles") $("#apPicked", el).textContent = e.target.files.length ? `사진 ${e.target.files.length}장 · 순서대로 이어서 보여요` : "고른 사진 없음"; });
+    el.addEventListener("change", async (e) => {
+      if (e.target.id === "apFiles") $("#apPicked", el).textContent = e.target.files.length ? `사진 ${e.target.files.length}장 · 순서대로 이어서 보여요` : "고른 사진 없음";
+      // 027: 사진 바꾸기 — 그 곡에 쓴 악보 고치기 필기는 함께 지워져요
+      if (e.target.matches("[data-apa-img]")) {
+        const files = [...(e.target.files || [])], id = +e.target.closest("[data-ap]").dataset.ap, x = (svc.applied || []).find((y) => y.id === id);
+        if (!files.length || !x) return;
+        if (files.length > 12) return toast("사진은 12장까지예요");
+        if (!confirm(`'${x.title}' 사진을 새로 고른 ${files.length}장으로 바꿀까요? 이 곡에 고친 필기는 함께 지워져요.`)) { e.target.value = ""; return; }
+        const lb = e.target.closest("label"); lb.classList.add("disabled");
+        try {
+          const images = await uploadImages(files, `applied/${svc.id}/`, (n, t) => (lb.firstChild.textContent = `올리는 중 ${n}/${t}…`));
+          const { error } = await sb.from("applied_songs").update({ images, updated_at: new Date().toISOString() }).eq("id", id);
+          if (error) throw new Error(error.message || "바꾸지 못했어요");
+          toast("사진을 바꿨어요"); await reload();
+        } catch (err) { toast(err.message || "바꾸지 못했어요", 4000); lb.classList.remove("disabled"); lb.firstChild.textContent = "사진 바꾸기"; }
+      }
+    });
     el.addEventListener("click", async (e) => {
       if (e.target.closest("[data-ap-close]")) return closeLayer();
       const pk = e.target.closest("[data-ap-pick]"); if (pk) { const t = $("#apTitle", el); t.value = pk.dataset.apPick; t.dispatchEvent(new Event("input", { bubbles: true })); return; }
@@ -686,7 +810,12 @@
           const { error } = await sb.from("applied_songs").insert({ service_id: svc.id, ord, title, key: $("#apKey", el).value.trim() || null, note: $("#apNote", el).value.trim() || null, images });
           if (error) throw new Error(error.message || "저장하지 못했어요");
           SUG = await appliedNames().catch(() => SUG);
-          toast("적용찬양을 올렸어요"); await reload();
+          // 027: 처음 올릴 때만 그 예배 라인업에 알림 (그 뒤로는 '수정됨')
+          let msg = "적용찬양을 올렸어요";
+          if (!svc.applied_meta?.notified_at && !svc.past) {
+            try { const r = await meApi("/api/conti", { action: "applied-notify", service_id: svc.id }); if (!r.skipped) msg += ` · ${r.recipients}명에게 알렸어요`; } catch { msg += " · 알림은 보내지 못했어요"; }
+          }
+          toast(msg, 3500); await reload();
         } catch (err) { toast(err.message || "올리지 못했어요", 4000); btn.disabled = false; btn.textContent = "올리기"; }
       }
     });

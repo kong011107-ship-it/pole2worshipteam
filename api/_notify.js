@@ -59,6 +59,10 @@ export const DEFAULTS = {
   sat_vote: { title: "[투표] {날짜} 토요 연습 시간이 바뀌었어요", body: "{시간}에 연습할 수 있는지 알려 주세요 · {마감} 마감" },
   sat_decide: { title: "{날짜} 토요 연습 {결정}", body: "{내용}" },
   proc: { title: "예배 진행곡이 바뀌었어요", body: "{곡}" },
+  // 027: 적용찬양 올라옴(처음만) · 백업찬양 확정 · 수정 — 받는 사람은 그 예배 라인업
+  applied_up: { title: "{예배} 적용찬양이 올라왔어요", body: "{곡}" },
+  backup_pick: { title: "{예배} 백업찬양 후보가 정해졌어요", body: "{곡}" },
+  backup_edit: { title: "{예배} 백업찬양 후보가 바뀌었어요", body: "{바뀐 것}" },
 };
 // 생일 (016 · 양력): 그해 생일 날짜 — 2/29는 평년이면 2/28
 export function birthdayIn(birth, year) {

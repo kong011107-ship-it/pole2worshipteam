@@ -5,6 +5,8 @@
 //        pg.ink    = { key, page, ver, song, anorm }   내 메모 (나만 보기 · sheet_notes)
 //        pg.shared = { sheet, page, date, svc, canEdit, canEraseAll, kind, name, fork(name) → 새 악보 id }
 //                    공유 필기 (저장된 악보 위 필기 층 · sheet_ink) — 그 예배 날짜 기준으로 보여요
+//                    027: sheet가 글자면 콘티 곡 밖 (ink_extra) — 'a:<적용찬양 id>' · 'p:<예배 진행곡 id>' · 'b:<백업찬양 코드>'(+ ver 악보집 판)
+//                         kind = 'extra' → 새 악보로 저장 없음 · 지난 필기 보기(적용찬양 anorm · 백업찬양 이전 판)
 //    iv.clear()          악보 없는 쪽
 //    iv.prefetch(keys)   여러 악보의 내 메모를 한 번에 받아 둠
 //    iv.destroy()        닫을 때 (쓰던 필기 저장)
@@ -99,15 +101,21 @@
   const SH = { rows: new Map(), at: new Map(), timer: null, busy: false, warned: 0 };
   const shPending = () => ls.get(lsk("shpend")) || [];
   const shSave = (list) => ls.set(lsk("shpend"), list);
+  //  027: 숫자 = 콘티 악보(sheet_ink) · 글자 = 콘티 밖(ink_extra: a: · p: · b:)
   async function shLoad(sheets, force) {
     sheets = [...new Set(sheets.filter(Boolean))].filter((s) => force || !SH.rows.has(s));
     if (!sheets.length) return false;
-    const { data, error } = await sb.from("sheet_ink").select("id, sheet_id, cid, page, stroke, author, author_name, valid_from, deleted_from").in("sheet_id", sheets).order("id");
-    if (error) return false;
+    const nums = sheets.filter((s) => typeof s === "number"), strs = sheets.filter((s) => typeof s === "string");
+    const [a, b] = await Promise.all([
+      nums.length ? sb.from("sheet_ink").select("id, sheet_id, cid, page, stroke, author, author_name, valid_from, deleted_from").in("sheet_id", nums).order("id") : { data: [] },
+      strs.length ? sb.from("ink_extra").select("id, target, ver, cid, page, stroke, author, author_name, valid_from, deleted_from").in("target", strs).order("id") : { data: [] },
+    ]);
+    if (a.error || b.error) return false;
+    const data = [...(a.data || []), ...(b.data || []).map((r) => ({ ...r, sheet_id: r.target }))];
     let changed = false;
     sheets.forEach((s) => {
       const m = new Map();
-      (data || []).filter((r) => r.sheet_id === s).forEach((r) => m.set(r.cid, r));
+      data.filter((r) => r.sheet_id === s).forEach((r) => m.set(r.cid, r));
       // 아직 올리지 못한 내 획 · 지우기를 다시 얹음
       shPending().filter((o) => o.sheet === s).forEach((o) => shApplyLocal(m, o));
       const old = SH.rows.get(s), sig = (mm) => [...mm.values()].map((r) => `${r.cid}${r.deleted_from || ""}`).join();
@@ -117,7 +125,7 @@
     return changed;
   }
   function shApplyLocal(m, o) {
-    if (o.op === "add") { if (!m.has(o.cid)) m.set(o.cid, { cid: o.cid, page: o.page, stroke: o.stroke, author: S.uid, author_name: S.name || "나", valid_from: o.date, deleted_from: null, id: 1e15 + (o.n || 0) }); }
+    if (o.op === "add") { if (!m.has(o.cid)) m.set(o.cid, { cid: o.cid, page: o.page, ver: o.ver || null, stroke: o.stroke, author: S.uid, author_name: S.name || "나", valid_from: o.date, deleted_from: null, id: 1e15 + (o.n || 0) }); }
     else if (o.op === "del") { const r = m.get(o.cid); if (r && (!r.deleted_from || r.deleted_from > o.date)) r.deleted_from = o.date; }
     else if (o.op === "undel") { const r = m.get(o.cid); if (r) r.deleted_from = null; }
   }
@@ -136,10 +144,12 @@
     SH.busy = true;
     try {
       while (list.length) {
-        const head = list[0], batch = list.filter((o) => o.svc === head.svc && o.sheet === head.sheet).slice(0, 200);
+        const head = list[0], batch = list.filter((o) => o.svc === head.svc && o.sheet === head.sheet && (o.ver || null) === (head.ver || null)).slice(0, 200);
         const ops = { add: [], del: [], undel: [] };
         batch.forEach((o) => { if (o.op === "add") ops.add.push({ cid: o.cid, page: o.page, stroke: o.stroke }); else ops[o.op].push(o.cid); });
-        const { data, error } = await sb.rpc("sheet_ink_put", { p_service: head.svc, p_sheet: head.sheet, p_ops: ops });
+        const { data, error } = typeof head.sheet === "string"
+          ? await sb.rpc("ink_put", { p_service: head.svc, p_target: head.sheet, p_ver: head.ver || null, p_ops: ops })
+          : await sb.rpc("sheet_ink_put", { p_service: head.svc, p_sheet: head.sheet, p_ops: ops });
         if (error && /fetch|network|Failed/i.test(error.message || "")) break;
         if (error) toast(error.message || "필기를 저장하지 못했어요", 4500);
         else if (data?.skipped && Date.now() - SH.warned > 4000) { SH.warned = Date.now(); toast("다른 사람 필기는 수정 테이프로 덮어 주세요", 3500); }
@@ -149,10 +159,11 @@
       }
     } catch { /* 연결되면 다시 */ } finally { SH.busy = false; }
   }
-  // 그 예배 날짜에 보이는 획 (쓴 차례대로)
-  function shVisible(sheet, page, date) {
+  // 그 예배 날짜에 보이는 획 (쓴 차례대로) · 027: ver(백업찬양 악보집 판)가 있으면 그 판만 · page가 null이면 모든 쪽
+  const shLive = (r, date, ver) => r.valid_from <= date && !(r.deleted_from && r.deleted_from <= date) && (!ver || r.ver === ver);
+  function shVisible(sheet, page, date, ver) {
     const m = SH.rows.get(sheet); if (!m) return [];
-    return [...m.values()].filter((r) => r.page === page && r.valid_from <= date && !(r.deleted_from && r.deleted_from <= date))
+    return [...m.values()].filter((r) => (page == null || r.page === page) && shLive(r, date, ver))
       .sort((a, b) => a.id - b.id).map((r) => ({ ...r.stroke, cid: r.cid, author: r.author, author_name: r.author_name }));
   }
   const views = new Set();
@@ -179,6 +190,40 @@
     return (sv || []).map((v) => { const notes = rows.filter((r) => r.key === `s:${v.id}`);
       return { label: `${v.name} · ${md(v.created_at.slice(0, 10))}`, notes, at: Math.max(...notes.map((r) => Date.parse(r.updated_at) || 0)), src: (page) => ({ path: v.path, p: page }) }; })
       .sort((a, b) => b.at - a.at);
+  }
+
+  // 027: 공유 필기 지난 것 — 적용찬양: 같은 곡 이름의 지난 예배 사진에 쓴 필기 · 백업찬양: 이전 판 악보집에 쓴 필기
+  async function shHistory(sh) {
+    const [t, v] = String(sh.sheet).split(":");
+    const group = (rows) => [...new Set(rows.map((r) => r.page))].sort((a, b) => a - b).map((pg) => ({ page: pg, strokes: rows.filter((r) => r.page === pg).map((r) => r.stroke) }));
+    if (t === "a") {
+      if (!sh.anorm) return [];
+      const { data: ap } = await sb.from("applied_songs").select("id, title, images, services(service_date)").eq("norm", sh.anorm).neq("id", +v);
+      if (!ap?.length) return [];
+      const { data } = await sb.from("ink_extra").select("target, page, stroke").in("target", ap.map((a) => `a:${a.id}`)).is("deleted_from", null).order("id");
+      return ap.map((a) => { const d = a.services?.service_date || "";
+        return { label: `${d ? md(d) + " · " : ""}${a.title}`, d, notes: group((data || []).filter((r) => r.target === `a:${a.id}`)), src: (page) => ({ img: a.images[page - 1] }) }; })
+        .filter((x) => x.notes.some((n) => x.src(n.page).img)).sort((a, b) => (b.d > a.d ? 1 : b.d < a.d ? -1 : 0));
+    }
+    if (t === "b") {
+      const m = SH.rows.get(sh.sheet); if (!m) return [];
+      const rows = [...m.values()].filter((r) => r.ver && r.ver !== sh.ver && !r.deleted_from);
+      const out = [];
+      for (const ver of [...new Set(rows.map((r) => r.ver))]) {
+        const mine = rows.filter((r) => r.ver === ver);
+        let src = null, label = "";
+        if (/^c\d+$/.test(ver)) {
+          const { data: x } = await sb.from("backup_songs").select("title, images").eq("id", +ver.slice(1)).maybeSingle();
+          if (x?.images?.length) { src = (page) => ({ img: x.images[page - 1] }); label = `사진 악보 · ${x.title}`; }
+        } else {
+          const { data: x } = await sb.from("backup_songs").select("title, page, backup_books(label, path)").eq("book_id", +ver).eq("code", v).maybeSingle();
+          if (x?.page && x.backup_books?.path) { src = (page) => ({ path: x.backup_books.path, p: x.page + page - 1 }); label = `${x.backup_books.label} · ${x.title}`; }
+        }
+        if (src) out.push({ label, at: Math.max(...mine.map((r) => r.id)), notes: group(mine), src });
+      }
+      return out.filter((x) => x.notes.some((n) => { const s = x.src(n.page); return s.img || s.path; })).sort((a, b) => b.at - a.at);
+    }
+    return [];
   }
 
   // ------------------------------------------------------------------ 획 그리기
@@ -343,7 +388,8 @@
     }
     function refreshShared() {
       if (!V.sh) return;
-      V.shared = shVisible(V.sh.sheet, V.sh.page, V.sh.date);
+      V.shared = shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver);
+      if (V.shared.length && V.shHist) { V.shHist = null; renderHint(); }
       compose();
     }
     function redraw() {
@@ -386,7 +432,7 @@
           : `<span class="iv-grp iv-sw">${cols.map((c, i) => `<button type="button" class="iv-c" data-iv-c="${i}" style="--c:${c}" aria-pressed="${ci === i}" aria-label="${names[i]}"></button>`).join("")}</span>`}
         ${tool !== "eraser" ? `<span class="iv-grp">${sizes.map(([w, n], i) => `<button type="button" class="iv-sz" data-iv-sz="${i}" aria-pressed="${si === i}" aria-label="${n}"><i style="width:${4 + i * 4}px;height:${4 + i * 4}px"></i></button>`).join("")}</span>` : ""}
         <button type="button" data-iv="undo" ${myUndo ? "" : "disabled"}>되돌리기</button>
-        ${sh ? `<button type="button" data-iv="who" aria-pressed="${pref.who}">고친 사람 보기</button><button type="button" data-iv="fork">새 악보로 저장</button>` : ""}
+        ${sh ? `<button type="button" data-iv="who" aria-pressed="${pref.who}">고친 사람 보기</button>${V.sh?.kind === "extra" ? "" : `<button type="button" data-iv="fork">새 악보로 저장</button>`}${V.sh?.canEraseAll ? `<button type="button" data-iv="wipe">전부 지우기</button>` : ""}` : ""}
         <button type="button" data-iv="finger" aria-pressed="${pref.finger}" title="애플펜슬이 없으면 켜요">손가락으로 쓰기</button>
         <span class="iv-sp"></span>
         ${sh ? `<span class="iv-me sh">모두에게 보여요 · 알림 없음</span>` : note ? `<span class="chip ${V.oldVer ? "chip-warn" : "chip-gray"}">${note}</span>` : `<span class="iv-me">나만 보여요</span>`}</div>
@@ -421,7 +467,7 @@
         shLoad([V.sh?.sheet], true).then((c) => { if (c) refreshShared(); });
       }
       if (!V.pen) { V.forkAsk = false; save(); flush(); }
-      renderBar(); apply();
+      renderBar(); renderHint(); apply();
       if (was === "shared" || (V.pen && layer === "shared")) compose();
       if (!V.pen && !zoomed()) fit();
       if (V.forkAsk) setTimeout(() => bar?.querySelector("#ivForkName")?.focus(), 0);
@@ -432,7 +478,7 @@
       endStroke(); save();
       const t = ++V.token;
       V.pg = pg; V.ink = pg.ink && pg.ink.key ? pg.ink : null; V.sh = pg.shared && pg.shared.sheet ? pg.shared : null;
-      V.undo = []; V.cur = null; V.hist = null; hint.classList.add("hidden"); closeRef();
+      V.undo = []; V.cur = null; V.hist = null; V.shHist = null; hint.classList.add("hidden"); closeRef();
       if (V.pen && V.layer === "shared" && !V.sh?.canEdit) { V.pen = false; V.layer = "memo"; }
       if (V.pen && V.layer === "memo" && !V.ink) V.pen = false;
       V.forkAsk = V.pen && V.layer === "shared" && V.sh?.kind === "original";
@@ -444,7 +490,7 @@
       V.meta = meta; V.A = meta.A;
       const n = V.ink ? S.mem.get(idOf(V.ink.key, V.ink.page)) : null;
       V.strokes = n?.strokes ? n.strokes.slice() : [];
-      V.shared = V.sh ? shVisible(V.sh.sheet, V.sh.page, V.sh.date) : [];
+      V.shared = V.sh ? shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver) : [];
       V.oldVer = !!(V.ink?.ver && n?.ver && n.ver !== V.ink.ver && V.strokes.length);
       // 처음 볼 때: 쪽(+ 여백 메모)에 맞춤
       const b = contentBox(), k = fitK(b);
@@ -454,7 +500,8 @@
       V.base = base; compose();
       canvas.classList.remove("hidden"); ink.classList.remove("hidden"); tapeCv.classList.remove("hidden");
       fit(); renderBar();
-      if (V.oldVer) { hint.innerHTML = `<span class="iv-oldtag">이전 판 악보집에 쓴 메모</span>`; hint.classList.toggle("hidden", !visible()); }
+      renderHint();
+      if (V.sh && !V.shared.length && V.sh.kind === "extra" && /^[ab]:/.test(V.sh.sheet)) checkShHistory(t);
       if (V.ink && ((V.ink.song && V.ink.key.startsWith("s:")) || (V.ink.anorm && V.ink.key.startsWith("a:")))) checkHistory(t);
       return true;
     }
@@ -473,20 +520,45 @@
       let h = [];
       try { h = await songHistory(V.ink); } catch {}
       if (t !== V.token || !h.length) return;
-      V.hist = h;
-      hint.innerHTML = `<button type="button" data-iv="hist">이 곡 지난 메모 보기</button>`; hint.classList.remove("hidden");
+      V.hist = h; renderHint();
+    }
+    // 027: 쪽 위 안내 — 이전 판 메모 · 이 곡 지난 메모 보기 · 지난 공유 필기 보기
+    function renderHint() {
+      const parts = [];
+      if (V.oldVer && visible()) parts.push(`<span class="iv-oldtag">이전 판 악보집에 쓴 메모</span>`);
+      if (V.hist?.length) parts.push(`<button type="button" data-iv="hist">이 곡 지난 메모 보기</button>`);
+      if (V.shHist?.length) parts.push(`<button type="button" data-iv="shhist" class="sh">${String(V.sh?.sheet).startsWith("b:") ? "이전 판 필기 보기" : "이 곡 지난 필기 보기"}</button>`);
+      hint.innerHTML = parts.join("");
+      hint.classList.toggle("hidden", !parts.length);
+    }
+    async function checkShHistory(t) {
+      let h = [];
+      try { h = await shHistory(V.sh); } catch {}
+      if (t !== V.token || !h.length || V.shared.length) return;
+      V.shHist = h; renderHint();
+    }
+    // 027: 전부 지우기 — 이 곡(모든 쪽)에 이 예배 날짜에 보이는 공유 필기를 모두 (인도자 · 밴드 마스터 · 리더십)
+    function wipeShared() {
+      if (!V.sh?.canEraseAll) return;
+      const all = shVisible(V.sh.sheet, null, V.sh.date, V.sh.ver);
+      if (!all.length) return toast("지울 필기가 없어요");
+      if (!confirm(`이 곡에 쓴 공유 필기 ${all.length}획을 모두 지울까요? 이 예배부터 안 보여요 (지난 예배는 그대로).`)) return;
+      all.forEach((st) => shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid: st.cid, date: V.sh.date }));
+      V.undo.push({ layer: "shared", t: "erase", items: all.map((st) => ({ st })) });
+      refreshShared(); renderBar();
+      toast("모두 지웠어요 · 되돌리기로 살릴 수 있어요", 3000);
     }
     let ref = null;
     function closeRef() { ref?.remove(); ref = null; }
-    async function openRef() {
-      const h = V.hist; if (!h?.length) return;
+    async function openRef(sh = false) {
+      const h = sh ? V.shHist : V.hist; if (!h?.length) return;
       closeRef();
       ref = document.createElement("div"); ref.className = "iv-ref";
       const R = { s: 0, n: 0 };
       const pagesOf = (v) => v.notes.map((x) => x.page).sort((a, b) => a - b);
       ref.innerHTML = `<div class="iv-ref-top"><select class="iv-ref-sel" aria-label="악보">${h.map((v, i) => `<option value="${i}">${esc(v.label)}</option>`).join("")}</select>
         <span class="iv-ref-pg"></span><button type="button" data-ref="prev" aria-label="이전">‹</button><button type="button" data-ref="next" aria-label="다음">›</button><button type="button" data-ref="close" aria-label="닫기">닫기</button></div>
-        <div class="iv-ref-body"><canvas></canvas></div><div class="iv-ref-foot small">지난 메모는 보기만 해요. 필요한 건 이 악보에 다시 적어 주세요.</div>`;
+        <div class="iv-ref-body"><canvas></canvas></div><div class="iv-ref-foot small">${sh ? "지난 필기는 보기만 해요. 필요한 건 '악보 고치기'로 이 악보에 다시 적어 주세요." : "지난 메모는 보기만 해요. 필요한 건 이 악보에 다시 적어 주세요."}</div>`;
       stage.appendChild(ref);
       const draw = async () => {
         const v = h[R.s], ps = pagesOf(v), page = ps[R.n];
@@ -504,7 +576,7 @@
         g.fillStyle = "#EEEAF3"; g.fillRect(0, 0, (b.x1 - b.x0) * k, (b.y1 - b.y0) * k);
         g.drawImage(pc, -b.x0 * k, -b.y0 * k, k, k * meta.A);
         const tf = { ox: -b.x0 * k, oy: -b.y0 * k, k };
-        paintTape(g, strokes, tf); paintOnPage(g, strokes.filter((s) => s.t !== "t"), tf);
+        if (sh) paintOnPage(g, strokes, tf); else { paintTape(g, strokes, tf); paintOnPage(g, strokes.filter((s) => s.t !== "t"), tf); }
       };
       ref.addEventListener("change", (e) => { if (e.target.matches(".iv-ref-sel")) { R.s = +e.target.value; R.n = 0; draw(); } });
       ref.addEventListener("click", (e) => {
@@ -585,7 +657,7 @@
           if (!hits(st, x, y, r)) continue;
           if (st.author !== S.uid && !V.sh.canEraseAll) { V.erasing.denied++; continue; }
           V.erasing.removed.push({ i, st }); V.shared.splice(i, 1);
-          shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, cid: st.cid, date: V.sh.date });
+          shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid: st.cid, date: V.sh.date });
         }
         if (V.erasing.removed.length) compose();
         return;
@@ -606,9 +678,9 @@
       if (!cancel && st.p.length >= 2) {
         if (shared()) {
           const cid = cidOf();
-          shOp({ op: "add", svc: V.sh.svc, sheet: V.sh.sheet, page: V.sh.page, cid, stroke: st, date: V.sh.date });
+          shOp({ op: "add", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, page: V.sh.page, cid, stroke: st, date: V.sh.date });
           V.undo.push({ layer: "shared", t: "add", cid });
-          V.shared = shVisible(V.sh.sheet, V.sh.page, V.sh.date); compose();
+          V.shared = shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver); compose();
         } else { V.strokes.push(st); V.undo.push({ layer: "memo", t: "add", st }); V.dirty = true; save(); }
         renderBar();
       }
@@ -618,8 +690,8 @@
       const i = V.undo.map((u) => u.layer).lastIndexOf(V.layer); if (i < 0) return;
       const [u] = V.undo.splice(i, 1);
       if (u.layer === "shared") {
-        if (u.t === "add") shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, cid: u.cid, date: V.sh.date });
-        if (u.t === "erase") u.items.forEach(({ st }) => shOp({ op: "undel", svc: V.sh.svc, sheet: V.sh.sheet, cid: st.cid, date: V.sh.date }));
+        if (u.t === "add") shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid: u.cid, date: V.sh.date });
+        if (u.t === "erase") u.items.forEach(({ st }) => shOp({ op: "undel", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid: st.cid, date: V.sh.date }));
         refreshShared(); renderBar(); return;
       }
       if (u.t === "add") { const k = V.strokes.lastIndexOf(u.st); if (k >= 0) V.strokes.splice(k, 1); }
@@ -721,10 +793,12 @@
       if (a === "fork") { V.forkAsk = true; V.forkName = V.sh?.defName || `${V.sh?.name || "악보"} 수정`; renderBar(); return setTimeout(() => bar?.querySelector("#ivForkName")?.select(), 0); }
       if (a === "fork-cancel") { V.forkAsk = false; return renderBar(); }
       if (a === "fork-ok") return doFork();
-      if (a === "hide") { pref.hide = !pref.hide; savePref(); if (V.oldVer) hint.classList.toggle("hidden", pref.hide); renderBar(); fit(); return; }
+      if (a === "hide") { pref.hide = !pref.hide; savePref(); renderHint(); renderBar(); fit(); return; }
+      if (a === "wipe") return wipeShared();
+      if (a === "shhist") return openRef(true);
       if (a === "prevpg") return onTurn?.(-1);
       if (a === "nextpg") return onTurn?.(1);
-      if (a === "hist") return openRef();
+      if (a === "hist") return openRef(false);
     });
     bar?.addEventListener("keydown", (e) => { if (e.target.id === "ivForkName" && e.key === "Enter") { e.preventDefault(); doFork(); } });
     bar?.addEventListener("input", (e) => { if (e.target.id === "ivForkName") V.forkName = e.target.value; });
@@ -753,7 +827,7 @@
       flush: () => { endStroke(); save(); return flush(); },
       destroy() { endStroke(); save(); flush(); V.dead = true; clearInterval(poll); views.delete(api); window.removeEventListener("resize", onResize); ro?.disconnect(); },
       get state() { return { k: V.k, kFit: V.meta ? fitK(contentBox()) : 0, kPage: V.meta ? kPage() : 0, pen: V.pen, layer: V.layer, strokes: V.strokes.length, shared: V.shared.length,
-        sheet: V.sh?.sheet || null, forkAsk: V.forkAsk, zoomed: V.meta ? zoomed() : false, key: V.ink?.key || null, page: V.ink?.page || null, oldVer: V.oldVer, hist: V.hist?.length || 0,
+        sheet: V.sh?.sheet || null, forkAsk: V.forkAsk, zoomed: V.meta ? zoomed() : false, key: V.ink?.key || null, page: V.ink?.page || null, oldVer: V.oldVer, hist: V.hist?.length || 0, shHist: V.shHist?.length || 0, target: V.sh?.sheet ?? null, ver: V.sh?.ver || null, canEdit: !!V.sh?.canEdit,
         pending: pendingCount(), ox: V.ox, oy: V.oy, last: V.strokes[V.strokes.length - 1] || null, lastShared: V.shared[V.shared.length - 1] || null }; },
     };
     views.add(api);

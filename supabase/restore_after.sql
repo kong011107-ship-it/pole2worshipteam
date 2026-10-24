@@ -24,5 +24,11 @@ begin
      and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'applications') then
     execute 'alter publication supabase_realtime add table public.applications';
   end if;
+  -- 027: 메트로놈 함께 맞추기
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and to_regclass('public.metro_live') is not null
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'metro_live') then
+    execute 'alter publication supabase_realtime add table public.metro_live';
+  end if;
 end $$;
 -- 확인: select id, public from storage.buckets;  select tablename from pg_publication_tables where pubname = 'supabase_realtime';

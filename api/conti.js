@@ -7,12 +7,17 @@
 //  025: 지난 예배 콘티를 고치면 알림 없음 · BPM만 바뀌면 알림 없음
 //  { action: "share", t }              — 섬김이 팀 공유 링크 (로그인 없음): 다가오는 예배 콘티 · 악보(서명된 주소) · 적용찬양 · 예배 진행곡 · 공유 필기 · 백업찬양
 //  { action: "share-live", t }         — 공유 링크: 백업찬양 지금 · 다음 곡과 콘티 버전만 (몇 초마다)
+//  027: { action: "applied-notify", service_id } — 적용찬양을 처음 올린 사람이 부름 → 그 예배 라인업에 한 번만 (applied_meta.notified_at)
+//       { action: "backup-notify" }               — 백업찬양 후보를 확정 · 수정한 사람이 부름 → 그 예배 라인업에 pub_ver마다 한 번
+//       공유 링크: 적용찬양 · 예배 진행곡 · 백업찬양의 공유 필기(ink_extra)도 · 백업찬양 후보는 확정한 것만
 import { adminClient, requireAdmin, requireMember, handler, HttpError } from "./_lib.js";
 import { settingOf, fill, deliverOnce, serviceName } from "./_notify.js";
 
 export default handler(async (req, body) => {
   const db = adminClient();
   if (body.action === "notify") return notify(req, db, body);
+  if (body.action === "applied-notify") return appliedNotify(req, db, body);
+  if (body.action === "backup-notify") return backupNotify(req, db);
   if (body.action === "yt") { await requireMember(req, db); return { ...(await ytLookup(db, body.ids)) }; }
   if (body.action === "yt-fill") { await requireAdmin(req, db); return ytFill(db); }
   if (body.action === "share") return share(db, body);
@@ -54,6 +59,64 @@ async function notify(req, db, body) {
   const r = await deliverOnce(db, `conti:${sl.id}:${sl.version}`, {
     kind: "conti", by: me.id, url: `/me.html#worship/${sid}`, label: `${name} 콘티 ${kind === "conti_edit" ? "수정" : "올림"} · 섬김자 ${people?.length || 0}명`,
     items: (people || []).map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
+  });
+  await done();
+  return r ? { ...r, kind } : { skipped: true, recipients: 0, pushed: 0, kind };
+}
+
+// ---------------------------------------------------------------- 027: 적용찬양 · 백업찬양 알림 (받는 사람 = 그 예배 라인업, 부른 사람 빼고)
+async function lineupOf(db, sid, meId) {
+  const { data: s } = await db.from("services").select("id, service_date, ministry_id, label, status, ministries(name), assignments(member_id, position_code, is_band_master)").eq("id", sid).maybeSingle();
+  if (!s) throw new HttpError(404, "예배를 찾을 수 없어요.");
+  const { count: sibs } = s.ministry_id ? await db.from("services").select("id", { count: "exact", head: true }).eq("ministry_id", s.ministry_id) : { count: 1 };
+  const ids = [...new Set((s.assignments || []).map((a) => a.member_id).filter((id) => id && id !== meId))];
+  const { data: people } = ids.length ? await db.from("members").select("id, name").in("id", ids).eq("is_active", true) : { data: [] };
+  return { s, name: serviceName(s, (sibs || 1) > 1), people: people || [] };
+}
+async function appliedNotify(req, db, body) {
+  const { me } = await requireMember(req, db);
+  const sid = String(body.service_id || "");
+  if (!/^[0-9a-f-]{36}$/i.test(sid)) throw new HttpError(400, "예배를 찾을 수 없어요.");
+  const { s, name, people } = await lineupOf(db, sid, me.id);
+  const mine = (s.assignments || []).some((a) => a.member_id === me.id && (a.position_code === "leader" || a.is_band_master));
+  if (me.role !== "admin" && !mine) throw new HttpError(403, "이 예배의 적용찬양을 올린 사람이 아니에요.");
+  const { data: meta } = await db.from("applied_meta").select("notified_at").eq("service_id", sid).maybeSingle();
+  if (meta?.notified_at) return { skipped: true, already: true, recipients: 0, pushed: 0 };
+  const { data: list } = await db.from("applied_songs").select("title, key, ord").eq("service_id", sid).order("ord");
+  if (!list?.length) throw new HttpError(400, "아직 올린 적용찬양이 없어요.");
+  const done = () => db.from("applied_meta").upsert({ service_id: sid, notified_at: new Date().toISOString() });
+  if (s.service_date < kstToday() || s.status !== "published") { await done(); return { skipped: true, past: s.service_date < kstToday(), recipients: 0, pushed: 0 }; }
+  const st = await settingOf(db, "applied_up");
+  if (!st.enabled) { await done(); return { skipped: true, recipients: 0, pushed: 0 }; }
+  const vars = { "예배": name, "곡": list.map((x) => `${x.title}${x.key ? ` (${x.key})` : ""}`).join(" · "), "올린 사람": me.name };
+  const r = await deliverOnce(db, `applied:${sid}`, {
+    kind: "conti", by: me.id, url: `/me.html#worship/${sid}`, label: `${name} 적용찬양 · 라인업 ${people.length}명`,
+    items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
+  });
+  await done();
+  return r ? { ...r } : { skipped: true, recipients: 0, pushed: 0 };
+}
+async function backupNotify(req, db) {
+  const { me } = await requireMember(req, db);
+  const { data: L } = await db.from("backup_live").select("service_id, pub_candidates, pub_ver, notified_ver, pub_changes, confirmed_by, confirmed_at").eq("id", 1).maybeSingle();
+  if (!L?.confirmed_at || !L.service_id) throw new HttpError(400, "확정한 백업찬양 후보가 없어요.");
+  if (me.role !== "admin" && L.confirmed_by !== me.id) throw new HttpError(403, "백업찬양 후보를 확정한 사람이 아니에요.");
+  if (L.pub_ver <= L.notified_ver) return { skipped: true, recipients: 0, pushed: 0 };
+  const kind = L.pub_changes?.kind === "edit" ? "backup_edit" : "backup_pick";
+  const done = () => db.from("backup_live").update({ notified_ver: L.pub_ver }).eq("id", 1).lt("notified_ver", L.pub_ver);
+  const { s, name, people } = await lineupOf(db, L.service_id, me.id);
+  if (s.service_date < addDaysISO(kstToday(), -1)) { await done(); return { skipped: true, past: true, recipients: 0, pushed: 0, kind }; }
+  const st = await settingOf(db, kind);
+  if (!st.enabled) { await done(); return { skipped: true, recipients: 0, pushed: 0, kind }; }
+  const ids = (L.pub_candidates || []).map(Number);
+  const { data: songs } = ids.length ? await db.from("backup_songs").select("id, code, title").in("id", ids) : { data: [] };
+  const list = ids.map((id) => (songs || []).find((x) => x.id === id)).filter(Boolean).map((x) => `${x.code} ${x.title}`);
+  const ch = L.pub_changes || {};
+  const changed = [ch.added?.length ? `추가: ${ch.added.join(", ")}` : "", ch.removed?.length ? `빠짐: ${ch.removed.join(", ")}` : "", ch.reorder ? "순서 변경" : ""].filter(Boolean).join(" · ") || "후보가 바뀌었어요";
+  const vars = { "예배": name, "곡": list.join(" · "), "바뀐 것": changed, "인도자": me.name };
+  const r = await deliverOnce(db, `backup:${L.pub_ver}`, {
+    kind: "conti", by: me.id, url: "/me.html#worship/backup", label: `${name} 백업찬양 ${kind === "backup_edit" ? "수정" : "확정"} · 라인업 ${people.length}명`,
+    items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
   });
   await done();
   return r ? { ...r, kind } : { skipped: true, recipients: 0, pushed: 0, kind };
@@ -147,6 +210,10 @@ async function share(db, body) {
   const { data: items } = slIds.length ? await db.from("setlist_items").select("setlist_id, ord, key, bpm, meter, medley, diff_key, join_prev, memo, sheet_id, songs(title, team_bpm, team_meter), sheet_versions(id, path, pages)").in("setlist_id", slIds).order("ord") : { data: [] };
   const sheetIds = [...new Set((items || []).map((x) => x.sheet_id).filter(Boolean))];
   const { data: inks } = sheetIds.length ? await db.from("sheet_ink").select("sheet_id, page, stroke, valid_from, deleted_from").in("sheet_id", sheetIds).order("id") : { data: [] };
+  // 027: 적용찬양 · 예배 진행곡 공유 필기
+  const exTargets = [...(aps.data || []).map((a) => `a:${a.id}`), ...(procs.data || []).map((p) => `p:${p.id}`)];
+  const { data: exInk } = exTargets.length ? await db.from("ink_extra").select("target, page, stroke, valid_from, deleted_from").in("target", exTargets).order("id") : { data: [] };
+  const exFor = (target, date) => (exInk || []).filter((k) => k.target === target && k.valid_from <= date && (!k.deleted_from || k.deleted_from > date)).map((k) => ({ page: k.page, ...k.stroke }));
   const procFor = (date, communion, special) => {
     const out = [];
     for (const k of PROC_ORDER) {
@@ -168,8 +235,8 @@ async function share(db, body) {
     return {
       id: s.id, date: s.service_date, title: s.ministry_id ? `${s.ministries?.name || "사역"}${s.label ? " · " + s.label : ""}` : "주일", ministry: !!s.ministry_id, start_time: s.start_time, communion,
       setlist: sl ? { version: sl.version, changes: sl.changes ? { text: sl.changes.text || [], at: sl.changes.at } : null, sheet_changes: sl.sheet_changes ? { at: sl.sheet_changes.at } : null, published_at: sl.published_at, updated_at: sl.updated_at, items: its } : null,
-      applied: (aps.data || []).filter((a) => a.service_id === s.id).map((a) => ({ title: a.title, key: a.key, note: a.note, images: a.images })),
-      proc: procFor(s.service_date, communion, !!s.ministry_id).map((p) => ({ kind: p.kind, title: p.title, key: p.key, path: p.path, pages: p.pages, images: p.images })),
+      applied: (aps.data || []).filter((a) => a.service_id === s.id).map((a) => ({ title: a.title, key: a.key, note: a.note, images: a.images, ink: exFor(`a:${a.id}`, s.service_date) })),
+      proc: procFor(s.service_date, communion, !!s.ministry_id).map((p) => ({ kind: p.kind, title: p.title, key: p.key, path: p.path, pages: p.pages, images: p.images, ink: exFor(`p:${p.id}`, s.service_date) })),
     };
   });
   const backup = await backupFor(db);
@@ -179,25 +246,41 @@ async function share(db, body) {
   ]);
   return { label: link.label, today, services: list, backup, urls };
 }
+// 027: 팀원에게 보이는 후보 = 기도회 중이면 지금 후보 · 아니면 확정한 후보(그 예배 다음 날까지)
+async function visibleCands(db, lv) {
+  if (!lv) return [];
+  if (lv.active) return (lv.candidates || []).map(Number);
+  if (!lv.confirmed_at || !lv.service_id) return [];
+  const { data: s } = await db.from("services").select("service_date").eq("id", lv.service_id).maybeSingle();
+  return s && s.service_date >= addDaysISO(kstToday(), -1) ? (lv.pub_candidates || []).map(Number) : [];
+}
 async function backupFor(db) {
   const [{ data: lv }, { data: bk }] = await Promise.all([
-    db.from("backup_live").select("active, candidates, now_ref, next_ref, seq, updated_at").eq("id", 1).maybeSingle(),
+    db.from("backup_live").select("active, candidates, pub_candidates, confirmed_at, service_id, now_ref, next_ref, seq, updated_at").eq("id", 1).maybeSingle(),
     db.from("backup_books").select("id, label, path, pages").eq("active", true).maybeSingle(),
   ]);
-  const cands = (lv?.candidates || []).map(Number);
+  const cands = await visibleCands(db, lv);
   const refs = [lv?.now_ref, lv?.next_ref].filter((r) => r && r.startsWith("b:")).map((r) => +r.slice(2));
   const want = [...new Set([...cands, ...refs])];
   const { data: songs } = want.length ? await db.from("backup_songs").select("id, book_id, code, title, key, page, pages, images").in("id", want) : { data: [] };
+  const list = (songs || []).filter((x) => !x.book_id || x.book_id === bk?.id);
+  // 027: 공유 필기 (곡 코드 · 지금 판) — 그 예배 날짜 기준
+  let date = kstToday();
+  if (lv?.service_id) { const { data: s } = await db.from("services").select("service_date").eq("id", lv.service_id).maybeSingle(); if (s && s.service_date >= addDaysISO(kstToday(), -1)) date = s.service_date; }
+  const codes = [...new Set(list.map((x) => `b:${x.code}`))];
+  const { data: ink } = codes.length ? await db.from("ink_extra").select("target, ver, page, stroke, valid_from, deleted_from").in("target", codes).order("id") : { data: [] };
+  list.forEach((x) => { const ver = x.book_id ? String(x.book_id) : `c${x.id}`;
+    x.ink = (ink || []).filter((k) => k.target === `b:${x.code}` && k.ver === ver && k.valid_from <= date && (!k.deleted_from || k.deleted_from > date)).map((k) => ({ page: k.page, ...k.stroke })); });
   return { active: !!lv?.active, now: lv?.active ? lv.now_ref : null, next: lv?.active ? lv.next_ref : null, seq: lv?.seq || 0, candidates: cands,
-    book: bk ? { label: bk.label, path: bk.path, pages: bk.pages } : null, songs: (songs || []).filter((x) => !x.book_id || x.book_id === bk?.id) };
+    book: bk ? { label: bk.label, path: bk.path, pages: bk.pages } : null, songs: list };
 }
 async function shareLive(db, body) {
   await linkOf(db, body.t);
   const today = kstToday();
   const [{ data: lv }, { data: svs }] = await Promise.all([
-    db.from("backup_live").select("active, now_ref, next_ref, seq, candidates").eq("id", 1).maybeSingle(),
+    db.from("backup_live").select("active, now_ref, next_ref, seq, candidates, pub_candidates, confirmed_at, service_id").eq("id", 1).maybeSingle(),
     db.from("services").select("id, setlists(version, status, sheet_changes)").eq("status", "published").gte("service_date", today).lte("service_date", addDaysISO(today, 13)),
   ]);
   const ver = (svs || []).map((s) => `${s.id}:${[].concat(s.setlists || []).filter((x) => x.status === "published").map((x) => `${x.version}${x.sheet_changes?.at || ""}`).join("")}`).sort().join(",");
-  return { active: !!lv?.active, now: lv?.active ? lv.now_ref : null, next: lv?.active ? lv.next_ref : null, seq: lv?.seq || 0, candidates: (lv?.candidates || []).map(Number), ver };
+  return { active: !!lv?.active, now: lv?.active ? lv.now_ref : null, next: lv?.active ? lv.next_ref : null, seq: lv?.seq || 0, candidates: await visibleCands(db, lv), ver };
 }
