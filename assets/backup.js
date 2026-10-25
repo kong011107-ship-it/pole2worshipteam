@@ -13,26 +13,30 @@
   const LSK = "pole2.backup.cache";
   const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   const B = { book: null, songs: [], live: null, proc: [], q: "", keys: new Set(), topics: new Set(), me: null, root: null, loaded: false,
-    ch: null, timer: null, layer: null, follow: true, view: null, pg: 0, saved: null, adding: false, toastT: null, offline: false };
+    ch: null, timer: null, layer: null, follow: true, view: null, pg: 0, saved: null, adding: false, toastT: null, offline: false, bpm: {} };
+  const listeners = new Set();
+  const emit = () => listeners.forEach((f) => { try { f(B.live); } catch (e) { console.warn(e); } });
 
   // ------------------------------------------------------------------ 데이터
   async function loadData(force) {
     if (B.loaded && !force) return;
-    const [bk, sg, lv, pr] = await Promise.all([
+    const [bk, sg, lv, pr, bp] = await Promise.all([
       sb.from("backup_books").select("*").eq("active", true).maybeSingle(),
       sb.from("backup_songs").select("id, book_id, code, title, key, topic, page, pages, images, norm").eq("hidden", false).order("code"),
       sb.rpc("backup_state_live"), sb.rpc("proc_on", { p_date: todayISO() }),
+      sb.from("backup_bpm").select("code, bpm, meter"),
     ]);
     if (bk.error || sg.error || lv.error) {
       const c = ls.get(LSK);
       if (!c) throw new Error("백업찬양을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.");
-      Object.assign(B, { book: c.book, songs: c.songs, proc: c.proc || [], live: c.live || null, offline: true, loaded: true });
+      Object.assign(B, { book: c.book, songs: c.songs, proc: c.proc || [], live: c.live || null, bpm: c.bpm || {}, offline: true, loaded: true });
       return;
     }
     B.book = bk.data || null;
     B.songs = (sg.data || []).filter((x) => x.book_id === null || x.book_id === B.book?.id);
     B.live = lv.data; B.proc = pr.data || []; B.loaded = true; B.offline = false;
-    ls.set(LSK, { book: B.book, songs: B.songs, proc: B.proc, live: B.live, at: Date.now() });
+    B.bpm = Object.fromEntries((bp.data || []).map((x) => [x.code, { bpm: x.bpm, meter: x.meter }]));
+    ls.set(LSK, { book: B.book, songs: B.songs, proc: B.proc, live: B.live, bpm: B.bpm, at: Date.now() });
   }
   const topics = () => ({ ...DEF_TOPICS, ...(B.book?.topics || {}) });
   const songOf = (id) => B.songs.find((s) => s.id === +id);
@@ -72,7 +76,7 @@
   // ------------------------------------------------------------------ 실시간 · 확인
   function watch(fast) {
     clearInterval(B.timer);
-    B.timer = setInterval(() => { if (B.layer || (B.root && B.root.offsetParent)) refreshLive(); else clearInterval(B.timer); }, fast ? 3000 : 15000);
+    B.timer = setInterval(() => { if (B.layer || listeners.size || (B.root && B.root.offsetParent)) refreshLive(); else clearInterval(B.timer); }, fast ? 3000 : listeners.size ? 6000 : 15000);
     if (!B.ch && sb.channel) {
       try { B.ch = sb.channel("backup-live").on("postgres_changes", { event: "*", schema: "public", table: "backup_live" }, () => refreshLive()).subscribe(); } catch { B.ch = null; }
     }
@@ -86,6 +90,8 @@
       if (B.live && data.seq === B.live.seq) return;
       const prev = B.live; B.live = data;
       if (B.layer) onLiveChange(prev); else if (B.root?.offsetParent) drawHome();
+      if (!B.layer && listeners.size && !!data.active !== !!prev?.active) watch(!!data.active);
+      emit();
     } finally { busy = false; }
   }
   async function update(patch) {
@@ -93,6 +99,7 @@
     if (error) { toast(error.message || "바꾸지 못했어요", 4000); return false; }
     const prev = B.live; B.live = data;
     if (B.layer) onLiveChange(prev, true); else drawHome();
+    emit();
     return true;
   }
 
@@ -171,7 +178,7 @@
     if (!(await flushCands())) { b.disabled = false; return; }
     const { data, error } = await sb.rpc("backup_confirm");
     if (error) { toast(error.message || "확정하지 못했어요", 4000); b.disabled = false; return; }
-    B.live = data; drawHome();
+    B.live = data; drawHome(); emit();
     let msg = edit ? "후보를 수정했어요" : "후보를 확정했어요 · 팀원에게 보여요";
     try { const r = await L().meApi("/api/conti", { action: "backup-notify" }); if (!r.skipped) msg += ` · ${r.recipients}명에게 알렸어요`; } catch { msg += " · 알림은 보내지 못했어요"; }
     toast(msg, 3500);
@@ -238,7 +245,7 @@
     const b = e.target.closest("[data-bk]"); if (!b) return;
     const a = b.dataset.bk;
     if (a === "save") { b.disabled = true; b.textContent = "받는 중…"; try { await L().sheetBytes(B.book.path); B.saved = true; toast("악보집을 이 기기에 저장했어요"); } catch (err) { toast(err.message, 4000); } return checkSaved(); }
-    if (a === "join") return openLive();
+    if (a === "join") return join();
     if (a === "confirm" || a === "edit") return doConfirm(b, a === "edit");
     if (a === "start") {
       clearTimeout(candT); candT = null;
@@ -289,7 +296,7 @@
       <div class="bk-stage" id="bkStage"><canvas id="bkCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="bkBlank"></div>
         <button type="button" class="cvv-tap l" data-bkl="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-bkl="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="bkLoad">불러오는 중…</div><div class="bk-toast hidden" id="bkToast"></div></div>
-      <div class="bk-dock" id="bkDock"></div>`, () => { L().wake?.(false); B.iv?.destroy(); B.iv = null; B.layer = null; document.removeEventListener("keydown", onKey); watch(false); if (B.root?.offsetParent) drawHome(); });
+      <div class="bk-dock" id="bkDock"></div>`, () => { CONTI.METRO.off(); L().wake?.(false); B.iv?.destroy(); B.iv = null; B.layer = null; document.removeEventListener("keydown", onKey); watch(false); if (B.root?.offsetParent) drawHome(); });
     B.layer = el; L().wake?.(true);
     // 024: 내 메모 · 확대 — 따라가는 중에도 쓸 수 있고, 인도자가 넘기면 쓰던 메모를 먼저 저장하고 같이 넘어감
     B.iv = window.INK ? INK.view({ stage: $("#bkStage", el), canvas: $("#bkCanvas", el), root: el, bar: $("#bkInk", el), onTurn: (d) => turn(d) }) : null;
@@ -329,8 +336,11 @@
       ? `<span><span class="bk-dot"></span>기도회 진행 중 · 내가 인도</span><span class="sp"></span>${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen bk-fix hidden" data-iv="fix"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="end">끝내기</button><button type="button" class="bk-pill" data-bkl="close">나가기</button>`
       : `<span><span class="bk-dot"></span>${esc(lv.leader || "인도자")} 인도 · 백업찬양</span><span class="sp"></span><button type="button" class="bk-pill ${B.follow ? "on" : ""}" data-bkl="follow" aria-pressed="${B.follow}">${B.follow ? "● 따라가는 중" : "따라가기"}</button>${canLead() ? `<button type="button" class="bk-pill" data-bkl="take">내가 이어서 진행</button>` : ""}${B.iv ? `<button type="button" class="bk-pill bk-pen hidden" data-iv="hide"></button><button type="button" class="bk-pill bk-pen bk-fix hidden" data-iv="fix"></button><button type="button" class="bk-pill bk-pen" data-iv="pen"></button>` : ""}<button type="button" class="bk-pill" data-bkl="close">나가기</button>`;
     B.iv?.sync();
-    $("#bkBand", el).innerHTML = `<div class="now"><small>지금</small>${now ? `${codeHTML(now.code)}<b>${esc(now.title)}</b>` : `<b class="muted">아직 없음</b>`}</div>
+    const nb = now?.song ? bpmOf(now.song.code) : now?.proc?.bpm ? { bpm: now.proc.bpm, meter: now.proc.meter } : null;
+    $("#bkBand", el).innerHTML = `<div class="now"><small>지금</small>${now ? `${codeHTML(now.code)}<b>${esc(now.title)}</b>` : `<b class="muted">아직 없음</b>`}${nb?.bpm ? `<span class="bk-bpm"><button type="button" class="cvv-dot" data-bkl="metro" aria-label="메트로놈"></button>♩=${nb.bpm}${nb.meter && nb.meter !== "4/4" ? ` ${esc(nb.meter)}` : ""}</span>` : ""}</div>
       <div class="nx"><small>다음</small>${nx ? `${codeHTML(nx.code, "inv")}<b>${esc(nx.title)}</b>` : `<b>${lead ? "후보를 눌러 예약" : "아직 없음"}</b>`}</div>`;
+    const dot = el.querySelector("#bkBand .cvv-dot"); if (dot) CONTI.METRO.bind(dot);
+    CONTI.METRO.set(nb?.bpm || 0, nb?.meter);
     const procKinds = L().PROC_ORDER.filter((k) => k !== "entrance" && procOf(k));
     if (lead) {
       $("#bkMini", el).innerHTML = "";
@@ -389,6 +399,7 @@
     if (a === "prev") return turn(-1);
     if (a === "next") return turn(1);
     if (a === "close") return L().closeLayer();
+    if (a === "metro") { const m = CONTI.METRO.cycle(); return toast(["메트로놈을 껐어요", "박자에 맞춰 깜빡여요", "소리도 나요 · 예배 중에는 이어폰으로"][m], 1800); }
     if (a === "conti") return contiNow();
     if (a === "follow") { B.follow = !B.follow; if (B.follow) { B.view = B.live.now; B.pg = 0; drawSheet(); } return renderLive(); }
     if (a === "take") { if (!confirm("이 기도회를 내가 이어서 진행할까요?")) return; return update({ active: true }); }
@@ -429,10 +440,11 @@
       </section>
       <section class="panel" id="procAdmin"><h2>예배 진행곡 <small>종류마다 1곡(성찬 찬양은 2곡) · 바꿀 때만 고쳐요 · RT에 넣지 않아요</small></h2>
         <div class="bk-alist">${L().PROC_ORDER.map((k) => { const c = cur(k), n = next(k);
-          return `<div class="devrow"><span style="display:flex;flex-direction:column;gap:2px"><span><span class="cv-ptag">${P[k][0]}</span> ${c ? `<b>${esc(c.title)}</b>${c.key ? ` <span class="small muted">${esc(c.key)}</span>` : ""}` : `<span class="muted">아직 없어요</span>`}${k === "entrance" ? ` <span class="small muted">· 특별예배 · 수련회 때만</span>` : k.startsWith("communion") ? ` <span class="small muted">· 성찬식 주일에만</span>` : ""}</span>
-            <span class="small muted">${c ? `${md(c.start_date)}부터 · ${c.images?.length ? `그림 ${c.images.length}장` : c.pages ? `PDF ${c.pages}쪽` : "악보 없음"}` : ""}${n ? ` · ${md(n.start_date)}부터 '${esc(n.title)}'로 바뀜` : ""}</span></span>
-            <div class="row" style="gap:6px;flex:none">${c && (c.path || c.images?.length) ? `<button type="button" class="btn btn-ghost btn-sm" data-bka="proc-view" data-id="${c.id}">보기</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-bka="proc" data-k="${k}">바꾸기</button></div></div>`; }).join("")}</div>
-        ${procs.some((x) => x !== cur(x.kind) && x !== next(x.kind)) ? `<details><summary class="small" style="cursor:pointer;font-weight:700;color:var(--violet)">지난 곡 기록</summary><div class="bk-alist">${procs.filter((x) => x !== cur(x.kind) && x !== next(x.kind)).map((x) => `<div class="devrow"><span><span class="cv-ptag">${P[x.kind][0]}</span> ${esc(x.title)} <span class="small muted">${md(x.start_date)}부터</span></span></div>`).join("")}</div></details>` : ""}
+          const live = c && !c.removed;
+          return `<div class="devrow"><span style="display:flex;flex-direction:column;gap:2px"><span><span class="cv-ptag">${P[k][0]}</span> ${live ? `<b>${esc(c.title)}</b>${c.key ? ` <span class="small muted">${esc(c.key)}</span>` : ""}${c.bpm ? ` <span class="small muted">♩=${c.bpm}</span>` : ""}` : c ? `<span class="muted">없음 · ${md(c.start_date)}부터 지움</span>` : `<span class="muted">아직 없어요</span>`}${k === "entrance" ? ` <span class="small muted">· 예배마다 '등단송 쓰기'로 켜요 (사역은 기본 켜짐)</span>` : k.startsWith("communion") ? ` <span class="small muted">· 성찬식 주일에만</span>` : ""}</span>
+            <span class="small muted">${live ? `${md(c.start_date)}부터 · ${c.images?.length ? `그림 ${c.images.length}장` : c.pages ? `PDF ${c.pages}쪽` : "악보 없음"}` : ""}${n ? (n.removed ? ` · ${md(n.start_date)}부터 지움` : ` · ${md(n.start_date)}부터 '${esc(n.title)}'로 바뀜`) : ""}</span></span>
+            <div class="row" style="gap:6px;flex:none">${live && (c.path || c.images?.length) ? `<button type="button" class="btn btn-ghost btn-sm" data-bka="proc-view" data-id="${c.id}">보기</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-bka="proc" data-k="${k}">${live ? "바꾸기" : "올리기"}</button>${live ? `<button type="button" class="btn btn-ghost btn-sm" data-bka="proc-del" data-k="${k}">지우기</button>` : ""}</div></div>`; }).join("")}</div>
+        ${procs.some((x) => x !== cur(x.kind) && x !== next(x.kind)) ? `<details><summary class="small" style="cursor:pointer;font-weight:700;color:var(--violet)">지난 곡 기록</summary><div class="bk-alist">${procs.filter((x) => x !== cur(x.kind) && x !== next(x.kind)).map((x) => `<div class="devrow"><span><span class="cv-ptag">${P[x.kind][0]}</span> ${x.removed ? `<span class="muted">지움</span>` : esc(x.title)} <span class="small muted">${md(x.start_date)}부터</span></span></div>`).join("")}</div></details>` : ""}
       </section>`;
     root.onclick = async (e) => {
       const b = e.target.closest("[data-bka]"); if (!b) return;
@@ -440,7 +452,16 @@
       if (a === "view" && act) return CONTI.openViewer(null, { single: { title: `백업찬양 악보집 ${act.label}`, path: act.path, pages: act.pages } });
       if (a === "songs" && act) return openSongEditor(act, () => mountAdmin(root));
       if (a === "hide") { const { error } = await sb.from("backup_songs").update({ hidden: b.dataset.h === "1" }).eq("id", +b.dataset.id); toast(error ? "바꾸지 못했어요" : "바꿨어요"); return mountAdmin(root); }
-      if (a === "proc") return openProcEdit(b.dataset.k, cur(b.dataset.k), () => mountAdmin(root));
+      if (a === "proc") { const c = cur(b.dataset.k); return openProcEdit(b.dataset.k, c && !c.removed ? c : null, () => mountAdmin(root)); }
+      // 029: 지우기 — 그날부터 그 종류는 없음 (지난 기록은 남아요 · 다시 올리면 돼요)
+      if (a === "proc-del") {
+        const k = b.dataset.k, c = cur(k);
+        const d = prompt(`${P[k][0]} '${c?.title || ""}'을 언제부터 뺄까요? (YYYY-MM-DD · 지난 예배 기록은 그대로)`, today);
+        if (d === null) return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim())) return toast("2026-11-01처럼 적어 주세요");
+        const { error } = await sb.from("worship_proc").insert({ kind: k, title: "(지움)", removed: true, start_date: d.trim() });
+        toast(error ? error.message || "지우지 못했어요" : `${P[k][0]}을 ${md(d.trim())}부터 뺐어요`); return mountAdmin(root);
+      }
       if (a === "proc-view") { const x = procs.find((y) => y.id === +b.dataset.id); return CONTI.openViewer(null, { title: `${P[x.kind][0]} · ${x.title}`, items: [{ title: x.title, key: x.key, src: L().procPages(x) }] }); }
     };
     root.onchange = (e) => { if (e.target.id === "bkBookFile" && e.target.files?.[0]) openBookImport(e.target.files[0], act, () => mountAdmin(root)); };
@@ -611,5 +632,53 @@
     });
   }
 
-  window.BACKUP = { mount, openLive, liveBanner, mountAdmin, refresh: refreshLive, _test: { readBook, CODE_RE, B } };
+  // =================================================================== 029: 악보 보기에 합친 백업찬양 칸
+  //  팀원 = 확정한 후보(기도회 중이면 지금 후보) · 인도자 · 리더십 = 고르는 중인 후보. 이번 백업찬양 예배가 아니면 '확정 전' 한 칸
+  const bpmOf = (code) => B.bpm?.[code] || null;
+  function blockNow(svc) {
+    if (!svc?.id || svc.past) return null;
+    const lv = B.live || {}, mine = lv.service_id === svc.id, lead = canLead();
+    const items = [];
+    const push = (s) => {
+      if (!s || items.some((x) => x.id === `b:${s.id}`)) return;
+      const b = bpmOf(s.code);
+      items.push({ id: `b:${s.id}`, tag: s.code, kind: "backup", title: s.title, key: s.key ? s.key.toUpperCase() : "", bt: `b:${s.code}`, bpm: b?.bpm || null, meter: b?.meter || null,
+        draft: lead && !lv.active && !lv.confirmed, src: pagesOf(`b:${s.id}`) });
+    };
+    if (mine) {
+      cands().forEach(push);
+      if (lv.active) [lv.now, lv.next].forEach((r) => { if (r?.startsWith("b:")) push(songOf(r.slice(2))); });
+    }
+    if (!items.length) items.push({ id: "bk:none", tag: "백업", kind: "backup", title: "백업찬양", src: [],
+      note: lv.active && !mine ? "다른 예배 기도회가 진행 중이에요" : lead ? "후보를 고르면 여기에 이어서 보여요" : "확정 전이에요 · 인도자가 확정하면 여기에 이어서 보여요" });
+    return { items, live: mine ? lv : null, lead, confirmed: !!lv.confirmed, amLeader: mine && amLeader(), svc: lv.service_id || null, canBpm: mine && !!lv.can_ink };
+  }
+  async function block(svc) {
+    if (!svc?.id || svc.past) return null;
+    await loadData();
+    try { const { data } = await sb.rpc("backup_state_live"); if (data) B.live = data; } catch {}
+    return blockNow(svc);
+  }
+  function onChange(f) { listeners.add(f); watch(!!B.live?.active); return () => listeners.delete(f); }
+  function setBpm(code, bpm, meter) { B.bpm = B.bpm || {}; if (bpm) B.bpm[code] = { bpm, meter }; else delete B.bpm[code]; }
+  // 미리 받아 두기: 이번 백업찬양 예배면 사진 곡 · (와이파이거나 기도회 중이면) 악보집 PDF
+  async function prefetch(svc, wifi) {
+    try {
+      const bk = await block(svc); if (!bk || bk.svc !== svc.id) return;
+      const paths = bk.items.flatMap((x) => (x.src || []).map((p) => p.img || p.path));
+      L().prefetchPaths(paths.filter((p) => p && (wifi || bk.live?.active || p !== B.book?.path)));
+    } catch {}
+  }
+  // '참여': 인도자는 진행 화면, 팀원은 악보 보기에서 지금 곡부터 따라가기
+  async function join() {
+    try { if (!B.loaded) await loadData(); const { data } = await sb.rpc("backup_state_live"); if (data) B.live = data; } catch {}
+    if (!B.live?.active) return toast("지금 진행 중인 백업찬양이 없어요");
+    if (amLeader() || !B.live.service_id) return openLive();
+    let svc = null;
+    try { svc = await CONTI.loadOne(B.live.service_id); } catch {}
+    if (!svc) return openLive();
+    return CONTI.openViewer(svc, { at: B.live.now, follow: true });
+  }
+
+  window.BACKUP = { mount, openLive, liveBanner, mountAdmin, refresh: refreshLive, block, blockNow, onChange, setBpm, prefetch, join, _test: { readBook, CODE_RE, B } };
 })();

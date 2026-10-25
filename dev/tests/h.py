@@ -40,3 +40,12 @@ async def navclick(pg, key):
         g = pg.locator(f'.side .nav-sec:has(a[data-nav="{key}"]) > button.nav-group')
         if await g.count(): await g.click(); await pg.wait_for_timeout(300)
     await a.click()
+
+# 029: 테스트 날짜와 상관없이 다가오는 주일 라인업을 LINEUPS[0]으로 고정 (demo.js 순서가 날짜마다 달라져서)
+def fix_lineup(q, sid):
+    q(f"delete from assignments where service_id='{sid}'")
+    rows = [("leader",1,1,False,False),("singer",1,2,True,False),("singer",2,3,False,False),("singer",3,4,False,False),
+            ("key_main",1,6,False,True),("key_second",1,7,False,False),("e_guitar",1,8,False,False),("bass",1,9,False,False),("drum",1,10,False,False)]
+    for pos, slot, n, sl, bm in rows:
+        q(f"insert into assignments(service_id, position_code, slot, member_id, is_singer_leader, is_band_master) select '{sid}', '{pos}', {slot}, id, {str(sl).lower()}, {str(bm).lower()} from members where email='demo{n:02d}@pole2.test'")
+    q(f"update services set status='published' where id='{sid}'")

@@ -266,7 +266,7 @@
       // 켠 사람이 다른 곡으로 넘기면 그 곡 BPM으로 (0.4초 머물면)
       follow(x) {
         clearTimeout(followT);
-        if (!this.driving || !x?.song || !x.bpm) return;
+        if (!this.driving || !x?.bpm) return;
         if (x.bpm === M.row.bpm && (x.meter || "4/4") === M.row.meter && (x.ord ?? null) === (M.row.ord ?? null)) return;
         followT = setTimeout(() => set({ on: true, bpm: x.bpm, meter: x.meter || "4/4", ord: x.ord ?? null, title: x.title || null }).catch(() => {}), 400);
       },
@@ -327,14 +327,72 @@
   const docs = new Map();
   // 025: 필기본(새 악보)은 원래 파일을 함께 써요 — 'sheets/…/uuid.pdf#구분자'
   const fileOf = (path) => String(path || "").split("#")[0];
+  // 029: 이 기기에 저장한 악보 목록(크기 · 마지막으로 본 때) — 350MB를 넘으면 오래 안 본 것부터 지워요 (다가오는 예배 악보는 남김)
+  const IDX_K = "pole2.sheets.idx", CAP = 350 * 1048576;
+  let KEEP = new Set(), touchAt = 0;
+  function touch(path, size) {
+    const m = ls.get(IDX_K) || {}, old = m[path];
+    if (size == null && old && Date.now() - old.t < 3600e3) return;
+    m[path] = { n: size ?? old?.n ?? 0, t: Date.now() }; ls.set(IDX_K, m);
+  }
+  async function evict() {
+    const m = ls.get(IDX_K) || {};
+    let total = Object.values(m).reduce((a, x) => a + (x.n || 0), 0);
+    if (total <= CAP) return 0;
+    let n = 0;
+    try {
+      const c = await caches.open(CACHE);
+      for (const [p, v] of Object.entries(m).sort((a, b) => a[1].t - b[1].t)) {
+        if (total <= CAP * 0.85) break;
+        if (KEEP.has(p)) continue;
+        await c.delete(ckey(p)); total -= v.n || 0; delete m[p]; n++;
+      }
+    } catch {}
+    ls.set(IDX_K, m);
+    return n;
+  }
+  const keepSheets = (paths) => { KEEP = new Set(paths.filter(Boolean).map(fileOf)); };
+  const busyGet = new Map();
   async function sheetBytes(path) {
     path = fileOf(path);
-    try { const c = await caches.open(CACHE); const hit = await c.match(ckey(path)); if (hit) return new Uint8Array(await hit.arrayBuffer()); } catch {}
-    const { data, error } = await sb.storage.from("sheets").download(path);
-    if (error || !data) throw new Error("악보 파일을 받지 못했어요. 인터넷 연결을 확인해 주세요.");
-    const buf = new Uint8Array(await data.arrayBuffer());
-    try { const c = await caches.open(CACHE); await c.put(ckey(path), new Response(buf, { headers: { "Content-Type": mimeOf(path) } })); } catch {}
-    return buf;
+    try { const c = await caches.open(CACHE); const hit = await c.match(ckey(path)); if (hit) { const b = new Uint8Array(await hit.arrayBuffer()); touch(path, b.length); return b; } } catch {}
+    if (busyGet.has(path)) return busyGet.get(path);
+    const job = (async () => {
+      const { data, error } = await sb.storage.from("sheets").download(path);
+      if (error || !data) throw new Error("악보 파일을 받지 못했어요. 인터넷 연결을 확인해 주세요.");
+      const buf = new Uint8Array(await data.arrayBuffer());
+      try { const c = await caches.open(CACHE); await c.put(ckey(path), new Response(buf, { headers: { "Content-Type": mimeOf(path) } })); touch(path, buf.length); evict(); } catch {}
+      return buf;
+    })().finally(() => busyGet.delete(path));
+    busyGet.set(path, job);
+    return job;
+  }
+  // 029: 미리 받아 두기 — 한 번에 하나씩, 데이터 절약 모드면 안 받음
+  const fetched = new Set();
+  let prefQ = Promise.resolve();
+  function prefetchPaths(paths) {
+    if (navigator.connection?.saveData) return prefQ;
+    const list = [...new Set(paths.filter(Boolean).map(fileOf))].filter((p) => !fetched.has(p));
+    list.forEach((p) => fetched.add(p));
+    prefQ = prefQ.then(async () => { for (const p of list) { try { await sheetBytes(p); } catch { fetched.delete(p); } } });
+    return prefQ;
+  }
+  const onWifi = () => ["wifi", "ethernet"].includes(navigator.connection?.type);
+  const svcPaths = (s) => [
+    ...((s.setlist?.status === "published" || s.can_edit) ? (s.setlist?.items || []).map((x) => x.sheet_path) : []),
+    ...(s.applied || []).flatMap((x) => x.images || []),
+    ...(s.proc || []).filter((x) => (x.kind !== "entrance" || s.entrance) && (!/^communion/.test(x.kind) || s.communion)).flatMap((x) => [x.path, ...(x.images || [])]),
+    ...(s.extras || []).flatMap((x) => [x.path, ...(x.images || [])]),
+  ];
+  // 찬양 탭을 열면 다가오는 예배 악보를 미리 받아요 (와이파이면 일주일 안 예배 모두 · 아니면 보고 있는 예배만)
+  function prefetchWeek(list, f) {
+    const wifi = onWifi(), soon = addDays(todayISO(), 7);
+    const targets = wifi ? list.filter((s) => s.date <= soon) : [f];
+    keepSheets(list.filter((s) => s.date <= soon).flatMap(svcPaths));
+    setTimeout(() => {
+      prefetchPaths([...svcPaths(f), ...targets.filter((s) => s !== f).flatMap(svcPaths)]);
+      window.BACKUP?.prefetch?.(f, wifi);
+    }, 1200);
   }
   // 023: 이미지 악보 (적용찬양 · 예배 진행곡 · 직접 더한 백업찬양)
   const mimeOf = (path) => ({ jpg: "image/jpeg", png: "image/png", webp: "image/webp" }[String(path).split(".").pop()] || "application/pdf");
@@ -492,14 +550,14 @@
           <span class="cv-sn">${gi.join ? "+" : gi.n}</span>
           <button type="button" class="cv-st" data-cv-song="${x.song_id}"><b>${esc(x.title)}</b>
             <small>${gi.join ? `앞 곡에 이어서${gi.medley ? "" : ""}` : `${x.sheet_pages ? `${x.sheet_pages}쪽` : "악보 없음"}${x.duration_sec ? ` · ${mmss(x.duration_sec)}` : ""}${gi.head ? ` · 메들리${x.medley_title ? ` '${esc(x.medley_title)}'` : ""}` : ""}`}</small></button>
-          ${!gi.join && x.refs?.[0]?.[0] ? `<a class="cv-yt" href="${ytLink(x.refs[0][0], x.refs[0][1])}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${ICO.play}레퍼런스</a>` : "<span></span>"}
+          ${refOf(items, i) ? `<a class="cv-yt" href="${ytLink(refOf(items, i)[0], refOf(items, i)[1])}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${ICO.play}레퍼런스</a>` : "<span></span>"}
           ${x.bpm || (pub && f.can_edit_sheets) ? `<button type="button" class="cv-bpm ${x.bpm ? "" : "none"}" data-cv-bpm="${x.ord}" ${pub && f.can_edit_sheets ? "" : "disabled"} aria-label="${esc(x.title)} BPM${x.bpm ? " " + x.bpm : " 입력"}">${x.bpm ? esc(bpmText(x.bpm, x.meter)) : "BPM"}</button>` : "<span></span>"}
           <span class="cv-key ${keySongs.has(x.song_id) ? "chg" : ""}" ${x.diff_key ? `title="음원과 키가 달라요"` : ""}>${esc(keyText(x))}</span>
           ${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`; }).join("") || `<p class="muted small" style="margin:0">곡이 아직 없어요.</p>`}</div>
         ${items.some((x) => x.diff_key) ? `<p class="small muted cv-dk">* 음원(레퍼런스)과 키가 달라요</p>` : ""}
         ${f.can_edit && items.length ? `<div class="cv-copyrow"><button type="button" class="btn btn-soft btn-sm" data-cv-copy>카톡으로 복사</button><span class="small muted">찬양팀 방에 붙여 넣는 콘티 문구 · 섬김이 팀 링크를 골라 붙일 수 있어요</span></div>` : ""}</section>` : ""}
       ${appliedCard(f)}
-      ${procCard(f)}
+      ${flowCard(f)}
       ${(f.lineup || []).length ? `<section class="card"><div class="card-title cv-ct">라인업</div><div class="cv-lu">${lineupHTML(f.lineup, me?.id)}</div></section>` : ""}
       ${list.length > 1 ? `<div class="cv-others">${list.filter((s) => s.id !== f.id).map((s) => {
         const p = s.setlist?.status === "published", d2 = dlLeft(s.deadline), mine = mineIn(s);
@@ -507,6 +565,8 @@
           <span class="small muted">${(s.lineup || []).filter((x) => x.pos === "leader").map((x) => `인도 ${esc(x.name)}`).join(", ") || "인도 미정"}${p ? ` · ${s.setlist.items.length}곡` : ` · 마감 ${esc(dlText(s.deadline))}`}${mine ? " · 나도 섬겨요" : ""}</span></span>
           <span class="chip ${p ? "chip-ok" : s.setlist ? "chip-mid" : "chip-gray"}">${p ? (s.setlist.changes ? "수정됨" : "올라옴") : s.setlist && s.can_edit ? "쓰는 중" : d2.cls === "bad" ? "마감 지남" : "대기"}</span></button>`;
       }).join("")}</div>` : ""}`;
+    fillFlowBackup(root, f);
+    prefetchWeek(list, f);
     root.onclick = async (e) => {
       const fb = e.target.closest("[data-cv-focus]"); if (fb) { W.focus = fb.dataset.cvFocus; mountWeek(root, { me }); return root.scrollIntoView({ block: "start" }); }
       const ob = e.target.closest("[data-cv-open]"); if (ob) return openViewer(list.find((s) => s.id === ob.dataset.cvOpen), {});
@@ -514,6 +574,7 @@
       const sb2 = e.target.closest("[data-cv-song]"); if (sb2) return songDetail(+sb2.dataset.cvSong);
       const at = e.target.closest("[data-cv-at]"); if (at) return openViewer(f, { at: at.dataset.cvAt });
       if (e.target.closest("[data-cv-applied]")) return openApplied(f, { after: () => mountWeek(root, { me }) });
+      if (e.target.closest("[data-cv-order]")) return openOrder(f, { after: () => mountWeek(root, { me }) });
       if (e.target.closest("[data-cv-copy]")) return copyPop(f);
       // 025: BPM · 박자 (인도자 · 밴드 마스터 · 리더십 · 그 예배 밴드)
       const bp = e.target.closest("[data-cv-bpm]");
@@ -529,15 +590,166 @@
       ${list.map((x) => `<button type="button" class="cv-prow" data-cv-at="a:${x.id}"><span class="cv-ptag">적용</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</small></span><span class="cv-go">보기</span></button>`).join("")}
       ${f.can_applied ? `<button type="button" class="btn btn-soft btn-sm" data-cv-applied style="align-self:flex-start">${list.length ? "적용찬양 고치기" : "+ 적용찬양 올리기"}</button>` : ""}</section>`;
   }
-  // 023: 예배 진행곡 카드 (축복송 · 봉헌송 · 축도송 · 등단송) — 등단송은 사역(특별예배 · 수련회) 때만
-  function procCard(f) {
-    const list = f.proc || [];
-    if (!list.length) return "";
-    const special = !!f.ministry_id;
-    return `<section class="card"><div class="card-title cv-ct">예배 진행곡 <small>${f.communion ? "성찬식 주일 · " : ""}RT에 넣지 않아요</small></div>
-      ${PROC_ORDER.map((k) => { const x = list.find((y) => y.kind === k); if (!x) return "";
-        const dim = k === "entrance" && !special;
-        return `<button type="button" class="cv-prow ${dim ? "dim" : ""}" data-cv-at="p:${k}" ${dim ? "disabled" : ""}><span class="cv-ptag">${PROC[k][0]}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${dim ? "특별예배 · 수련회 때만" : [x.key, x.images?.length ? `${x.images.length}장` : x.pages ? `${x.pages}쪽` : ""].filter(Boolean).map(esc).join(" · ")}</small></span>${dim ? "" : `<span class="cv-go">보기</span>`}</button>`; }).join("")}</section>`;
+  // 029: 예배 순서 카드 — 본 콘티 · 축복송 · 등단송 · 적용찬양 · 백업찬양 · 성찬 · 봉헌 · 축도 · 특별순서 (예배마다 순서)
+  //  누르면 그 순서부터 악보 보기. 인도자 · 밴드 마스터 · 리더십은 '순서 · 특별순서'로 끌어서 바꿔요
+  function flowCard(f) {
+    const items = f.setlist?.status === "published" || f.can_edit ? f.setlist?.items || [] : [];
+    const rows = flowOf(f).map((k) => {
+      if (k === "conti") return `<button type="button" class="cv-prow" data-cv-at="c:0"><span class="cv-ptag">콘티</span><span class="cv-st2"><b>본 콘티</b><small>${items.length ? `${items.length}곡` : "아직 없어요"}</small></span><span class="cv-go">보기</span></button>`;
+      if (k === "applied") return f.applied?.length ? `<button type="button" class="cv-prow" data-cv-at="a:${f.applied[0].id}"><span class="cv-ptag">적용</span><span class="cv-st2"><b>적용찬양</b><small>${f.applied.map((x) => esc(x.title)).join(" · ")}</small></span><span class="cv-go">보기</span></button>` : "";
+      if (k === "backup") return f.past ? "" : `<button type="button" class="cv-prow" data-cv-at="backup"><span class="cv-ptag">백업</span><span class="cv-st2"><b>백업찬양</b><small class="cv-bkst">기도회 때</small></span><span class="cv-go">보기</span></button>`;
+      if (k.startsWith("x:")) { const x = (f.extras || []).find((y) => y.id === +k.slice(2)); return x ? `<button type="button" class="cv-prow" data-cv-at="${k}"><span class="cv-ptag">특별</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, x.images?.length ? `${x.images.length}장` : x.pages ? `${x.pages}쪽` : "악보 없음", x.memo].filter(Boolean).map(esc).join(" · ")}</small></span><span class="cv-go">보기</span></button>` : ""; }
+      const x = (f.proc || []).find((y) => y.kind === k); if (!x) return "";
+      if (k === "entrance" && !f.entrance) return f.can_edit ? `<div class="cv-prow dim"><span class="cv-ptag">${PROC[k][0]}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>이 예배엔 안 써요 · '순서 · 특별순서'에서 켜요</small></span></div>` : "";
+      return `<button type="button" class="cv-prow" data-cv-at="p:${k}"><span class="cv-ptag">${PROC[k][0]}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, bpmText(x.bpm, x.meter), x.images?.length ? `${x.images.length}장` : x.pages ? `${x.pages}쪽` : ""].filter(Boolean).map(esc).join(" · ")}</small></span><span class="cv-go">보기</span></button>`;
+    }).join("");
+    const chg = flowChanged(f);
+    return `<section class="card" id="cvFlow"><div class="card-title cv-ct">예배 순서 <small>${f.communion ? "성찬식 주일 · " : ""}콘티 밖 순서는 RT에 넣지 않아요</small>${chg ? `<span class="chip chip-mid cv-flowchg" title="${esc(f.flow_by || "")}">순서 바뀜 · ${esc(fmtDateTime(f.flow_at))}</span>` : ""}</div>
+      <div class="cv-flow">${rows}</div>
+      ${f.can_edit ? `<button type="button" class="btn btn-soft btn-sm" data-cv-order style="align-self:flex-start">순서 · 특별순서</button>` : ""}</section>`;
+  }
+  // 백업찬양 줄의 상태 (확정 · 확정 전 · 진행 중)는 따로 불러와서 채워요
+  async function fillFlowBackup(root, f) {
+    const box = root.querySelector("#cvFlow .cv-bkst"); if (!box || !window.BACKUP?.block) return;
+    try {
+      const bk = await BACKUP.block(f); if (!bk) return;
+      const n = bk.items.filter((x) => x.bt).length;
+      box.textContent = bk.live?.active ? `기도회 진행 중 · 후보 ${n}곡` : n ? `${bk.lead && !bk.confirmed ? "고르는 중" : "확정"} · ${bk.items.filter((x) => x.bt).map((x) => x.tag).join(" · ")}` : bk.lead ? "후보를 고르면 이어서 보여요" : "확정 전 · 인도자가 확정하면 이어서 보여요";
+    } catch {}
+  }
+  // =================================================================== 029: 예배 순서 · 특별순서 · 등단송 쓰기 (인도자 · 밴드 마스터 · 리더십)
+  async function openOrder(svcIn, { after } = {}) {
+    let svc = svcIn, edit = null;
+    const nameOf = (k) => {
+      if (FLOW_NAME[k]) return FLOW_NAME[k];
+      if (k.startsWith("x:")) return (svc.extras || []).find((x) => x.id === +k.slice(2))?.title || "특별순서";
+      return PROC[k]?.[0] || k;
+    };
+    const subOf = (k) => {
+      if (k === "conti") return `${svc.setlist?.items?.length || 0}곡`;
+      if (k === "applied") return svc.applied?.length ? svc.applied.map((x) => x.title).join(" · ") : "없어요 · 올리면 여기에";
+      if (k === "backup") return "확정한 후보 · 기도회 때";
+      if (k.startsWith("x:")) { const x = (svc.extras || []).find((y) => y.id === +k.slice(2)); return x ? [x.key, x.memo].filter(Boolean).join(" · ") || "특별순서" : ""; }
+      if (k === "entrance" && !svc.entrance) return "이 예배엔 안 써요";
+      if ((k === "communion" || k === "communion2") && !svc.communion) return "성찬식 주일에만";
+      const x = (svc.proc || []).find((y) => y.kind === k);
+      return x ? x.title : "진행곡 없음";
+    };
+    const draw = () => {
+      const keys = flowOf(svc), ex = svc.extras || [];
+      const procE = (svc.proc || []).find((x) => x.kind === "entrance");
+      body.innerHTML = `<p class="small muted" style="margin:0">끌어서(☰) 순서를 바꿔요. 바꾸면 바로 저장돼요 · 알림 없이 팀원 화면 · 악보 보기 · 섬김이 링크에 그대로 보여요${svc.setlist?.status === "published" ? " · 콘티를 올린 뒤에 바꾸면 '순서 바뀜'이 보여요" : ""}</p>
+        <section class="card"><div class="card-title cv-ct">예배 순서 <small>${esc(svcShort(svc))}</small></div>
+          <div class="fo-list" id="foList">${keys.map((k, i) => { const off = k !== "conti" && !flowAvail(svc, k, true) && !(k === "backup");
+            return `<div class="fo-row ${off ? "off" : ""}" data-fo-k="${esc(k)}"><span class="fo-grip" data-fo-grip aria-hidden="true">${ICO.grip}</span><span class="fo-n">${i + 1}</span>
+              <span class="fo-t"><b>${esc(nameOf(k))}</b><small>${esc(subOf(k))}</small></span>
+              <span class="fo-mv"><button type="button" data-fo-up ${i ? "" : "disabled"} aria-label="${esc(nameOf(k))} 위로">↑</button><button type="button" data-fo-down ${i < keys.length - 1 ? "" : "disabled"} aria-label="${esc(nameOf(k))} 아래로">↓</button></span></div>`; }).join("")}</div>
+          <div class="row" style="justify-content:space-between"><span class="small muted">${svc.flow_at ? `${esc(fmtDateTime(svc.flow_at))} ${esc(svc.flow_by || "")} 바꿈` : "기본 순서"}</span><button type="button" class="btn btn-ghost btn-sm" data-fo="reset" ${svc.flow ? "" : "disabled"}>기본 순서로</button></div></section>
+        <section class="card"><label class="checkrow"><input type="checkbox" id="foEnt" ${svc.entrance ? "checked" : ""} ${procE ? "" : "disabled"}><span><b>등단송 쓰기</b><small>${procE ? `${esc(procE.title)}${procE.key ? ` · ${esc(procE.key)}` : ""} · ` : "리더십이 등단송을 아직 올리지 않았어요 · "}${svc.ministry_id ? "사역은 기본으로 켜져 있어요" : "주일은 기본으로 꺼져 있어요"}</small></span></label></section>
+        <section class="card"><div class="card-title cv-ct">특별순서 <small>예: 파송식 · 이 예배에만 · RT · 카톡 복사에는 넣지 않아요</small></div>
+          ${ex.map((x) => `<div class="cv-sheet" data-fx="${x.id}"><span class="cv-ptag">특별</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, bpmText(x.bpm, x.meter), x.images?.length ? `사진 ${x.images.length}장` : x.pages ? `PDF ${x.pages}쪽` : "악보 없음", x.memo].filter(Boolean).map(esc).join(" · ")}</small></span>
+            <span class="row" style="gap:6px"><button type="button" class="btn btn-ghost btn-sm" data-fxa="edit">고치기</button><button type="button" class="btn btn-ghost btn-sm" data-fxa="del">지우기</button></span></div>`).join("") || `<p class="small muted" style="margin:0">아직 없어요.</p>`}
+          ${edit ? formHTML(edit) : `<button type="button" class="btn btn-soft btn-sm" data-fo="add" style="align-self:flex-start">+ 특별순서</button>`}</section>`;
+    };
+    const formHTML = (x) => `<div class="ap-form fx-form" id="fxForm"><b>${x.id ? "특별순서 고치기" : "특별순서 더하기"}</b>
+      <label class="field">이름<input class="input" id="fxT" maxlength="60" value="${esc(x.title || "")}" placeholder="예: 파송식"></label>
+      <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:0 0 100px">키<input class="input" id="fxK" maxlength="12" value="${esc(x.key || "")}" placeholder="선택"></label>
+        <label class="field" style="flex:0 0 110px">BPM<input class="input" id="fxB" inputmode="numeric" maxlength="3" value="${x.bpm || ""}" placeholder="선택"></label>
+        <label class="field" style="flex:1">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" id="fxM" maxlength="300" value="${esc(x.memo || "")}" placeholder="예: 파송 기도 후 · 1절만"></label></div>
+      <label class="btn btn-soft btn-sm cv-upl" style="align-self:flex-start">${x.id && (x.path || x.images?.length) ? "악보 바꾸기" : "악보 고르기"} (PDF 1개 또는 사진 여러 장 · 선택)<input type="file" accept="application/pdf,image/*" multiple id="fxF" hidden></label>
+      <span class="small muted" id="fxP">${x.id && (x.path || x.images?.length) ? "고르지 않으면 지금 악보를 그대로 써요" : "악보 없이도 순서에 넣을 수 있어요"}</span>
+      <div class="row"><button type="button" class="btn btn-primary btn-sm" data-fo="save">${x.id ? "저장" : "더하기"}</button><button type="button" class="btn btn-ghost btn-sm" data-fo="cancel">취소</button></div></div>`;
+    const el = openLayer("cv-sheetpage", `<div class="cvs-top"><button type="button" class="cvv-back light" data-fo-close aria-label="닫기">${ICO.back}</button><b>예배 순서 · ${esc(svcShort(svc))}</b></div><div class="cvs-body" id="foBody"></div>`, () => after?.());
+    const body = $("#foBody", el);
+    draw();
+    const reload = async () => { svc = await loadOne(svc.id); draw(); };
+    const saveFlow = async (keys) => {
+      const { error } = await sb.rpc("set_flow", { p_service: svc.id, p_flow: keys });
+      if (error) { toast(error.message || "순서를 바꾸지 못했어요", 4000); return reload(); }
+      toast("순서를 바꿨어요", 1600); await reload();
+    };
+    const curKeys = () => [...body.querySelectorAll("[data-fo-k]")].map((r) => r.dataset.foK);
+    // 끌어서 순서 바꾸기 (☰을 누른 채로) — 줄을 옮기면 포인터 잡기가 풀려서 창 전체에서 받아요
+    let drag = null;
+    const onMove = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      e.preventDefault();
+      const list = $("#foList", el); if (!list) return;
+      const rows = [...list.children].filter((r) => r !== drag.row);
+      const after = rows.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+      if (after) { if (after.previousSibling !== drag.row) list.insertBefore(drag.row, after); } else if (list.lastChild !== drag.row) list.appendChild(drag.row);
+    };
+    const endDrag = (e) => {
+      if (!drag || (e && e.pointerId !== drag.id)) return;
+      const d = drag; drag = null; d.row.classList.remove("drag");
+      window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", endDrag); window.removeEventListener("pointercancel", endDrag);
+      const keys = curKeys(); if (keys.join() !== d.start) saveFlow(keys);
+    };
+    body.addEventListener("pointerdown", (e) => {
+      const g = e.target.closest("[data-fo-grip]"); if (!g || drag) return;
+      e.preventDefault();
+      drag = { row: g.closest(".fo-row"), id: e.pointerId, start: curKeys().join() }; drag.row.classList.add("drag");
+      window.addEventListener("pointermove", onMove, { passive: false }); window.addEventListener("pointerup", endDrag); window.addEventListener("pointercancel", endDrag);
+    });
+    el.addEventListener("change", async (e) => {
+      if (e.target.id === "fxF") $("#fxP", el).textContent = [...e.target.files].map((f) => f.name).join(", ") || "고른 파일 없음";
+      if (e.target.id === "foEnt") {
+        e.target.disabled = true;
+        const { data, error } = await sb.rpc("set_entrance", { p_service: svc.id, p_on: e.target.checked });
+        toast(error ? error.message || "바꾸지 못했어요" : data ? "이 예배에 등단송을 써요" : "이 예배엔 등단송을 안 써요");
+        await reload();
+      }
+    });
+    el.addEventListener("click", async (e) => {
+      if (e.target.closest("[data-fo-close]")) return closeLayer();
+      const up = e.target.closest("[data-fo-up]"), dn = e.target.closest("[data-fo-down]");
+      if (up || dn) { const k = (up || dn).closest("[data-fo-k]").dataset.foK, keys = curKeys(), i = keys.indexOf(k), j = i + (up ? -1 : 1); if (j < 0 || j >= keys.length) return; [keys[i], keys[j]] = [keys[j], keys[i]]; return saveFlow(keys); }
+      const fa = e.target.closest("[data-fxa]");
+      if (fa) {
+        const x = (svc.extras || []).find((y) => y.id === +fa.closest("[data-fx]").dataset.fx); if (!x) return;
+        if (fa.dataset.fxa === "edit") { edit = { ...x }; draw(); return $("#fxT", el)?.focus(); }
+        if (!confirm(`'${x.title}'을 이 예배 순서에서 지울까요? 이 순서에 쓴 필기도 함께 지워져요.`)) return;
+        const { error } = await sb.from("service_extras").delete().eq("id", x.id);
+        toast(error ? "지우지 못했어요" : "지웠어요"); return reload();
+      }
+      const b = e.target.closest("[data-fo]"); if (!b) return;
+      const a = b.dataset.fo;
+      if (a === "reset") { if (!confirm("기본 순서로 되돌릴까요?")) return; return saveFlow([]); }
+      if (a === "add") { edit = { title: "" }; draw(); return $("#fxT", el)?.focus(); }
+      if (a === "cancel") { edit = null; return draw(); }
+      if (a === "save") {
+        const title = $("#fxT", el).value.trim(), files = [...($("#fxF", el).files || [])];
+        if (!title) return toast("이름을 적어 주세요");
+        const bv = $("#fxB", el).value.trim(), bpm = bv ? +bv : null;
+        if (bv && !(Number.isInteger(bpm) && bpm >= 20 && bpm <= 320)) return toast("BPM은 20~320 사이 숫자로 적어 주세요");
+        const pdfs = files.filter((f) => f.type === "application/pdf"), pics = files.filter((f) => /^image\//.test(f.type));
+        if (pdfs.length > 1 || (pdfs.length && pics.length)) return toast("PDF 1개 또는 사진 여러 장을 골라 주세요");
+        if (pics.length > 12) return toast("사진은 12장까지예요");
+        b.disabled = true;
+        try {
+          const row = { title, key: $("#fxK", el).value.trim() || null, memo: $("#fxM", el).value.trim() || null, bpm, meter: bpm ? edit.meter || "4/4" : null };
+          if (pdfs.length) {
+            b.textContent = "올리는 중…";
+            let bytes = new Uint8Array(await pdfs[0].arrayBuffer());
+            const doc = await (await pdfjs()).getDocument({ data: bytes.slice() }).promise;
+            if (doc.numPages > 40) throw new Error("PDF는 40쪽까지예요");
+            if (bytes.length > LIMIT) { const small = await compressPdf(doc, bytes.length); if (small) bytes = small; }
+            const path = `extra/${svc.id}/${uuid()}.pdf`;
+            const { error } = await sb.storage.from("sheets").upload(path, bytes, { contentType: "application/pdf", upsert: false });
+            if (error) throw new Error("악보를 올리지 못했어요");
+            try { const c = await caches.open(CACHE); await c.put(ckey(path), new Response(bytes, { headers: { "Content-Type": "application/pdf" } })); } catch {}
+            Object.assign(row, { path, pages: doc.numPages, images: null });
+          } else if (pics.length) {
+            Object.assign(row, { images: await uploadImages(pics, `extra/${svc.id}/`, (n, t) => (b.textContent = `올리는 중 ${n}/${t}…`)), path: null, pages: null });
+          }
+          const { error } = edit.id ? await sb.from("service_extras").update(row).eq("id", edit.id) : await sb.from("service_extras").insert({ ...row, service_id: svc.id });
+          if (error) throw new Error(error.message || "저장하지 못했어요");
+          toast(edit.id ? "특별순서를 고쳤어요" : `'${title}'을 순서에 더했어요 · 축도송 앞에 넣었어요`, 3000);
+          edit = null; await reload();
+        } catch (err) { toast(err.message || "저장하지 못했어요", 4000); b.disabled = false; b.textContent = edit?.id ? "저장" : "더하기"; }
+      }
+    });
+    return el;
   }
   function lineupHTML(lu, meId) {
     const by = {}; lu.forEach((x) => (by[x.pos] = by[x.pos] || []).push(x));
@@ -556,131 +768,253 @@
   const procPages = (x, ctx) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? (isImg(x.path) ? [{ img: x.path }] : Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 }))) : [])
     .map((pg, k) => (x.id ? { ...pg, ink: { key: `p:${x.id}`, page: k + 1 },
       shared: ctx?.svc ? { sheet: `p:${x.id}`, page: k + 1, date: ctx.date, svc: ctx.svc, canEdit: !!ctx.canEdit, canEraseAll: !!ctx.canEraseAll, kind: "extra", name: x.title } : null } : pg));
-  function viewerItems(svc) {
+  // =================================================================== 029: 예배 순서 (예배마다 · 비우면 기본)
+  //  본 콘티 → 축복송 → 등단송(쓸 때) → 적용찬양(있을 때) → 백업찬양 → 성찬 1 · 2(성찬식 주일) → 봉헌송 → 축도송 · 특별순서는 축도송 앞에 더해져요
+  const FLOW_DEF = ["conti", "blessing", "entrance", "applied", "backup", "communion", "communion2", "offering", "benediction"];
+  const FLOW_NAME = { conti: "본 콘티", applied: "적용찬양", backup: "백업찬양" };
+  function flowNorm(stored, extraIds) {
+    const ids = new Set((extraIds || []).map(Number));
+    const f = (stored || []).filter((k, i, a) => a.indexOf(k) === i && (FLOW_DEF.includes(k) || (/^x:\d+$/.test(k) && ids.has(+k.slice(2)))));
+    FLOW_DEF.forEach((k, i) => {
+      if (f.includes(k)) return;
+      let at = 0; for (let j = i - 1; j >= 0; j--) { const p = f.indexOf(FLOW_DEF[j]); if (p >= 0) { at = p + 1; break; } }
+      f.splice(at, 0, k);
+    });
+    [...ids].forEach((id) => { if (!f.includes(`x:${id}`)) { const b = f.indexOf("benediction"); f.splice(b >= 0 ? b : f.length, 0, `x:${id}`); } });
+    return f;
+  }
+  const flowOf = (svc) => flowNorm(svc?.flow, (svc?.extras || []).map((x) => x.id));
+  // 순서 칸에 실제로 보일 것이 있는지 (등단송 끔 · 적용찬양 없음 · 성찬식 아님 · 진행곡 지움이면 빠짐)
+  function flowAvail(svc, k, bk) {
+    if (k === "conti") return true;
+    if (k === "applied") return !!svc.applied?.length;
+    if (k === "backup") return !!bk;
+    if (k.startsWith("x:")) return (svc.extras || []).some((x) => x.id === +k.slice(2));
+    if (k === "entrance" && !svc.entrance) return false;
+    return (svc.proc || []).some((x) => x.kind === k);
+  }
+  // 콘티를 올린 뒤에 순서를 바꿨으면 '순서 바뀜'
+  const flowChanged = (svc) => !!(svc?.flow_at && svc.setlist?.status === "published" && svc.setlist.published_at && svc.flow_at > svc.setlist.published_at);
+  // 레퍼런스: 메들리 첫 곡은 메들리 레퍼런스, 아니면 곡 레퍼런스
+  function refOf(items, i) {
+    const x = items[i]; if (!x || (i > 0 && x.join_prev)) return null;
+    if (x.medley_id && x.medley_ref?.[0]) return x.medley_ref;
+    if (x.refs?.[0]?.[0]) return x.refs[0];
+    if (items[i + 1]?.join_prev) { for (let k = i + 1; k < items.length && items[k].join_prev; k++) if (items[k].refs?.[0]?.[0]) return items[k].refs[0]; }
+    return null;
+  }
+  // 029: 특별순서 쪽 (PDF 또는 사진) — 내 메모 x:<id> · 공유 필기 x:<id>
+  const extraPages = (x, ctx) => (x.images?.length ? x.images.map((img) => ({ img })) : x.path ? Array.from({ length: x.pages || 1 }, (_, k) => ({ path: x.path, p: k + 1 })) : [])
+    .map((pg, k) => ({ ...pg, ink: { key: `x:${x.id}`, page: k + 1 },
+      shared: ctx?.svc ? { sheet: `x:${x.id}`, page: k + 1, date: ctx.date, svc: ctx.svc, canEdit: !!ctx.canEdit, canEraseAll: !!ctx.canEraseAll, kind: "extra", name: x.title } : null }));
+  //  bk = BACKUP.block(svc) — 백업찬양 칸 { items } (없으면 백업찬양 칸 없이)
+  function viewerItems(svc, bk = null) {
     const sl = svc.setlist, pub = sl?.status === "published";
     const leader = (svc.lineup || []).find((x) => x.pos === "leader")?.name || "";
     // 026: 메들리 — 뒤 곡은 '+' 칩. 뒤 곡에 악보가 없으면(합친 악보) 앞 칩 이름에 이어 붙임
     const src0 = pub || svc.can_edit ? sl?.items || [] : [];
-    const out = src0.map((x, i) => ({ id: `c:${i}`, tag: groupInfo(src0, i).join ? "+" : String(groupInfo(src0, i).n), join: groupInfo(src0, i).join, title: x.title, key: keyText(x) === "–" ? "" : keyText(x), ord: x.ord ?? i + 1, bpm: x.bpm, meter: x.meter, song: true,
+    const conti = src0.map((x, i) => ({ id: `c:${i}`, tag: groupInfo(src0, i).join ? "+" : String(groupInfo(src0, i).n), join: groupInfo(src0, i).join, title: x.title, key: keyText(x) === "–" ? "" : keyText(x), ord: x.ord ?? i + 1, bpm: x.bpm, meter: x.meter, song: true,
+      ref: refOf(src0, i),
       src: x.sheet_path ? Array.from({ length: x.sheet_pages || 1 }, (_, k) => ({ path: x.sheet_path, p: k + 1,
         // 내 메모: 원래 악보 기준 (필기본이 새로 생겨도 이어서 보여요)
         ink: x.sheet_id ? { key: `s:${x.sheet_base || x.sheet_id}`, page: k + 1, song: x.song_id } : null,
         // 025: 공유 필기 — 그 예배 날짜 기준
         shared: x.sheet_id ? { sheet: x.sheet_id, page: k + 1, date: svc.date, svc: svc.id, canEdit: !!svc.can_edit_sheets && pub, canEraseAll: !!svc.can_edit,
           kind: x.sheet_kind, name: x.sheet_name, defName: `${leader || "인도자"} ${x.key || ""}`.trim() } : null })) : [] }));
-    for (let k = out.length - 1; k > 0; k--) if (out[k].join && !out[k].src.length && out[k - 1].song) {
-      out[k - 1].title += ` + ${out[k].title}`; if (out[k].key) out[k - 1].key = [out[k - 1].key, out[k].key].filter(Boolean).join(" / "); out.splice(k, 1);
+    for (let k = conti.length - 1; k > 0; k--) if (conti[k].join && !conti[k].src.length && conti[k - 1].song) {
+      conti[k - 1].title += ` + ${conti[k].title}`; if (conti[k].key) conti[k - 1].key = [conti[k - 1].key, conti[k].key].filter(Boolean).join(" / "); conti.splice(k, 1);
     }
     // 027: 적용찬양 · 예배 진행곡도 악보 고치기 (권한 · 지우기는 콘티와 같아요) — 적용찬양은 그 예배 사진에만
     const ctx = { svc: svc.id, date: svc.date, canEdit: !!svc.can_edit_sheets, canEraseAll: !!svc.can_edit };
-    (svc.applied || []).forEach((x) => out.push({ id: `a:${x.id}`, tag: "적용", kind: "applied", title: x.title, key: x.key,
-      src: (x.images || []).map((img, k) => ({ img, ink: { key: `a:${x.id}`, page: k + 1, anorm: x.norm || null },
-        shared: { sheet: `a:${x.id}`, page: k + 1, date: svc.date, svc: svc.id, canEdit: ctx.canEdit, canEraseAll: ctx.canEraseAll, kind: "extra", name: x.title, anorm: x.norm || null } })) }));
-    const special = !!svc.ministry_id;
-    (svc.proc || []).filter((x) => x.kind !== "entrance" || special).sort((a, b) => PROC_ORDER.indexOf(a.kind) - PROC_ORDER.indexOf(b.kind))
-      .forEach((x) => out.push({ id: `p:${x.kind}`, tag: PROC[x.kind][1], kind: "proc", title: x.title, key: x.key, src: procPages(x, ctx) }));
+    const out = [];
+    for (const k of flowOf(svc)) {
+      if (!flowAvail(svc, k, bk)) continue;
+      if (k === "conti") out.push(...conti);
+      else if (k === "applied") (svc.applied || []).forEach((x) => out.push({ id: `a:${x.id}`, tag: "적용", kind: "applied", title: x.title, key: x.key, bpm: x.bpm, meter: x.meter, bt: `a:${x.id}`,
+        src: (x.images || []).map((img, j) => ({ img, ink: { key: `a:${x.id}`, page: j + 1, anorm: x.norm || null },
+          shared: { sheet: `a:${x.id}`, page: j + 1, date: svc.date, svc: svc.id, canEdit: ctx.canEdit, canEraseAll: ctx.canEraseAll, kind: "extra", name: x.title, anorm: x.norm || null } })) }));
+      else if (k === "backup") out.push(...bk.items);
+      else if (k.startsWith("x:")) { const x = svc.extras.find((y) => y.id === +k.slice(2)); out.push({ id: k, tag: "특별", kind: "extra", title: x.title, key: x.key, memo: x.memo, bpm: x.bpm, meter: x.meter, bt: k, src: extraPages(x, ctx) }); }
+      else { const x = svc.proc.find((y) => y.kind === k); out.push({ id: `p:${k}`, tag: PROC[k][1], kind: "proc", title: x.title, key: x.key, bpm: x.bpm, meter: x.meter, bt: `p:${x.id}`, src: procPages(x, ctx) }); }
+    }
     return out;
   }
-  async function openViewer(svc, { song = 0, at = null, single = null, items: given = null, title: givenTitle = null } = {}) {
+  async function openViewer(svc, { song = 0, at = null, single = null, items: given = null, title: givenTitle = null, follow = false } = {}) {
     // single: { title, path, pages } — 곡 상세에서 악보 하나만 볼 때 · items: 이미 만든 목록(백업찬양 등)
-    const items = given || (single ? [{ title: single.title, key: single.key, src: single.images ? single.images.map((img) => ({ img })) : Array.from({ length: single.pages || 1 }, (_, k) => ({ path: single.path, p: k + 1, ink: single.ink ? { ...single.ink, page: k + 1 } : null, shared: single.shared ? { ...single.shared, page: k + 1 } : null })) }] : viewerItems(svc));
-    const pages = [];
-    items.forEach((x, i) => {
-      if (x.src?.length) x.src.forEach((pg, k) => pages.push({ i, ...pg, n: k + 1, of: x.src.length }));
-      else pages.push({ i, path: null, n: 1, of: 1 });
-    });
+    // 029: 예배 순서대로 (백업찬양 후보도 이어서) — 후보가 바뀌면 바로 다시 만들고, 기도회가 시작되면 아래에 '기도회로 가기'
+    const merged = !single && !given && !!svc;
+    let BK = null;
+    if (merged && window.BACKUP?.block) { try { BK = await Promise.race([BACKUP.block(svc), new Promise((ok) => setTimeout(() => ok(null), 2500))]); } catch { BK = null; } }
+    const V = { cur: 0, token: 0, items: [], pages: [], follow: false };
+    const singleItems = () => [{ title: single.title, key: single.key, src: single.images ? single.images.map((img) => ({ img })) : Array.from({ length: single.pages || 1 }, (_, k) => ({ path: single.path, p: k + 1, ink: single.ink ? { ...single.ink, page: k + 1 } : null, shared: single.shared ? { ...single.shared, page: k + 1 } : null })) }];
     // 025: 새 악보로 저장 (필기본) — 이 콘티 곡의 악보를 바꾸고, 그 곡의 모든 쪽이 새 악보를 따라감
-    const forkItem = async (i, name) => {
-      const x = items[i];
+    const forkItem = async (id, name) => {
+      const x = V.items.find((y) => y.id === id); if (!x) throw new Error("곡을 찾을 수 없어요");
       const { data, error } = await sb.rpc("sheet_fork", { p_service: svc.id, p_ord: x.ord, p_name: name });
       if (error) throw new Error(error.message || "새 악보를 만들지 못했어요");
-      pages.filter((p) => p.i === i && p.shared).forEach((p) => Object.assign(p.shared, { sheet: data.sheet_id, kind: "sheet", name }));
       const it = svc.setlist?.items?.find((y) => (y.ord ?? 0) === x.ord); if (it) Object.assign(it, { sheet_id: data.sheet_id, sheet_kind: "sheet", sheet_name: name });
       if (svc.setlist) svc.setlist.version = data.version;
+      V.pages.filter((p) => V.items[p.i]?.id === id && p.shared).forEach((p) => Object.assign(p.shared, { sheet: data.sheet_id, kind: "sheet", name }));
       return data.sheet_id;
     };
-    pages.forEach((p) => { if (p.shared) p.shared.fork = (name) => forkItem(p.i, name); });
+    const build = () => {
+      V.items = given || (single ? singleItems() : viewerItems(svc, BK));
+      V.pages = [];
+      V.items.forEach((x, i) => {
+        if (x.src?.length) x.src.forEach((pg, k) => V.pages.push({ i, ...pg, n: k + 1, of: x.src.length }));
+        else V.pages.push({ i, path: null, n: 1, of: 1 });
+      });
+      V.pages.forEach((p) => { if (p.shared && V.items[p.i]?.song) p.shared.fork = (name) => forkItem(V.items[p.i].id, name); });
+    };
+    build();
     const title = givenTitle || (single ? single.title : `${md(svc.date)} ${svc.ministry_id ? svc.ministry_name || "사역" : "주일"} · 악보`);
     const contiItems = single || given ? [] : (svc.setlist?.items || []);
     const rt = rtOf(contiItems);
-    const backupLink = !single && !given && typeof CONTI.onBackup === "function";
     const hasBpm = !single && !given;
-    const first = at ? Math.max(0, items.findIndex((x) => x.id === at)) : song;
-    const V = { cur: Math.max(0, pages.findIndex((x) => x.i === first)), token: 0 };
+    const live = () => (BK?.live?.active ? BK.live : null);
+    const first = follow && live()?.now ? live().now : at;
+    const idx = first === "backup" ? V.items.findIndex((x) => x.kind === "backup") : first ? V.items.findIndex((x) => x.id === first) : song;
+    V.cur = Math.max(0, V.pages.findIndex((x) => x.i === Math.max(0, idx)));
+    V.follow = !!(follow && live());
+    const stripHTML = () => (single ? "" : V.items.map((x, i) => `<button type="button" data-cvv-song="${i}" class="${x.kind || ""}${x.draft ? " draft" : ""}"><i>${esc(x.tag || String(i + 1))}</i>${esc(x.title)}${x.key ? ` · ${esc(x.key)}` : ""}</button>`).join(""));
     const el = openLayer("cv-viewer", `<div class="cvv-top"><button type="button" class="cvv-back" data-cvv="close" aria-label="닫기">${ICO.back}</button>
-        <b class="cvv-title">${esc(title)}</b>${contiItems.length && svc.target_sec ? `<span class="cvv-rt">RT ${mmss(rt)} / ${mmss(svc.target_sec)}</span>` : ""}<span class="cvv-pg" id="cvvPg"></span>${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen cvv-fix hidden" data-iv="fix"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
-      <div class="cvv-strip">${hasBpm ? `<span class="cvv-bpmbox" id="cvvBpm"></span>` : ""}<div class="cvv-jump" role="tablist">${single ? "" : items.map((x, i) => `<button type="button" data-cvv-song="${i}" class="${x.kind || ""}"><i>${esc(x.tag || String(i + 1))}</i>${esc(x.title)}${x.key ? ` · ${esc(x.key)}` : ""}</button>`).join("")}${backupLink ? `<button type="button" class="go" data-cvv="backup">백업찬양 ›</button>` : ""}</div></div>
+        <b class="cvv-title">${esc(title)}</b>${contiItems.length && svc.target_sec ? `<span class="cvv-rt">RT ${mmss(rt)} / ${mmss(svc.target_sec)}</span>` : ""}<span class="cvv-pg" id="cvvPg"></span><a class="cvv-ref hidden" id="cvvRef" target="_blank" rel="noopener">${ICO.play}<span>레퍼런스</span></a>${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen cvv-fix hidden" data-iv="fix"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
+      <div class="cvv-strip">${hasBpm ? `<span class="cvv-bpmbox" id="cvvBpm"></span>` : ""}<div class="cvv-jump" role="tablist" id="cvvJump">${stripHTML()}</div></div>
       <div class="iv-host hidden" id="cvvInk"></div>
       <div class="cvv-stage" id="cvvStage"><canvas id="cvvCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="cvvBlank"></div>
         <button type="button" class="cvv-tap l" data-cvv="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-cvv="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="cvvLoad">불러오는 중…</div></div>
-      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.ink?.destroy(); V.ms?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); });
+      <div class="cvv-live hidden" id="cvvLive"></div>
+      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.unsub?.(); V.ink?.destroy(); V.ms?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); });
     wake(true);
     // 024: 내 메모 · 확대 (INK) — 밀어서 넘기기 · 크기 맞춤도 여기서
     if (window.INK) {
       V.ink = INK.view({ stage: $("#cvvStage", el), canvas: $("#cvvCanvas", el), root: el, bar: $("#cvvInk", el), onTurn: (d) => V.go?.(V.cur + d) });
-      V.ink.prefetch(pages.map((p) => p.ink?.key));
+      V.ink.prefetch(V.pages.map((p) => p.ink?.key));
     }
-    // 025: BPM (곡 칩 옆) · 메트로놈 점
-    const canBpm = hasBpm && !!svc?.can_edit_sheets && svc?.setlist?.status === "published";
-    // 027: 메트로놈 함께 맞추기 — 함께 켜져 있으면 적용찬양 · 예배 진행곡 쪽에서도 깜빡임은 계속
+    // 025: BPM (곡 칩 옆) · 메트로놈 점 — 029: 모든 순서에 (적용찬양 · 진행곡 · 백업찬양 · 특별순서)
+    const pub = svc?.setlist?.status === "published";
+    const canBpmOf = (x) => !!x && hasBpm && (x.song ? !!svc?.can_edit_sheets && pub : x.bt?.startsWith("b:") ? !!BK?.canBpm : !!x.bt && !!svc?.can_edit_sheets);
+    const bpmable = (x) => !!x && (x.song || !!x.bt);
+    // 027: 메트로놈 함께 맞추기 — 함께 켜져 있으면 다른 순서에서도 깜빡임은 계속
     V.ms = hasBpm ? metroSync(svc, () => drawBpm()) : null;
     const drawBpm = () => {
       const box = $("#cvvBpm", el); if (!box) return;
-      const x = items[pages[V.cur]?.i], ms = V.ms, sync = !!ms?.on, r = ms?.row;
-      if (!x?.song && !sync) { box.innerHTML = ""; box.classList.add("hidden"); METRO.set(0); return; }
+      const x = V.items[V.pages[V.cur]?.i], ms = V.ms, sync = !!ms?.on, r = ms?.row;
+      const own = bpmable(x) ? x : null, can = canBpmOf(own);
+      if (!own && !sync) { box.innerHTML = ""; box.classList.add("hidden"); METRO.set(0); return; }
       box.classList.remove("hidden");
-      const own = x?.song ? x : null;
       const dotHTML = `<button type="button" class="cvv-dot" data-cvv="metro"></button><button type="button" class="cvv-sub hidden" data-cvv="sub"></button><input type="range" class="cvv-vol hidden" min="0" max="100" aria-label="메트로놈 음량">`;
-      const bpmHTML = own?.bpm ? `<button type="button" class="cvv-bpm" data-cvv="bpm" ${canBpm ? "" : "disabled"} aria-label="BPM ${own.bpm}${canBpm ? " 고치기" : ""}"><b>♩=${own.bpm}</b>${own.meter && own.meter !== "4/4" ? `<small>${esc(own.meter)}</small>` : ""}</button>`
-        : own && canBpm ? `<button type="button" class="cvv-bpm none" data-cvv="bpm">BPM 입력</button>` : "";
+      const bpmHTML = own?.bpm ? `<button type="button" class="cvv-bpm" data-cvv="bpm" ${can ? "" : "disabled"} aria-label="BPM ${own.bpm}${can ? " 고치기" : ""}"><b>♩=${own.bpm}</b>${own.meter && own.meter !== "4/4" ? `<small>${esc(own.meter)}</small>` : ""}</button>`
+        : own && can ? `<button type="button" class="cvv-bpm none" data-cvv="bpm">BPM 입력</button>` : "";
       const syncHTML = sync
         ? (ms.can ? `<button type="button" class="cvv-sync on" data-cvv="sync" aria-pressed="true" title="함께 맞추기 끄기">${ICO.sync}<span>함께 ♩=${r.bpm}${r.meter !== "4/4" ? ` ${esc(r.meter)}` : ""}</span></button>`
                   : `<span class="cvv-synctag" title="${esc(r.by_name || "")}님이 켠 메트로놈">${ICO.sync}<span>함께 ♩=${r.bpm}${r.meter !== "4/4" ? ` ${esc(r.meter)}` : ""} · ${esc(r.by_name || "")}</span></span>`)
         : ms?.can && own?.bpm ? `<button type="button" class="cvv-sync" data-cvv="sync" aria-pressed="false" title="라인업 기기를 같은 박으로">${ICO.sync}<span>함께</span></button>` : "";
       box.innerHTML = `${bpmHTML}${sync || own?.bpm ? dotHTML : ""}${syncHTML}`;
+      if (!box.innerHTML) box.classList.add("hidden");
       const dot = box.querySelector(".cvv-dot"); if (dot) METRO.bind(dot);
       METRO.set(own?.bpm || 0, own?.meter);
-      if (sync && own) ms.follow(own);
+      if (sync && own?.bpm) ms.follow(own);
+    };
+    // 029: 기도회 막대 — 진행 중이면 아래에. 누르면 지금 곡으로 가고 따라감, 직접 넘기면 다시 자유롭게
+    const liveName = (ref) => { const x = V.items.find((y) => y.id === ref); if (x) return `${x.tag && x.kind === "backup" ? x.tag + " " : ""}${x.title}`; const k = String(ref || "").slice(2); return PROC[k]?.[0] || "준비 중"; };
+    const drawLive = () => {
+      const bar = $("#cvvLive", el), lv = live();
+      if (!lv) { bar.classList.add("hidden"); bar.innerHTML = ""; if (V.follow) V.follow = false; return; }
+      bar.classList.remove("hidden");
+      const lead = BK?.amLeader ? `<button type="button" class="cvv-lv-ctl" data-cvv="livectl">진행 화면</button>` : "";
+      bar.innerHTML = V.follow
+        ? `<span class="cvv-lv-on"><span class="bk-dot"></span>기도회 따라가는 중 · 지금 <b>${esc(liveName(lv.now))}</b></span><button type="button" class="cvv-lv-free" data-cvv="unfollow">그만 따라가기</button>${lead}`
+        : `<button type="button" class="cvv-lv-go" data-cvv="golive"><span class="bk-dot"></span><span>기도회로 가기 · 지금 곡: <b>${esc(liveName(lv.now))}</b></span></button>${lead}`;
     };
     const draw = async () => {
-      const pg = pages[V.cur]; if (!pg) return;
-      const t = ++V.token, x = items[pg.i];
-      $("#cvvPg", el).textContent = `${V.cur + 1} / ${pages.length}쪽`;
+      const pg = V.pages[V.cur]; if (!pg) return;
+      const t = ++V.token, x = V.items[pg.i];
+      $("#cvvPg", el).textContent = `${V.cur + 1} / ${V.pages.length}쪽`;
       el.querySelectorAll("[data-cvv-song]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.cvvSong === pg.i)));
       el.querySelector(`[data-cvv-song="${pg.i}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-      drawBpm();
-      const dots = pages.length <= 24 ? pages.map((_, k) => `<i class="${k === V.cur ? "cur" : k < V.cur ? "on" : ""}"></i>`).join("") : "";
+      const ref = $("#cvvRef", el);
+      if (x.ref?.[0]) { ref.href = ytLink(x.ref[0], x.ref[1]); ref.classList.remove("hidden"); ref.setAttribute("aria-label", `${x.title} 레퍼런스 (새 창)`); } else ref.classList.add("hidden");
+      drawBpm(); drawLive();
+      const dots = V.pages.length <= 24 ? V.pages.map((_, k) => `<i class="${k === V.cur ? "cur" : k < V.cur ? "on" : ""}"></i>`).join("") : "";
       $("#cvvDots", el).innerHTML = dots;
-      const nx = pages[V.cur + 1];
-      $("#cvvNext", el).textContent = nx ? `다음 쪽: ${items[nx.i].title}${nx.of > 1 ? ` ${nx.n}/${nx.of}` : ""}` : backupLink ? "마지막 쪽 · 다음은 백업찬양" : "마지막 쪽이에요";
+      const nx = V.pages[V.cur + 1];
+      $("#cvvNext", el).textContent = nx ? `다음 쪽: ${V.items[nx.i].title}${nx.of > 1 ? ` ${nx.n}/${nx.of}` : ""}` : "마지막 쪽이에요";
       const cv = $("#cvvCanvas", el), blank = $("#cvvBlank", el), load = $("#cvvLoad", el);
-      if (!pg.path && !pg.img) { V.ink?.clear(); cv.classList.add("hidden"); blank.classList.remove("hidden"); load.classList.add("hidden"); blank.innerHTML = `<b>${esc(x.title)}</b><span>${x.key ? esc(x.key) + " · " : ""}악보가 없는 곡이에요</span>`; return; }
+      if (!pg.path && !pg.img) {
+        V.ink?.clear(); cv.classList.add("hidden"); blank.classList.remove("hidden"); load.classList.add("hidden");
+        blank.innerHTML = x.kind === "backup" && !x.bt ? `<b>백업찬양</b><span>${esc(x.note || "")}</span>` : `<b>${esc(x.title)}</b><span>${x.key ? esc(x.key) + " · " : ""}${x.memo ? esc(x.memo) + " · " : ""}악보가 없어요</span>`;
+        return;
+      }
       blank.classList.add("hidden"); load.classList.remove("hidden");
       try {
         if (V.ink) { if (!(await V.ink.show(pg, () => t !== V.token))) return; }
         else await drawPageInto(cv, $("#cvvStage", el), pg, () => t !== V.token);
         if (t !== V.token) return;
         cv.classList.remove("hidden"); load.classList.add("hidden");
-        // 다음 쪽 미리 받아 둠
-        const n2 = pages[V.cur + 1]; if (n2?.path) sheetDoc(n2.path).catch(() => {}); if (n2?.img) sheetImage(n2.img).catch(() => {});
+        // 029: 앞뒤 쪽을 미리 받아 그려 둠
+        for (const n2 of [V.pages[V.cur + 1], V.pages[V.cur - 1]]) {
+          if (!n2) continue;
+          if (n2.path) sheetDoc(n2.path).catch(() => {}); if (n2.img) sheetImage(n2.img).catch(() => {});
+          V.ink?.warm?.(n2);
+        }
       } catch (err) { if (t === V.token) { load.textContent = err.message || "악보를 열지 못했어요"; } }
     };
-    const go = (k) => { const n = Math.max(0, Math.min(pages.length - 1, k)); if (n !== V.cur) { V.cur = n; draw(); } };
+    const go = (k, auto) => {
+      const n = Math.max(0, Math.min(V.pages.length - 1, k));
+      if (!auto && V.follow) { V.follow = false; drawLive(); }
+      if (n !== V.cur) { V.cur = n; draw(); }
+    };
+    const goItem = (id, auto) => { const i = V.items.findIndex((x) => x.id === id); if (i >= 0) go(V.pages.findIndex((p) => p.i === i), auto); };
+    // 다시 만들기: 지금 보던 곡 · 쪽 그대로
+    const rebuild = () => {
+      const pg = V.pages[V.cur], id = V.items[pg?.i]?.id, n = pg?.n || 1;
+      build();
+      $("#cvvJump", el).innerHTML = stripHTML();
+      let c = V.pages.findIndex((p) => V.items[p.i]?.id === id && p.n === n);
+      if (c < 0) c = V.pages.findIndex((p) => V.items[p.i]?.id === id);
+      V.cur = c >= 0 ? c : Math.min(V.cur, V.pages.length - 1);
+      V.ink?.prefetch(V.pages.map((p) => p.ink?.key));
+      draw();
+    };
+    // 백업찬양이 바뀌면 (후보 · 확정 · 기도회 시작 · 다음 곡 시작 · 끝)
+    if (merged && window.BACKUP?.onChange) V.unsub = BACKUP.onChange(() => {
+      const prev = BK?.live;
+      BK = BACKUP.blockNow(svc);
+      const lv = live();
+      if (!lv) V.follow = false;
+      rebuild();
+      if (lv && V.follow && lv.now && lv.now !== prev?.now) goItem(lv.now, true);
+      else if (lv && !prev?.active) drawLive();
+    });
+    const saveItemBpm = async (x, bpm, meter) => {
+      const sid = x.bt.startsWith("b:") ? BK?.svc : svc.id;
+      const { data, error } = await sb.rpc("set_item_bpm", { p_service: sid, p_target: x.bt, p_bpm: bpm, p_meter: meter });
+      if (error) throw new Error(error.message || "BPM을 저장하지 못했어요");
+      x.bpm = data.bpm; x.meter = data.meter;
+      const [t, v] = x.bt.split(":");
+      const src = t === "a" ? svc.applied?.find((y) => y.id === +v) : t === "x" ? svc.extras?.find((y) => y.id === +v) : t === "p" ? svc.proc?.find((y) => y.id === +v) : null;
+      if (src) { src.bpm = data.bpm; src.meter = data.meter; }
+      if (t === "b") window.BACKUP?.setBpm?.(v, data.bpm, data.meter);
+    };
     el.addEventListener("click", (e) => {
       const b = e.target.closest("[data-cvv]"); if (b) { const a = b.dataset.cvv; if (a === "close") return closeLayer(); if (a === "prev") return go(V.cur - 1); if (a === "next") return go(V.cur + 1);
-        if (a === "backup") { closeLayer(); return setTimeout(() => CONTI.onBackup?.(), 300); }
+        if (a === "golive") { const lv = live(); if (!lv) return; V.follow = true; drawLive(); if (lv.now) goItem(lv.now, true); return; }
+        if (a === "unfollow") { V.follow = false; return drawLive(); }
+        if (a === "livectl") { closeLayer(); return setTimeout(() => window.BACKUP?.openLive(), 300); }
         if (a === "sub") { const n = METRO.cycleSub(); toast(SUB_NAME[n] + (n > 1 ? " · 쪼갠 박은 작은 소리" : ""), 1600); return; }
         if (a === "metro") { const m = METRO.cycle(); toast(["메트로놈을 껐어요", "박자에 맞춰 깜빡여요", "소리도 나요 · 예배 중에는 이어폰으로 · 무음 모드면 안 들릴 수 있어요"][m] + (V.ms?.on && m === 0 ? " · 이 기기만 (함께 맞추기는 그대로)" : ""), m === 2 ? 4000 : 1800); return; }
         if (a === "sync" && V.ms?.can) {
-          const x = items[pages[V.cur].i]; b.disabled = true;
+          const x = V.items[V.pages[V.cur].i]; b.disabled = true;
           (V.ms.on ? V.ms.stop() : V.ms.start(x)).then((d) => toast(d.on ? "라인업 기기가 같은 박으로 깜빡여요 · 소리는 각자 켜요 · 내가 곡을 넘기면 그 곡 BPM으로 바뀌어요" : "함께 맞추기를 껐어요", d.on ? 4500 : 2000))
             .catch((err) => toast(err.message, 4000)).finally(() => { b.disabled = false; drawBpm(); });
           return;
         }
-        if (a === "bpm" && canBpm) { const x = items[pages[V.cur].i]; return bpmPop(b, x, async (bpm, meter) => { await saveBpm(svc, x.ord, bpm, meter); x.bpm = bpm; x.meter = bpm ? meter : null; drawBpm(); toast(bpm ? `${x.title} ${bpmText(bpm, meter)} · 팀 기준으로 저장했어요` : "BPM을 지웠어요"); }); }
+        if (a === "bpm") { const x = V.items[V.pages[V.cur].i]; if (!canBpmOf(x)) return;
+          return bpmPop(b, x, async (bpm, meter) => { if (x.song) { await saveBpm(svc, x.ord, bpm, meter); x.bpm = bpm; x.meter = bpm ? meter : null; } else await saveItemBpm(x, bpm, meter); drawBpm(); toast(bpm ? `${x.title} ${bpmText(bpm, meter)} · ${x.song ? "팀 기준으로 " : ""}저장했어요` : "BPM을 지웠어요"); }); }
         return; }
-      const s = e.target.closest("[data-cvv-song]"); if (s) go(pages.findIndex((p) => p.i === +s.dataset.cvvSong));
+      const s = e.target.closest("[data-cvv-song]"); if (s) go(V.pages.findIndex((p) => p.i === +s.dataset.cvvSong));
     });
     el.addEventListener("input", (e) => { if (e.target.matches(".cvv-vol")) METRO.volume(+e.target.value / 100); });
     // 밀어서 넘기기 (내 메모가 있으면 INK가 맡음)
@@ -692,7 +1026,8 @@
     const onKey = (e) => { if (!document.body.contains(el) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(V.cur + 1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); go(V.cur - 1); } };
     document.addEventListener("keydown", onKey);
     if (!V.ink) window.addEventListener("resize", () => { if (document.body.contains(el)) draw(); });
-    V.go = go; el._viewer = V;
+    V.go = go; V.goItem = goItem; V.rebuild = rebuild; el._viewer = V;
+    Object.defineProperty(V, "state", { get: () => ({ cur: V.cur, item: V.items[V.pages[V.cur]?.i]?.id || null, ids: V.items.map((x) => x.id), follow: V.follow, live: !!live(), now: live()?.now || null, pages: V.pages.length }) });
     draw();
     return el;
   }
@@ -1617,7 +1952,7 @@
             <td><span class="chip ${c}">${t}</span>${items.length ? ` <span class="small muted">${items.length}곡</span>` : ""}</td>
             <td class="small">${esc(dlText(s.deadline))}${s.setlist?.deadline ? ` <span class="chip chip-gray">바꿈</span>` : ""}</td>
             <td class="n small">${items.length ? mmss(rt) : "—"}${s.target_sec ? ` / ${mmss(s.target_sec)}` : ""}</td>
-            <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button><button type="button" class="btn btn-ghost btn-sm" data-ca="copy">카톡 복사</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button>${s.ministry_id ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-ca="communion" aria-pressed="${!!s.communion}">${s.communion ? "성찬식 빼기" : "성찬식 넣기"}</button>`}</td></tr>`; }).join("")
+            <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button><button type="button" class="btn btn-ghost btn-sm" data-ca="copy">카톡 복사</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="order">순서${s.extras?.length ? ` · 특별 ${s.extras.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button>${s.ministry_id ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-ca="communion" aria-pressed="${!!s.communion}">${s.communion ? "성찬식 빼기" : "성찬식 넣기"}</button>`}</td></tr>`; }).join("")
           || `<tr><td colspan="6" class="muted">앞으로 8주 안에 배치된 예배가 없어요.</td></tr>`}</tbody></table></div></section>
       <section class="panel" id="caSet"><h2>기본값 <small>예배마다 '마감 · 목표'로 따로 바꿀 수 있어요</small></h2>
         <div class="row"><span style="font-weight:700">주일 콘티 마감</span><select class="select" id="caDow" style="width:auto">${KDOW.map((w, i) => `<option value="${i}" ${C.deadline_dow === i ? "selected" : ""}>${w}요일</option>`).join("")}</select><select class="select" id="caHour" style="width:auto">${hours(C.deadline_hour)}</select></div>
@@ -1632,6 +1967,7 @@
         if (b.dataset.ca === "copy") return copyPop(s);
         if (b.dataset.ca === "edit") return openEditor(s.id, { after: () => mountAdmin(outer) });
         if (b.dataset.ca === "applied") return openApplied(s, { after: () => mountAdmin(outer) });
+        if (b.dataset.ca === "order") return openOrder(s, { after: () => mountAdmin(outer) });
         // 024: 이 주일 성찬식 켬 · 끔 (첫째 주는 자동으로 켜져 있어요) — 성찬 찬양 · 목표 RT가 따라감
         if (b.dataset.ca === "communion") {
           b.disabled = true;
@@ -1661,8 +1997,8 @@
     };
   }
 
-  window.CONTI = { mountWeek, mountAdmin, openEditor, openViewer, openApplied, songDetail, medleyDetail, contiText, loadOne, closeLayer, onBackup: null, METRO, bpmText, viewerItems,
+  window.CONTI = { mountWeek, mountAdmin, openEditor, openViewer, openApplied, openOrder, flowOf, flowNorm, songDetail, medleyDetail, contiText, loadOne, closeLayer, onBackup: null, METRO, bpmText, viewerItems,
     // 023: 백업찬양 · 예배 진행곡 화면이 함께 씀
-    lib: { openLayer, closeLayer, sheetBytes, sheetDoc, sheetImage, renderPage, drawPageInto, thumbOf, compressPdf, compressImage, uploadImages, pdfjs, pdflib, uuid, ICO, mb, isImg, procPages, PROC, PROC_ORDER, CACHE, ckey, isAdminPage, meApi, wake, fileOf, anorm },
+    lib: { openLayer, closeLayer, sheetBytes, sheetDoc, sheetImage, renderPage, drawPageInto, thumbOf, compressPdf, compressImage, uploadImages, pdfjs, pdflib, uuid, ICO, mb, isImg, procPages, extraPages, PROC, PROC_ORDER, CACHE, ckey, keepSheets, prefetchPaths, isAdminPage, meApi, wake, fileOf, anorm },
     _test: { suggestTags, setTag, parseMmss, mmss, looksSame } };
 })();

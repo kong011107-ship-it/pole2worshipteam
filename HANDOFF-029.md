@@ -1,0 +1,33 @@
+# HANDOFF 추가 — 029 (2026-10-25) · HANDOFF.md 10-13, HANDOFF-027 · 028 다음에 읽기
+
+## 10-16. 029 상태 (v29: 예배 순서 · 특별순서 · 백업찬양 이어 보기 · 모든 순서 BPM · 섬김이 링크)
+- v29-update.zip 전달: migration_028, 모든 HTML ?v=31, assets/conti.js · backup.js · ink.js · share.js · app.css, api/conti.js, share.html(supabase-js 추가), UPDATE-029. Vercel 함수 수 그대로(11/12).
+- 결정(사용자):
+  - 섬김이 링크: 곡마다 레퍼런스(메들리 = 메들리 레퍼런스, join 곡 없음, 적용찬양 · 백업 · 진행곡엔 없음) · 확대(두 손가락 · 두 번 톡 · Ctrl+휠) · 내 메모는 팀원과 같은 도구지만 **이 기기에만**(IndexedDB, 안 되면 localStorage) · 아이폰은 사파리/홈 화면 저장 따로(첫 사용 때 한 번 안내). 실시간 < 0.5초 = 링크마다 비밀 topic의 공개 Broadcast, 끊기면 폴링.
+  - 악보 로딩(팀원 · 링크 모두): 경로 기준 Cache Storage, 다가오는 예배 미리 받기(와이파이 = 그 주 전부, 아니면 보는 예배만), 앞뒤 쪽 미리 그리기, 350MB LRU.
+  - 예배 순서: 기본 conti → blessing → entrance(켠 예배) → applied(있을 때) → backup → communion · communion2(성찬 주일) → offering → benediction. 인도자 · 밴마 · 리더십이 팀원 화면 · 관리자 화면에서 끌어서 바꿈. 콘티 올린 뒤 바꾸면만 '순서 바뀜', 알림 없음.
+  - 특별순서: 이름 · 메모 · 키 · 악보(PDF/사진) · BPM, 내 메모 · 공유 필기, RT · 카톡 복사 제외. 새 항목 기본 위치 = 축도송 앞(내 결정).
+  - 등단송 쓰기 예배마다(사역 기본 켬 · 주일 기본 끔). 진행곡 '지우기' = 날짜부터 빠짐(기록 유지).
+  - 백업찬양을 악보 보기 순서 안에: 팀원 = 확정 후보(확정 전이면 '확정 전' 한 쪽), 인도자 = 고르는 중 후보도. 바로 반영, 자유 이동, 기도회 중 '기도회로 가기 · 지금 곡' 막대 → 따라가기, 직접 넘기면 풀림, 끝나면 막대 사라짐. '다음 곡'은 인도자 진행 화면에만. 링크도 같음.
+  - BPM · 메트로놈 모든 항목: 진행곡 = 곡마다, 적용찬양 = 그 예배 + 같은 이름이면 자동 채움, 백업 = 코드마다, 특별순서 = 항목마다. 권한 인도자 · 밴마 · 리더십 · 라인업 밴드(can_edit_sheets). '함께'도 모든 항목.
+- DB(migration_028, 재실행 안전):
+  - services.flow text[](flow_ok check) · flow_at · flow_by · entrance_on. has_entrance(svc)(null이면 사역 = 켬). set_flow(svc, flow)(can_edit_conti, x: id가 그 예배 것인지 확인, 빈 배열 = 기본) · set_entrance(svc, on).
+  - service_extras(service_id, ord, title, memo, key, path | images, pages, bpm, meter, updated_at) RLS 읽기 = 팀원 · 공개 예배, 쓰기 = can_edit_conti. Storage `extra/<sid>/<uuid>`(can_upload_object). ink_extra target · sheet_notes key에 `x:<id>` 추가, 삭제 · 파일 바뀜 → 필기 삭제(ink_extra_cleanup).
+  - worship_proc.removed · bpm · meter, proc_list는 removed 제외 + bpm. applied_songs.bpm · meter + applied_bpm_fill(before insert, 같은 norm의 최근 BPM). backup_bpm(code pk, bpm, meter, updated_by) 읽기 팀원. set_item_bpm(svc, 'a:|p:|x:|b:<code>', bpm, meter)(can_edit_sheets, b:는 backup_ctx_service일 때만).
+  - ink_put x: 지원. conti_one + entrance · entrance_set · flow · flow_at · flow_by · extras · applied bpm · medley_ref.
+  - share_links.live_topic(unique, token 바뀌면 새로). share_live_payload(l) · share_broadcast() 트리거: backup_live seq 바뀜 → 'live'(확정 전 후보는 안 보냄), setlists(published) · service_extras · applied_songs · services(flow, entrance_on) → 'reload'. realtime.send(payload, event, 'share-'||topic, false), to_regprocedure로 없으면 건너뜀, 꺼진 링크 제외.
+- API(api/conti.js): share = flow · entrance · flow_at · extras(+ink, 서명 주소) · applied id/bpm · proc bpm(removed 제외, 등단송은 켠 예배만) · refs · sheet.base · rt.topic. backupFor + service_id · date · book id · 곡 bpm. share-live ver에 flow_at · entrance_on · extras/applied updated_at.
+- 화면:
+  - conti.js: FLOW_DEF · flowNorm(없는 항목 빼고 새 항목 추가 — 새 특별순서는 축도송 앞) · viewerItems(순서대로, kind backup/extra/proc/applied, bt = BPM 대상) · openViewer(async, BACKUP.block 2.5초 기다림, 자리 유지 rebuild, BACKUP.onChange, #cvvLive 막대 golive/unfollow, follow 옵션, 직접 넘기면 follow 해제, #cvvRef, 모든 항목 drawBpm · saveItemBpm, 앞뒤 쪽 warm, V.state). flowCard(#cvFlow, 순서 바뀜 .cv-flowchg, 등단송 꺼짐은 고칠 수 있는 사람에게 흐리게). openOrder(fo-list, ↑↓, ≡ 끌기는 window pointer 이벤트, 기본 순서로, #foEnt, 특별순서 폼 #fxT/#fxK/#fxB/#fxM/#fxF). 관리자 콘티 표 data-ca=order. 악보 캐시 pole2.sheets.idx(350MB), prefetchWeek(와이파이 판별).
+  - backup.js: backup_bpm 로드, listeners/emit, 감시 3초(진행 중)/6초(듣는 화면)/15초, blockNow/block(svc)(b:<id>, draft 표시, 'bk:none' 자리), onChange, setBpm, prefetch, join()(인도자 → 진행 화면, 팀원 → 악보 보기 follow). 관리자 진행곡 '지우기'(prompt 날짜 → removed 행). 진행 화면 BPM + 메트로놈.
+  - ink.js: INK.setup({lib, local}) — local이면 서버 · 기록 없이 IndexedDB 'pole2-ink'/notes. pg.shared.static(링크용 고정 필기). 그린 쪽 캐시 6장 · view.warm(pg). '이 기기에만 저장돼요' + 아이폰 안내 한 번.
+  - share.js: 다시 씀 — 순서대로 serviceItems(백업 블록 · 특별순서), 예배 순서 카드, 레퍼런스(곡 줄 · #vRef), INK.view 확대 + 내 메모(키 s:<base> · a: · p: · x: · b:<code>+ver), 기도회 막대(팀원과 같음), supabase-js 채널(data.rt.topic: 'live' → applyLive, 'reload' → load), 확인 주기: 실시간 붙음 10초(기도회)/30초, 아니면 3초(기도회)/6초(악보 보는 중)/15초. 캐시 pole2.share.idx LRU, 미리 받기. window.__share = {S, applyLive, load, poll}.
+  - app.css 끝 '028 (v29)' 블록 + 휴대폰 곡 줄(레퍼런스 ▶만 · 곡 이름 두 줄).
+- 테스트(로컬 스택, dev/reset_stack.sh에 migration_028 · stack_extra.sql에 realtime.send 흉내 → realtime.sent 표):
+  - e2e_v29.py 148개: DB · API(순서 · 등단송 · 특별순서 · 지우기 · BPM 대상별 권한 · 자동 채움 · Broadcast 내용/확정 전 숨김/꺼진 링크/토큰 바꾸면 topic · share 응답) + 화면 A(순서 카드 · 편집 · 끌기 · 등단송 · 특별순서 PDF) B(악보 보기 순서 · 레퍼런스 · BPM · 백업 · 캐시) C(기도회 막대 · 따라가기 · 자유 · 후보 바뀜 · 함께 보기 · 끝 · 밴드 BPM) D(인도자 초안 vs 팀원 '확정 전') E(섬김이 링크: 순서 · 레퍼런스 · 확대 · 기기 메모 유지/다른 기기 없음/서버 안 감 · 캐시 · 폴링 따라가기 · Broadcast payload · 자유 · 끝 · 폰 폭) F(관리자 순서 버튼 · 진행곡 지우기 날짜 · 폰 순서 편집 · 폰 기도회 막대).
+  - h.py fix_lineup(q, sid): 날짜와 상관없이 다가오는 주일 라인업 고정(demo01 인도 · 06 밴마 · 08–10 밴드 등). e2e_v28도 이걸 써서 136/136 통과. e2e_v24–26은 이번엔 다시 안 돌림.
+- 남은 것 · 주의:
+  - 실제 Supabase에서 공개 Broadcast 체감(< 0.5초) 확인 필요 — 로컬은 realtime.send 흉내라 '보냈다'까지만 확인. Realtime 'Allow public access'가 꺼져 있으면 폴링(3초)으로.
+  - topic은 링크마다 비밀값이지만 공개 채널이라 topic을 아는 사람은 기도회 지금/다음 곡(확정 후보 id)만 볼 수 있음 — 링크 토큰과 같은 수준.
+  - 아이폰 '홈 화면에 추가' 앱은 사파리와 메모 · 캐시 저장소가 따로. Safari는 오래 안 연 사이트의 저장소를 지울 수 있어 링크 메모가 사라질 수 있음(화면 안내엔 아직 없음 — 필요하면 문구 추가).
+  - 순서는 예배마다(services.flow). 매주 같은 순서를 기본으로 바꾸려면 FLOW_DEF(conti.js · api/conti.js 둘 다)를 고쳐야 함.

@@ -10,6 +10,7 @@
 //  027: { action: "applied-notify", service_id } — 적용찬양을 처음 올린 사람이 부름 → 그 예배 라인업에 한 번만 (applied_meta.notified_at)
 //       { action: "backup-notify" }               — 백업찬양 후보를 확정 · 수정한 사람이 부름 → 그 예배 라인업에 pub_ver마다 한 번
 //       공유 링크: 적용찬양 · 예배 진행곡 · 백업찬양의 공유 필기(ink_extra)도 · 백업찬양 후보는 확정한 것만
+//  029: 공유 링크에 예배 순서(flow) · 특별순서 · 등단송 쓰기 · 모든 순서의 BPM · 레퍼런스(메들리는 메들리 것) · 실시간 채널(rt)
 import { adminClient, requireAdmin, requireMember, handler, HttpError } from "./_lib.js";
 import { settingOf, fill, deliverOnce, serviceName } from "./_notify.js";
 
@@ -179,9 +180,22 @@ const kstToday = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 
 const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const TOKEN = /^[A-Za-z0-9_-]{20,64}$/;
 const PROC_ORDER = ["blessing", "communion", "communion2", "offering", "benediction", "entrance"];
+// 029: 예배 순서 (화면 conti.js flowNorm과 같은 규칙)
+const FLOW_DEF = ["conti", "blessing", "entrance", "applied", "backup", "communion", "communion2", "offering", "benediction"];
+function flowNorm(stored, extraIds) {
+  const ids = new Set((extraIds || []).map(Number));
+  const f = (stored || []).filter((k, i, a) => a.indexOf(k) === i && (FLOW_DEF.includes(k) || (/^x:\d+$/.test(k) && ids.has(+k.slice(2)))));
+  FLOW_DEF.forEach((k, i) => {
+    if (f.includes(k)) return;
+    let at = 0; for (let j = i - 1; j >= 0; j--) { const p = f.indexOf(FLOW_DEF[j]); if (p >= 0) { at = p + 1; break; } }
+    f.splice(at, 0, k);
+  });
+  [...ids].forEach((id) => { if (!f.includes(`x:${id}`)) { const b = f.indexOf("benediction"); f.splice(b >= 0 ? b : f.length, 0, `x:${id}`); } });
+  return f;
+}
 async function linkOf(db, t) {
   if (!TOKEN.test(String(t || ""))) throw new HttpError(404, "링크를 찾을 수 없어요.");
-  const { data } = await db.from("share_links").select("id, label, active, last_seen_at").eq("token", t).maybeSingle();
+  const { data } = await db.from("share_links").select("id, label, active, last_seen_at, live_topic").eq("token", t).maybeSingle();
   if (!data || !data.active) throw new HttpError(404, "끊긴 링크예요. 리더십에게 새 링크를 받아 주세요.");
   if (!data.last_seen_at || Date.now() - Date.parse(data.last_seen_at) > 10 * 60e3) await db.from("share_links").update({ last_seen_at: new Date().toISOString() }).eq("id", data.id);
   return data;
@@ -197,54 +211,68 @@ async function signAll(db, paths) {
 async function share(db, body) {
   const link = await linkOf(db, body.t);
   const today = kstToday();
-  const { data: svs } = await db.from("services").select("id, service_date, ministry_id, label, start_time, end_time, communion, sort_order, ministries(name)")
+  const { data: svs } = await db.from("services").select("id, service_date, ministry_id, label, start_time, end_time, communion, entrance_on, flow, flow_at, sort_order, ministries(name)")
     .eq("status", "published").gte("service_date", today).lte("service_date", addDaysISO(today, 13))
     .order("service_date").order("start_time", { nullsFirst: true }).order("sort_order").limit(6);
   const ids = (svs || []).map((s) => s.id);
-  const [sls, aps, procs] = await Promise.all([
+  const [sls, aps, procs, exs] = await Promise.all([
     ids.length ? db.from("setlists").select("id, service_id, version, changes, sheet_changes, published_at, updated_at, status").in("service_id", ids).eq("status", "published") : { data: [] },
-    ids.length ? db.from("applied_songs").select("id, service_id, ord, title, key, note, images").in("service_id", ids).order("ord") : { data: [] },
-    db.from("worship_proc").select("id, kind, title, key, path, pages, images, start_date").order("start_date", { ascending: false }).order("id", { ascending: false }),
+    ids.length ? db.from("applied_songs").select("id, service_id, ord, title, key, note, images, bpm, meter").in("service_id", ids).order("ord") : { data: [] },
+    db.from("worship_proc").select("id, kind, title, key, path, pages, images, start_date, removed, bpm, meter").order("start_date", { ascending: false }).order("id", { ascending: false }),
+    ids.length ? db.from("service_extras").select("id, service_id, title, memo, key, path, pages, images, bpm, meter").in("service_id", ids).order("id") : { data: [] },
   ]);
   const slIds = (sls.data || []).map((x) => x.id);
-  const { data: items } = slIds.length ? await db.from("setlist_items").select("setlist_id, ord, key, bpm, meter, medley, diff_key, join_prev, memo, sheet_id, songs(title, team_bpm, team_meter), sheet_versions(id, path, pages)").in("setlist_id", slIds).order("ord") : { data: [] };
+  const { data: items } = slIds.length ? await db.from("setlist_items").select("setlist_id, ord, key, bpm, meter, medley, diff_key, join_prev, memo, refs, sheet_id, medley_id, songs(title, team_bpm, team_meter), sheet_versions(id, path, pages, base_id), medleys(ref_yt, ref_start)").in("setlist_id", slIds).order("ord") : { data: [] };
   const sheetIds = [...new Set((items || []).map((x) => x.sheet_id).filter(Boolean))];
   const { data: inks } = sheetIds.length ? await db.from("sheet_ink").select("sheet_id, page, stroke, valid_from, deleted_from").in("sheet_id", sheetIds).order("id") : { data: [] };
-  // 027: 적용찬양 · 예배 진행곡 공유 필기
-  const exTargets = [...(aps.data || []).map((a) => `a:${a.id}`), ...(procs.data || []).map((p) => `p:${p.id}`)];
+  // 027: 적용찬양 · 예배 진행곡 공유 필기 · 029: 특별순서
+  const exTargets = [...(aps.data || []).map((a) => `a:${a.id}`), ...(procs.data || []).map((p) => `p:${p.id}`), ...(exs.data || []).map((x) => `x:${x.id}`)];
   const { data: exInk } = exTargets.length ? await db.from("ink_extra").select("target, page, stroke, valid_from, deleted_from").in("target", exTargets).order("id") : { data: [] };
   const exFor = (target, date) => (exInk || []).filter((k) => k.target === target && k.valid_from <= date && (!k.deleted_from || k.deleted_from > date)).map((k) => ({ page: k.page, ...k.stroke }));
-  const procFor = (date, communion, special) => {
+  const procFor = (date, communion, entrance) => {
     const out = [];
     for (const k of PROC_ORDER) {
       if ((k === "communion" || k === "communion2") && !communion) continue;
-      if (k === "entrance" && !special) continue;
+      if (k === "entrance" && !entrance) continue;
       const x = (procs.data || []).find((p) => p.kind === k && p.start_date <= date);
-      if (x) out.push(x);
+      if (x && !x.removed) out.push(x);
     }
     return out;
   };
+  // 레퍼런스: 메들리 첫 곡은 메들리 레퍼런스, 아니면 곡 레퍼런스 (뒤 곡은 없음)
+  const refFor = (list, i) => {
+    const x = list[i]; if (i > 0 && x.join_prev) return null;
+    if (x.medley_id && x.medleys?.ref_yt) return [x.medleys.ref_yt, x.medleys.ref_start || 0];
+    for (let k = i; k < list.length && (k === i || list[k].join_prev); k++) if (list[k].refs?.[0]?.[0]) return [list[k].refs[0][0], list[k].refs[0][1] || 0];
+    return null;
+  };
   const list = (svs || []).map((s) => {
     const communion = !s.ministry_id && (s.communion ?? +s.service_date.slice(8, 10) <= 7);
+    const entrance = s.entrance_on ?? !!s.ministry_id;
     const sl = (sls.data || []).find((x) => x.service_id === s.id);
-    const its = sl ? (items || []).filter((x) => x.setlist_id === sl.id).map((x) => ({
+    const raw = sl ? (items || []).filter((x) => x.setlist_id === sl.id) : [];
+    const its = raw.map((x, i) => ({
       ord: x.ord, title: x.songs?.title || "", key: x.key, bpm: x.bpm ?? null, meter: x.meter || (x.bpm ? "4/4" : null), medley: x.medley, diff_key: !!x.diff_key, join_prev: !!x.join_prev, memo: x.memo,
-      sheet: x.sheet_versions ? { id: x.sheet_versions.id, path: fileOf(x.sheet_versions.path), pages: x.sheet_versions.pages,
+      ref: refFor(raw, i),
+      sheet: x.sheet_versions ? { id: x.sheet_versions.id, base: x.sheet_versions.base_id || x.sheet_versions.id, path: fileOf(x.sheet_versions.path), pages: x.sheet_versions.pages,
         ink: (inks || []).filter((k) => k.sheet_id === x.sheet_id && k.valid_from <= s.service_date && (!k.deleted_from || k.deleted_from > s.service_date)).map((k) => ({ page: k.page, ...k.stroke })) } : null,
-    })) : [];
+    }));
+    const extras = (exs.data || []).filter((x) => x.service_id === s.id);
     return {
-      id: s.id, date: s.service_date, title: s.ministry_id ? `${s.ministries?.name || "사역"}${s.label ? " · " + s.label : ""}` : "주일", ministry: !!s.ministry_id, start_time: s.start_time, communion,
+      id: s.id, date: s.service_date, title: s.ministry_id ? `${s.ministries?.name || "사역"}${s.label ? " · " + s.label : ""}` : "주일", ministry: !!s.ministry_id, start_time: s.start_time, communion, entrance,
+      flow: flowNorm(s.flow, extras.map((x) => x.id)), flow_at: s.flow_at,
       setlist: sl ? { version: sl.version, changes: sl.changes ? { text: sl.changes.text || [], at: sl.changes.at } : null, sheet_changes: sl.sheet_changes ? { at: sl.sheet_changes.at } : null, published_at: sl.published_at, updated_at: sl.updated_at, items: its } : null,
-      applied: (aps.data || []).filter((a) => a.service_id === s.id).map((a) => ({ title: a.title, key: a.key, note: a.note, images: a.images, ink: exFor(`a:${a.id}`, s.service_date) })),
-      proc: procFor(s.service_date, communion, !!s.ministry_id).map((p) => ({ kind: p.kind, title: p.title, key: p.key, path: p.path, pages: p.pages, images: p.images, ink: exFor(`p:${p.id}`, s.service_date) })),
+      applied: (aps.data || []).filter((a) => a.service_id === s.id).map((a) => ({ id: a.id, title: a.title, key: a.key, note: a.note, images: a.images, bpm: a.bpm, meter: a.meter, ink: exFor(`a:${a.id}`, s.service_date) })),
+      proc: procFor(s.service_date, communion, entrance).map((p) => ({ id: p.id, kind: p.kind, title: p.title, key: p.key, path: p.path, pages: p.pages, images: p.images, bpm: p.bpm, meter: p.meter, ink: exFor(`p:${p.id}`, s.service_date) })),
+      extras: extras.map((x) => ({ id: x.id, title: x.title, memo: x.memo, key: x.key, path: x.path, pages: x.pages, images: x.images, bpm: x.bpm, meter: x.meter, ink: exFor(`x:${x.id}`, s.service_date) })),
     };
   });
   const backup = await backupFor(db);
   const urls = await signAll(db, [
-    ...list.flatMap((s) => [...(s.setlist?.items || []).map((x) => x.sheet?.path), ...s.applied.flatMap((a) => a.images || []), ...s.proc.flatMap((p) => [p.path, ...(p.images || [])])]),
+    ...list.flatMap((s) => [...(s.setlist?.items || []).map((x) => x.sheet?.path), ...s.applied.flatMap((a) => a.images || []), ...s.proc.flatMap((p) => [p.path, ...(p.images || [])]), ...s.extras.flatMap((x) => [x.path, ...(x.images || [])])]),
     backup.book?.path, ...backup.songs.flatMap((x) => x.images || []),
   ]);
-  return { label: link.label, today, services: list, backup, urls };
+  return { label: link.label, today, services: list, backup, urls, rt: { topic: `share-${link.live_topic}` } };
 }
 // 027: 팀원에게 보이는 후보 = 기도회 중이면 지금 후보 · 아니면 확정한 후보(그 예배 다음 날까지)
 async function visibleCands(db, lv) {
@@ -269,18 +297,22 @@ async function backupFor(db) {
   if (lv?.service_id) { const { data: s } = await db.from("services").select("service_date").eq("id", lv.service_id).maybeSingle(); if (s && s.service_date >= addDaysISO(kstToday(), -1)) date = s.service_date; }
   const codes = [...new Set(list.map((x) => `b:${x.code}`))];
   const { data: ink } = codes.length ? await db.from("ink_extra").select("target, ver, page, stroke, valid_from, deleted_from").in("target", codes).order("id") : { data: [] };
+  const { data: bpms } = list.length ? await db.from("backup_bpm").select("code, bpm, meter").in("code", [...new Set(list.map((x) => x.code))]) : { data: [] };
+  list.forEach((x) => { const b = (bpms || []).find((y) => y.code === x.code); x.bpm = b?.bpm || null; x.meter = b?.meter || null; });
   list.forEach((x) => { const ver = x.book_id ? String(x.book_id) : `c${x.id}`;
     x.ink = (ink || []).filter((k) => k.target === `b:${x.code}` && k.ver === ver && k.valid_from <= date && (!k.deleted_from || k.deleted_from > date)).map((k) => ({ page: k.page, ...k.stroke })); });
   return { active: !!lv?.active, now: lv?.active ? lv.now_ref : null, next: lv?.active ? lv.next_ref : null, seq: lv?.seq || 0, candidates: cands,
-    book: bk ? { label: bk.label, path: bk.path, pages: bk.pages } : null, songs: list };
+    service_id: lv?.service_id || null, date, book: bk ? { id: bk.id, label: bk.label, path: bk.path, pages: bk.pages } : null, songs: list };
 }
 async function shareLive(db, body) {
   await linkOf(db, body.t);
   const today = kstToday();
   const [{ data: lv }, { data: svs }] = await Promise.all([
     db.from("backup_live").select("active, now_ref, next_ref, seq, candidates, pub_candidates, confirmed_at, service_id").eq("id", 1).maybeSingle(),
-    db.from("services").select("id, setlists(version, status, sheet_changes)").eq("status", "published").gte("service_date", today).lte("service_date", addDaysISO(today, 13)),
+    db.from("services").select("id, flow_at, entrance_on, setlists(version, status, sheet_changes), service_extras(id, updated_at), applied_songs(id, updated_at)").eq("status", "published").gte("service_date", today).lte("service_date", addDaysISO(today, 13)),
   ]);
-  const ver = (svs || []).map((s) => `${s.id}:${[].concat(s.setlists || []).filter((x) => x.status === "published").map((x) => `${x.version}${x.sheet_changes?.at || ""}`).join("")}`).sort().join(",");
-  return { active: !!lv?.active, now: lv?.active ? lv.now_ref : null, next: lv?.active ? lv.next_ref : null, seq: lv?.seq || 0, candidates: await visibleCands(db, lv), ver };
+  // 029: 순서 · 등단송 · 특별순서 · 적용찬양이 바뀌어도 다시 불러와요
+  const ver = (svs || []).map((s) => `${s.id}:${[].concat(s.setlists || []).filter((x) => x.status === "published").map((x) => `${x.version}${x.sheet_changes?.at || ""}`).join("")}`
+    + `:${s.flow_at || ""}:${s.entrance_on ?? ""}:${[].concat(s.service_extras || []).map((x) => `${x.id}${x.updated_at}`).sort().join("")}:${[].concat(s.applied_songs || []).map((x) => `${x.id}${x.updated_at}`).sort().join("")}`).sort().join(",");
+  return { active: !!lv?.active, now: lv?.active ? lv.now_ref : null, next: lv?.active ? lv.next_ref : null, seq: lv?.seq || 0, candidates: await visibleCands(db, lv), service_id: lv?.service_id || null, ver };
 }

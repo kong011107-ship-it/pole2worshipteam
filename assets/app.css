@@ -2075,3 +2075,63 @@ body.cv-open { overflow: hidden; }
 .cvv-dot.sync { box-shadow: 0 0 0 3px rgba(61,220,151,.28); }
 .cvv-bpmbox { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .cvv-bpmbox::-webkit-scrollbar { display: none; }
+
+/* =====================================================================
+   028 (v29): 예배 순서 · 특별순서 · 백업찬양 합치기 · 기도회로 가기 · 레퍼런스 · 섬김이 링크 메모
+   ===================================================================== */
+/* 악보 보기: 레퍼런스 (새 창) */
+.cvv-ref { flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid rgba(255,255,255,.25); color: #fff; font-size: 13px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.cvv-ref:hover { background: rgba(255,255,255,.08); }
+.cvv-ref.hidden { display: none; }
+/* 악보 보기: 순서 칩 */
+.cvv-jump button.backup i { color: #FFD27A; }
+.cvv-jump button.extra i { color: #F7A8D0; }
+.cvv-jump button.draft { border: 1px dashed rgba(255,210,122,.6); }
+/* 기도회로 가기 막대 */
+.cvv-live { display: flex; align-items: center; gap: 8px; margin: 8px 12px 0; padding: 6px; border-radius: 14px; background: rgba(255,210,122,.12); border: 1px solid rgba(255,210,122,.45); }
+.cvv-live.hidden { display: none; }
+.cvv-live .bk-dot { flex: none; }
+.cvv-lv-go { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: #FFD27A; color: #3A2600; font: inherit; font-size: 14px; font-weight: 800; text-align: left; cursor: pointer; }
+.cvv-lv-go span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cvv-lv-on { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: 13.5px; font-weight: 700; color: #FFE7B3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cvv-lv-free, .cvv-lv-ctl { flex: none; min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3); background: transparent; color: #fff; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.cvv-lv-ctl { background: rgba(255,255,255,.12); }
+@media (max-width: 520px) {
+  .cvv-top .cvv-ref span { display: none; }
+  .cvv-top .cvv-ref { padding: 0 10px; }
+  .cvv-lv-go { font-size: 13px; padding: 0 10px; }
+  .cvv-lv-free { padding: 0 10px; font-size: 12px; }
+}
+/* 예배 순서 카드 */
+.cv-flow { display: flex; flex-direction: column; }
+.cv-flow .cv-prow:first-child { border-top: 0; padding-top: 2px; }
+.cv-flowchg { margin-left: 6px; font-size: 11.5px; }
+/* 예배 순서 고치기 */
+.fo-list { display: flex; flex-direction: column; gap: 6px; }
+.fo-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--bg, #F7F3FC); border: 1px solid var(--line); user-select: none; }
+.fo-row.off { opacity: .55; }
+.fo-row.drag { box-shadow: 0 8px 22px rgba(65,10,133,.18); border-color: var(--violet); background: #fff; position: relative; z-index: 2; }
+.fo-grip { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; color: var(--muted); cursor: grab; touch-action: none; }
+.fo-grip:active { cursor: grabbing; }
+.fo-n { flex: none; width: 20px; text-align: center; font-weight: 800; color: var(--violet); font-size: 13px; }
+.fo-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.fo-t b { font-size: 15px; }
+.fo-t small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-mv { flex: none; display: flex; gap: 4px; }
+.fo-mv button { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); font-size: 15px; font-weight: 800; cursor: pointer; }
+.fo-mv button:disabled { opacity: .35; cursor: default; }
+.fx-form { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 520px) {
+  .fx-form .row { flex-wrap: wrap; }
+  .fx-form .row .field { flex: 1 1 40% !important; }
+}
+/* 백업찬양 진행 화면 BPM */
+.bk-bpm { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; color: var(--violet); }
+/* 029: 휴대폰 곡 순서 줄 — 레퍼런스는 ▶ 아이콘만, 곡 이름은 두 줄까지 */
+@media (max-width: 480px) {
+  .cv-srow { gap: 4px 6px; }
+  .cv-srow .cv-yt { font-size: 0; gap: 0; padding: 6px 8px; }
+  .cv-srow .cv-yt svg { width: 14px; height: 14px; }
+  .cv-st b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .cv-st small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}

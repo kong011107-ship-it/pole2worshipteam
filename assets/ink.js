@@ -16,7 +16,9 @@
 //  · 인터넷이 끊기면 이 기기에 먼저 저장하고, 연결되면 올림
 // =====================================================================
 (function () {
-  const L = () => CONTI.lib;
+  // 029: 섬김이 링크는 CONTI 없이 자기 악보 도구(lib)를 넘겨요
+  let LIB = null;
+  const L = () => LIB || CONTI.lib;
   const U = 10000, M = 0.5;
   const PENS = ["#1F1A2B", "#D93025", "#1F5C99", "#1F7A55", "#E8710A", "#6A2BC9", "#D63384", "#0F8FA8"];
   const PEN_NAMES = ["검정", "빨강", "파랑", "초록", "주황", "보라", "분홍", "청록"];
@@ -39,6 +41,7 @@
   const S = { uid: null, name: null, mem: new Map(), loaded: new Set(), timer: null, busy: false };
   const idOf = (key, page) => `${key}|${page}`;
   async function uid() {
+    if (S.local) { S.uid = "local"; return S.uid; }
     if (S.uid) return S.uid;
     try { const { data } = await sb.auth.getSession(); S.uid = data?.session?.user?.id || null; } catch {}
     if (S.uid && !S.name) sb.from("members").select("name").eq("id", S.uid).maybeSingle().then((r) => { S.name = r.data?.name || null; }, () => {});
@@ -54,6 +57,7 @@
   function cacheRead() { const c = ls.get(lsk("cache")) || {}; Object.entries(c).forEach(([k, v]) => { if (!S.mem.has(k)) S.mem.set(k, v); }); }
   async function load(keys) {
     await uid();
+    if (S.local) return localReady();
     keys = [...new Set(keys.filter(Boolean))].filter((k) => !S.loaded.has(k));
     if (!keys.length) return;
     cacheRead();
@@ -71,12 +75,14 @@
     const id = idOf(ink.key, ink.page);
     const v = { key: ink.key, page: ink.page, strokes, ver: ink.ver || null, song: ink.song || null, at: Date.now() };
     S.mem.set(id, v);
+    if (S.local) return localPut(id, v);
     const p = pendingAll(); p[id] = v; ls.set(lsk("pending"), p);
     cacheWrite();
     clearTimeout(S.timer); S.timer = setTimeout(flush, 900);
   }
   async function flush() {
     clearTimeout(S.timer);
+    if (S.local) return;
     if (S.busy) { S.timer = setTimeout(flush, 600); return; }
     const me = await uid(); if (!me) return;
     await flushShared();
@@ -95,6 +101,35 @@
   }
   window.addEventListener("online", () => flush());
   const pendingCount = () => Object.keys(pendingAll()).length + shPending().length;
+
+  // ------------------------------------------------------------------ 029: 이 기기에만 저장 (섬김이 링크 · 로그인 없음)
+  //  IndexedDB 'pole2-ink' (안 되면 localStorage). 링크마다 따로: id = '<링크>|<악보 key>|<쪽>'
+  let localLoad = null;
+  const idb = () => new Promise((ok, no) => { try { const r = indexedDB.open("pole2-ink", 1); r.onupgradeneeded = () => r.result.createObjectStore("notes"); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } });
+  function localReady() {
+    if (localLoad) return localLoad;
+    const pre = `${S.local}|`;
+    localLoad = (async () => {
+      try {
+        const db = await idb();
+        const rows = await new Promise((ok, no) => { const out = []; const q = db.transaction("notes").objectStore("notes").openCursor(); q.onsuccess = () => { const c = q.result; if (!c) return ok(out); if (String(c.key).startsWith(pre)) out.push([String(c.key).slice(pre.length), c.value]); c.continue(); }; q.onerror = () => no(q.error); });
+        rows.forEach(([id, v]) => S.mem.set(id, v)); S.idb = db;
+      } catch {
+        const all = ls.get(`pole2.ink.local.${S.local}`) || {};
+        Object.entries(all).forEach(([id, v]) => S.mem.set(id, v));
+      }
+    })();
+    return localLoad;
+  }
+  function localPut(id, v) {
+    const key = `${S.local}|${id}`;
+    if (S.idb) {
+      try { const st = S.idb.transaction("notes", "readwrite").objectStore("notes"); if (v.strokes?.length) st.put(v, key); else st.delete(key); return; } catch {}
+    }
+    const all = ls.get(`pole2.ink.local.${S.local}`) || {};
+    if (v.strokes?.length) all[id] = v; else delete all[id];
+    try { localStorage.setItem(`pole2.ink.local.${S.local}`, JSON.stringify(all)); } catch { toast("이 기기 저장 공간이 모자라 메모를 저장하지 못했어요", 4000); }
+  }
 
   // ------------------------------------------------------------------ 저장소: 공유 필기 (악보마다 획 한 줄씩)
   //  행: { cid, page, stroke, author, author_name, valid_from, deleted_from, id }
@@ -292,8 +327,19 @@
     const doc = await L().sheetDoc(pg.path), page = await doc.getPage(pg.p), v1 = page.getViewport({ scale: 1 });
     return { A: v1.height / v1.width, doc, maxW: 1e9 };
   }
+  // 029: 앞뒤 쪽을 미리 그려 둔 그림 (최근 6장)
+  const RC = new Map();
+  const targetW = (meta, wpx) => Math.max(100, Math.round(Math.min(wpx, meta.maxW, Math.sqrt(MAXPX / meta.A))));
+  const rcKey = (pg, w) => `${pg.img || pg.path}|${pg.p || 0}|${w}`;
+  function rcPut(k, cv) { RC.delete(k); RC.set(k, cv); while (RC.size > 6) RC.delete(RC.keys().next().value); }
+  async function paintCached(pg, meta, wpx) {
+    const w = targetW(meta, wpx), k = rcKey(pg, w);
+    if (RC.has(k)) { const cv = RC.get(k); RC.delete(k); RC.set(k, cv); return { cv, w, hit: true }; }
+    const cv = document.createElement("canvas"); await paintPage(cv, pg, meta, wpx); rcPut(k, cv);
+    return { cv, w, hit: false };
+  }
   async function paintPage(cv, pg, meta, wpx) {
-    const w = Math.max(100, Math.round(Math.min(wpx, meta.maxW, Math.sqrt(MAXPX / meta.A))));
+    const w = targetW(meta, wpx);
     if (meta.im) {
       cv.width = w; cv.height = Math.round(w * meta.A);
       const g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(meta.im, 0, 0, cv.width, cv.height);
@@ -388,7 +434,7 @@
     }
     function refreshShared() {
       if (!V.sh) return;
-      V.shared = shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver);
+      V.shared = V.sh.static || shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver);
       if (V.shared.length && V.shHist) { V.shHist = null; renderHint(); }
       compose();
     }
@@ -435,7 +481,7 @@
         ${sh ? `<button type="button" data-iv="who" aria-pressed="${pref.who}">고친 사람 보기</button>${V.sh?.kind === "extra" ? "" : `<button type="button" data-iv="fork">새 악보로 저장</button>`}${V.sh?.canEraseAll ? `<button type="button" data-iv="wipe">전부 지우기</button>` : ""}` : ""}
         <button type="button" data-iv="finger" aria-pressed="${pref.finger}" title="애플펜슬이 없으면 켜요">손가락으로 쓰기</button>
         <span class="iv-sp"></span>
-        ${sh ? `<span class="iv-me sh">모두에게 보여요 · 알림 없음</span>` : note ? `<span class="chip ${V.oldVer ? "chip-warn" : "chip-gray"}">${note}</span>` : `<span class="iv-me">나만 보여요</span>`}</div>
+        ${sh ? `<span class="iv-me sh">모두에게 보여요 · 알림 없음</span>` : note ? `<span class="chip ${V.oldVer ? "chip-warn" : "chip-gray"}">${note}</span>` : S.local ? `<span class="iv-me" title="아이폰 · 아이패드는 사파리와 홈 화면 앱이 따로 저장해요">이 기기에만 저장돼요</span>` : `<span class="iv-me">나만 보여요</span>`}</div>
         <button type="button" class="iv-pg" data-iv="prevpg" aria-label="이전 쪽">‹</button><button type="button" class="iv-pg" data-iv="nextpg" aria-label="다음 쪽">›</button>
         <button type="button" class="iv-done" data-iv="done">완료</button></div>`;
     }
@@ -460,6 +506,7 @@
       const was = V.pen && V.layer;
       V.pen = !!on; V.layer = layer;
       if (V.pen && layer === "memo" && pref.hide) { pref.hide = false; savePref(); }
+      if (V.pen && layer === "memo" && S.local && !ls.get("pole2.ink.localtip")) { ls.set("pole2.ink.localtip", 1); toast("메모는 이 기기 · 이 브라우저에만 저장돼요. 아이폰 · 아이패드는 사파리와 홈 화면 앱이 따로 저장하니 한쪽에서만 써 주세요", 6000); }
       if (V.pen && layer === "shared") {
         V.forkAsk = V.sh?.kind === "original";
         if (V.forkAsk) V.forkName = V.sh.defName || "";
@@ -484,25 +531,25 @@
       V.forkAsk = V.pen && V.layer === "shared" && V.sh?.kind === "original";
       if (V.forkAsk) V.forkName = V.sh.defName || "";
       await uid();
-      await Promise.all([V.ink ? load([V.ink.key]) : null, V.sh ? shLoad([V.sh.sheet]).catch(() => {}) : null]);
+      await Promise.all([V.ink ? load([V.ink.key]) : null, V.sh && !V.sh.static ? shLoad([V.sh.sheet]).catch(() => {}) : null]);
       const meta = await pageMeta(pg);
       if (t !== V.token || stale()) return false;
       V.meta = meta; V.A = meta.A;
       const n = V.ink ? S.mem.get(idOf(V.ink.key, V.ink.page)) : null;
       V.strokes = n?.strokes ? n.strokes.slice() : [];
-      V.shared = V.sh ? shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver) : [];
+      V.shared = V.sh ? (V.sh.static || shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver)) : [];
       V.oldVer = !!(V.ink?.ver && n?.ver && n.ver !== V.ink.ver && V.strokes.length);
       // 처음 볼 때: 쪽(+ 여백 메모)에 맞춤
       const b = contentBox(), k = fitK(b);
-      const base = document.createElement("canvas");
-      V.rendered = await paintPage(base, pg, meta, Math.max(k, kPage()) * dpr());
+      const { cv: base, w: rw } = await paintCached(pg, meta, Math.max(k, kPage()) * dpr());
+      V.rendered = rw;
       if (t !== V.token || stale()) return false;
       V.base = base; compose();
       canvas.classList.remove("hidden"); ink.classList.remove("hidden"); tapeCv.classList.remove("hidden");
       fit(); renderBar();
       renderHint();
-      if (V.sh && !V.shared.length && V.sh.kind === "extra" && /^[ab]:/.test(V.sh.sheet)) checkShHistory(t);
-      if (V.ink && ((V.ink.song && V.ink.key.startsWith("s:")) || (V.ink.anorm && V.ink.key.startsWith("a:")))) checkHistory(t);
+      if (!S.local && V.sh && !V.shared.length && V.sh.kind === "extra" && /^[ab]:/.test(V.sh.sheet)) checkShHistory(t);
+      if (!S.local && V.ink && ((V.ink.song && V.ink.key.startsWith("s:")) || (V.ink.anorm && V.ink.key.startsWith("a:")))) checkHistory(t);
       return true;
     }
     function clear() {
@@ -815,15 +862,20 @@
     // 다른 사람이 고친 공유 필기 따라오기 (악보 고치는 중 4초 · 볼 때 16초)
     let tick = 0;
     const poll = setInterval(async () => {
-      if (V.dead || !V.sh || document.hidden) return;
+      if (V.dead || !V.sh || V.sh.static || document.hidden) return;
       tick++; if (!shared() && tick % 4) return;
       if (SH.busy || shPending().some((o) => o.sheet === V.sh.sheet)) return;
       const sheet = V.sh.sheet;
       if (await shLoad([sheet], true).catch(() => false) && V.sh?.sheet === sheet && !V.cur) refreshShared();
     }, 4000);
     renderBar();
+    // 029: 다음 · 이전 쪽을 지금 화면 크기로 미리 그려 둠 (넘길 때 바로)
+    async function warm(pg) {
+      if (!pg || (!pg.path && !pg.img) || V.dead) return;
+      try { const meta = await pageMeta(pg); const k = Math.min(SW(), SH_() / meta.A); if (k > 0) await paintCached(pg, meta, k * dpr()); } catch {}
+    }
     const api = {
-      show, clear, fit, setPen, sync: renderBar, refreshShared, prefetch: (keys) => load(keys).catch(() => {}),
+      show, clear, fit, setPen, warm, sync: renderBar, refreshShared, prefetch: (keys) => load(keys).catch(() => {}),
       flush: () => { endStroke(); save(); return flush(); },
       destroy() { endStroke(); save(); flush(); V.dead = true; clearInterval(poll); views.delete(api); window.removeEventListener("resize", onResize); ro?.disconnect(); },
       get state() { return { k: V.k, kFit: V.meta ? fitK(contentBox()) : 0, kPage: V.meta ? kPage() : 0, pen: V.pen, layer: V.layer, strokes: V.strokes.length, shared: V.shared.length,
@@ -838,6 +890,8 @@
 
   // 공유 필기를 악보 쪽 캔버스에 그려 넣기 (초안 PDF · 공유 링크)
   async function sharedFor(sheets, date) { await uid(); await shLoad(sheets, true); return (sheet, page) => shVisible(sheet, page, date); }
-  window.INK = { view, flush, load, PENS, HIS, _S: S, _SH: SH, ICON_PEN, paintOnPage, paintTape, sharedFor, U };
+  // 029: 섬김이 링크 — 메모는 이 기기에만 (링크마다), 악보 도구는 링크 화면 것으로
+  function setup({ lib, local } = {}) { if (lib) LIB = lib; if (local) { S.local = String(local); S.uid = "local"; } }
+  window.INK = { view, flush, load, setup, PENS, HIS, _S: S, _SH: SH, _RC: RC, ICON_PEN, paintOnPage, paintTape, sharedFor, U };
   flush();
 })();
