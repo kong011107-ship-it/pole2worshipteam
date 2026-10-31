@@ -6,6 +6,8 @@
 //  악보 파일: Storage 'sheets' 버킷 (sheets/곡/uuid.pdf · originals/곡/uuid.pdf) — 한 번 연 파일은 이 기기에 저장
 // =====================================================================
 (function () {
+  // 030: v30 화면 스타일 (악보 보기 두 쪽 · 세로 · 곡 칸 파일 추가 · 파트 악보 · 리더십 화면 태블릿) — 따로 한 파일
+  if (!document.querySelector('link[href*="v30.css"]')) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "assets/v30.css?v=32"; document.head.appendChild(l); }
   // ------------------------------------------------------------------ 라이브러리 (필요할 때만)
   const LIB = {
     pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
@@ -432,6 +434,76 @@
     }
     return out;
   }
+  // 030: 고른 파일(PDF 1개 또는 사진 여러 장) → PDF 하나 (사진은 한 장 = 한 쪽) · 5MB가 넘는 PDF는 줄여서
+  async function filesToPdf(fileList) {
+    const files = [...(fileList || [])];
+    const pdfs = files.filter((f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "")), pics = files.filter((f) => /^image\//.test(f.type || ""));
+    if (!files.length) throw new Error("파일을 골라 주세요");
+    if (pdfs.length + pics.length !== files.length) throw new Error("PDF나 사진만 올릴 수 있어요");
+    if (pdfs.length > 1 || (pdfs.length && pics.length)) throw new Error("PDF 1개 또는 사진 여러 장을 골라 주세요");
+    if (pics.length > 12) throw new Error("사진은 12장까지예요");
+    const open = async (b) => (await pdfjs()).getDocument({ data: b.slice() }).promise;
+    let bytes, doc;
+    if (pdfs.length) {
+      bytes = new Uint8Array(await pdfs[0].arrayBuffer());
+      doc = await open(bytes);
+      if (doc.numPages > 40) throw new Error("PDF는 40쪽까지예요");
+      if (bytes.length > LIMIT) { const small = await compressPdf(doc, bytes.length); if (small) { bytes = small; doc = await open(bytes); } }
+    } else {
+      const PL = await pdflib(), out = await PL.PDFDocument.create();
+      for (const f of pics) {
+        const { bytes: jb } = await compressImage(f, 2400);
+        const jpg = await out.embedJpg(jb), w = 595.28, h = (w * jpg.height) / jpg.width;
+        out.addPage([w, h]).drawImage(jpg, { x: 0, y: 0, width: w, height: h });
+      }
+      bytes = await out.save(); doc = await open(bytes);
+    }
+    return { bytes, doc, pages: doc.numPages, thumb: await thumbOf(doc) };
+  }
+  // 올리고 이 기기에도 저장 (다음에 열 때 바로)
+  async function putFile(path, bytes) {
+    const { error } = await sb.storage.from("sheets").upload(path, bytes, { contentType: "application/pdf", upsert: false });
+    if (error) throw new Error("악보 파일을 올리지 못했어요. 인터넷 연결을 확인해 주세요.");
+    try { const c = await caches.open(CACHE); await c.put(ckey(path), new Response(bytes, { headers: { "Content-Type": "application/pdf" } })); touch(path, bytes.length); } catch {}
+  }
+  // 030: 파트 악보 (일렉 · 드럼 …) — 같은 포지션끼리 보고, 그 포지션 팀원 · 리더십이 올려요
+  const PART_NAME = { leader: "인도자", singer: "싱어", key_main: "메인건반", key_second: "세컨건반", e_guitar: "일렉", acoustic: "어쿠스틱", bass: "베이스", drum: "드럼" };
+  const partName = (p) => PART_NAME[p] || p;
+  const PARTS = {
+    mine: null, myName: null,
+    async my() {
+      if (this.mine) return this.mine;
+      const { data, error } = await sb.rpc("my_parts");
+      this.mine = error ? [] : data || [];
+      return this.mine;
+    },
+    async name() {
+      if (this.myName != null) return this.myName;
+      try { const { data: { session } } = await sb.auth.getSession(); const r = await sb.from("members").select("name").eq("id", session?.user?.id).maybeSingle(); this.myName = r.data?.name || ""; } catch { this.myName = ""; }
+      return this.myName;
+    },
+    async list(songIds) {
+      if (!songIds.length) return [];
+      const { data, error } = await sb.from("part_sheets").select("id, song_id, part, name, key, pages, path, thumb, by_name, created_by, created_at").in("song_id", songIds).order("created_at", { ascending: false });
+      return error ? [] : data || [];
+    },
+    async picks(sid) { const { data, error } = await sb.from("part_picks").select("song_id, part_sheet_id").eq("service_id", sid); return error ? [] : data || []; },
+    pick(sid, song, id) { return sb.from("part_picks").upsert({ service_id: sid, song_id: song, part_sheet_id: id, updated_at: new Date().toISOString() }, { onConflict: "member_id,service_id,song_id" }); },
+    // 파일 → 파트 악보 하나 (이름은 물어봐요)
+    async upload(songId, part, key, files, defName) {
+      const name = prompt(`${partName(part)} 악보 이름 (같은 포지션 팀원에게 이 이름으로 보여요)`, defName);
+      if (name === null) return null;
+      toast("파트 악보를 올리는 중…", 15000);
+      const f = await filesToPdf(files);
+      const path = `parts/${songId}/${uuid()}.pdf`;
+      await putFile(path, f.bytes);
+      const { data, error } = await sb.from("part_sheets").insert({ song_id: songId, part, name: (name.trim() || defName).slice(0, 60), key: key || null, pages: f.pages, path, size_bytes: f.bytes.length, thumb: f.thumb })
+        .select("id, song_id, part, name, key, pages, path, thumb, by_name, created_by, created_at").single();
+      document.querySelectorAll(".toast").forEach((t) => t.remove());
+      if (error) throw new Error(error.message || "파트 악보를 저장하지 못했어요");
+      return data;
+    },
+  };
   async function sheetDoc(path) {
     path = fileOf(path);
     if (!docs.has(path)) docs.set(path, (async () => (await pdfjs()).getDocument({ data: (await sheetBytes(path)).slice() }).promise)().catch((e) => { docs.delete(path); throw e; }));
@@ -813,13 +885,15 @@
     const leader = (svc.lineup || []).find((x) => x.pos === "leader")?.name || "";
     // 026: 메들리 — 뒤 곡은 '+' 칩. 뒤 곡에 악보가 없으면(합친 악보) 앞 칩 이름에 이어 붙임
     const src0 = pub || svc.can_edit ? sl?.items || [] : [];
-    const conti = src0.map((x, i) => ({ id: `c:${i}`, tag: groupInfo(src0, i).join ? "+" : String(groupInfo(src0, i).n), join: groupInfo(src0, i).join, title: x.title, key: keyText(x) === "–" ? "" : keyText(x), ord: x.ord ?? i + 1, bpm: x.bpm, meter: x.meter, song: true,
+    // 030: 확정 전(임시 저장)에도 콘티를 고칠 수 있는 사람(인도자 · 밴드 마스터 · 리더십)은 악보 고치기
+    const fixOK = !!svc.can_edit || (!!svc.can_edit_sheets && pub);
+    const conti = src0.map((x, i) => ({ id: `c:${i}`, tag: groupInfo(src0, i).join ? "+" : String(groupInfo(src0, i).n), join: groupInfo(src0, i).join, title: x.title, key: keyText(x) === "–" ? "" : keyText(x), ord: x.ord ?? i + 1, bpm: x.bpm, meter: x.meter, song: true, song_id: x.song_id, rawKey: x.key || "",
       ref: refOf(src0, i),
       src: x.sheet_path ? Array.from({ length: x.sheet_pages || 1 }, (_, k) => ({ path: x.sheet_path, p: k + 1,
         // 내 메모: 원래 악보 기준 (필기본이 새로 생겨도 이어서 보여요)
         ink: x.sheet_id ? { key: `s:${x.sheet_base || x.sheet_id}`, page: k + 1, song: x.song_id } : null,
         // 025: 공유 필기 — 그 예배 날짜 기준
-        shared: x.sheet_id ? { sheet: x.sheet_id, page: k + 1, date: svc.date, svc: svc.id, canEdit: !!svc.can_edit_sheets && pub, canEraseAll: !!svc.can_edit,
+        shared: x.sheet_id ? { sheet: x.sheet_id, page: k + 1, date: svc.date, svc: svc.id, canEdit: fixOK, canEraseAll: !!svc.can_edit,
           kind: x.sheet_kind, name: x.sheet_name, defName: `${leader || "인도자"} ${x.key || ""}`.trim() } : null })) : [] }));
     for (let k = conti.length - 1; k > 0; k--) if (conti[k].join && !conti[k].src.length && conti[k - 1].song) {
       conti[k - 1].title += ` + ${conti[k].title}`; if (conti[k].key) conti[k - 1].key = [conti[k - 1].key, conti[k].key].filter(Boolean).join(" / "); conti.splice(k, 1);
@@ -839,13 +913,20 @@
     }
     return out;
   }
-  async function openViewer(svc, { song = 0, at = null, single = null, items: given = null, title: givenTitle = null, follow = false } = {}) {
+  // 030: startFix = 열자마자 '악보 고치기' 켜기 (곡 칸에서 파일로 더한 악보) · noFork = '새 악보로 저장' 없이 (콘티 쓰기의 통합본 보기)
+  //      보기 방식 한 쪽 · 두 쪽 · 세로 (이 기기에 기억) · 파트 악보(일렉 · 드럼 …) — 공용 먼저, 위쪽 단추로 바꿔요
+  const VIEW_K = "pole2.view.mode", VIEW_NAME = { one: "한 쪽", two: "두 쪽", scroll: "세로" };
+  async function openViewer(svc, { song = 0, at = null, single = null, items: given = null, title: givenTitle = null, follow = false, startFix = false, noFork = false } = {}) {
     // single: { title, path, pages } — 곡 상세에서 악보 하나만 볼 때 · items: 이미 만든 목록(백업찬양 등)
     // 029: 예배 순서대로 (백업찬양 후보도 이어서) — 후보가 바뀌면 바로 다시 만들고, 기도회가 시작되면 아래에 '기도회로 가기'
     const merged = !single && !given && !!svc;
     let BK = null;
     if (merged && window.BACKUP?.block) { try { BK = await Promise.race([BACKUP.block(svc), new Promise((ok) => setTimeout(() => ok(null), 2500))]); } catch { BK = null; } }
-    const V = { cur: 0, token: 0, items: [], pages: [], follow: false };
+    const V = { cur: 0, token: 0, items: [], pages: [], follow: false, mode: ["one", "two", "scroll"].includes(ls.get(VIEW_K)) ? ls.get(VIEW_K) : "one", temp: false,
+      parts: [], alt: {}, picks: {}, myParts: [], partsOn: false };
+    // 파트 악보 쪽 — 내 메모 t:<id> · 공유 필기 t:<id> (그 포지션 팀원 · 리더십이 고쳐요, 그 예배 날짜 기준)
+    const partPages = (ps) => Array.from({ length: ps.pages || 1 }, (_, k) => ({ path: ps.path, p: k + 1, ink: { key: `t:${ps.id}`, page: k + 1 },
+      shared: svc?.id ? { sheet: `t:${ps.id}`, page: k + 1, date: svc.date, svc: svc.id, canEdit: true, canEraseAll: true, kind: "extra", name: ps.name } : null }));
     const singleItems = () => [{ title: single.title, key: single.key, src: single.images ? single.images.map((img) => ({ img })) : Array.from({ length: single.pages || 1 }, (_, k) => ({ path: single.path, p: k + 1, ink: single.ink ? { ...single.ink, page: k + 1 } : null, shared: single.shared ? { ...single.shared, page: k + 1 } : null })) }];
     // 025: 새 악보로 저장 (필기본) — 이 콘티 곡의 악보를 바꾸고, 그 곡의 모든 쪽이 새 악보를 따라감
     const forkItem = async (id, name) => {
@@ -859,12 +940,21 @@
     };
     const build = () => {
       V.items = given || (single ? singleItems() : viewerItems(svc, BK));
+      // 030: 파트 악보로 바꾼 곡은 그 악보 쪽으로
+      V.items.forEach((x) => {
+        const ps = x.song && V.alt[x.id] ? V.parts.find((q) => q.id === V.alt[x.id]) : null;
+        if (ps) { x.common = x.src; x.src = partPages(ps); x.part = ps; }
+      });
       V.pages = [];
       V.items.forEach((x, i) => {
         if (x.src?.length) x.src.forEach((pg, k) => V.pages.push({ i, ...pg, n: k + 1, of: x.src.length }));
         else V.pages.push({ i, path: null, n: 1, of: 1 });
       });
-      V.pages.forEach((p) => { if (p.shared && V.items[p.i]?.song) p.shared.fork = (name) => forkItem(V.items[p.i].id, name); });
+      V.pages.forEach((p) => {
+        if (!p.shared || !V.items[p.i]?.song || V.items[p.i].part) return;
+        if (noFork) { if (p.shared.kind === "original") p.shared.canEdit = false; }
+        else p.shared.fork = (name) => forkItem(V.items[p.i].id, name);
+      });
     };
     build();
     const title = givenTitle || (single ? single.title : `${md(svc.date)} ${svc.ministry_id ? svc.ministry_name || "사역" : "주일"} · 악보`);
@@ -878,20 +968,28 @@
     V.follow = !!(follow && live());
     const stripHTML = () => (single ? "" : V.items.map((x, i) => `<button type="button" data-cvv-song="${i}" class="${x.kind || ""}${x.draft ? " draft" : ""}"><i>${esc(x.tag || String(i + 1))}</i>${esc(x.title)}${x.key ? ` · ${esc(x.key)}` : ""}</button>`).join(""));
     const el = openLayer("cv-viewer", `<div class="cvv-top"><button type="button" class="cvv-back" data-cvv="close" aria-label="닫기">${ICO.back}</button>
-        <b class="cvv-title">${esc(title)}</b>${contiItems.length && svc.target_sec ? `<span class="cvv-rt">RT ${mmss(rt)} / ${mmss(svc.target_sec)}</span>` : ""}<span class="cvv-pg" id="cvvPg"></span><a class="cvv-ref hidden" id="cvvRef" target="_blank" rel="noopener">${ICO.play}<span>레퍼런스</span></a>${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen cvv-fix hidden" data-iv="fix"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
-      <div class="cvv-strip">${hasBpm ? `<span class="cvv-bpmbox" id="cvvBpm"></span>` : ""}<div class="cvv-jump" role="tablist" id="cvvJump">${stripHTML()}</div></div>
+        <b class="cvv-title">${esc(title)}</b>${contiItems.length && svc.target_sec ? `<span class="cvv-rt">RT ${mmss(rt)} / ${mmss(svc.target_sec)}</span>` : ""}<span class="cvv-pg" id="cvvPg"></span><a class="cvv-ref hidden" id="cvvRef" target="_blank" rel="noopener">${ICO.play}<span>레퍼런스</span></a>${window.INK?.multi ? `<span class="cvv-modes" role="group" aria-label="보기 방식">${Object.entries(VIEW_NAME).map(([k, n]) => `<button type="button" data-cvv-mode="${k}" aria-pressed="${V.mode === k}">${n}</button>`).join("")}</span><button type="button" class="cvv-pen cvv-back2 hidden" data-cvv="unone"></button>` : ""}${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen cvv-fix hidden" data-iv="fix"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
+      <div class="cvv-strip">${hasBpm ? `<span class="cvv-bpmbox" id="cvvBpm"></span>` : ""}<button type="button" class="cvv-part hidden" id="cvvPart" data-cvv="part" aria-haspopup="menu"></button><div class="cvv-jump" role="tablist" id="cvvJump">${stripHTML()}</div></div>
       <div class="iv-host hidden" id="cvvInk"></div>
       <div class="cvv-stage" id="cvvStage"><canvas id="cvvCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="cvvBlank"></div>
         <button type="button" class="cvv-tap l" data-cvv="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-cvv="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="cvvLoad">불러오는 중…</div></div>
       <div class="cvv-live hidden" id="cvvLive"></div>
-      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.unsub?.(); V.ink?.destroy(); V.ms?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); });
+      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.unsub?.(); V.ink?.destroy(); V.ml?.destroy(); V.ms?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); document.querySelector(".pt-pop")?.remove(); });
     wake(true);
     // 024: 내 메모 · 확대 (INK) — 밀어서 넘기기 · 크기 맞춤도 여기서
     if (window.INK) {
-      V.ink = INK.view({ stage: $("#cvvStage", el), canvas: $("#cvvCanvas", el), root: el, bar: $("#cvvInk", el), onTurn: (d) => V.go?.(V.cur + d) });
+      V.ink = INK.view({ stage: $("#cvvStage", el), canvas: $("#cvvCanvas", el), root: el, bar: $("#cvvInk", el), onTurn: (d) => V.turn?.(d),
+        // 030: 두 쪽 · 세로 보기에서 펜을 켜면 그 쪽을 한 쪽 보기로 잠깐 바꾸고, '완료'를 누르면 돌아가요
+        onPen: (on) => { if (on && V.mode !== "one" && !V.temp) { V.temp = true; applyMode(true); } else if (!on && V.temp && V.penTemp) { V.temp = false; applyMode(); } V.penTemp = on && V.temp; } });
       V.ink.prefetch(V.pages.map((p) => p.ink?.key));
     }
+    // 030: 두 쪽 · 세로
+    V.ml = window.INK?.multi ? INK.multi({ stage: $("#cvvStage", el),
+      onPage: (k) => { if (k !== V.cur) { V.cur = k; drawMeta(); syncInk(); } },
+      onTurn: (d) => V.turn?.(d),
+      onOpen: (k) => { V.temp = true; V.penTemp = false; V.cur = k; applyMode(); } }) : null;
+    const multiOn = () => !!V.ml && V.mode !== "one" && !V.temp;
     // 025: BPM (곡 칩 옆) · 메트로놈 점 — 029: 모든 순서에 (적용찬양 · 진행곡 · 백업찬양 · 특별순서)
     const pub = svc?.setlist?.status === "published";
     const canBpmOf = (x) => !!x && hasBpm && (x.song ? !!svc?.can_edit_sheets && pub : x.bt?.startsWith("b:") ? !!BK?.canBpm : !!x.bt && !!svc?.can_edit_sheets);
@@ -928,19 +1026,35 @@
         ? `<span class="cvv-lv-on"><span class="bk-dot"></span>기도회 따라가는 중 · 지금 <b>${esc(liveName(lv.now))}</b></span><button type="button" class="cvv-lv-free" data-cvv="unfollow">그만 따라가기</button>${lead}`
         : `<button type="button" class="cvv-lv-go" data-cvv="golive"><span class="bk-dot"></span><span>기도회로 가기 · 지금 곡: <b>${esc(liveName(lv.now))}</b></span></button>${lead}`;
     };
-    const draw = async () => {
+    // 030: 쪽 표시 · 곡 칩 · BPM · 기도회 막대 · 파트 단추 (그림은 따로)
+    const drawMeta = () => {
       const pg = V.pages[V.cur]; if (!pg) return;
-      const t = ++V.token, x = V.items[pg.i];
-      $("#cvvPg", el).textContent = `${V.cur + 1} / ${V.pages.length}쪽`;
+      const x = V.items[pg.i];
+      const two = multiOn() && V.mode === "two" ? V.ml.partner(V.cur) : null;
+      $("#cvvPg", el).textContent = two != null ? `${V.cur + 1}–${two + 1} / ${V.pages.length}쪽` : `${V.cur + 1} / ${V.pages.length}쪽`;
       el.querySelectorAll("[data-cvv-song]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.cvvSong === pg.i)));
       el.querySelector(`[data-cvv-song="${pg.i}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
       const ref = $("#cvvRef", el);
       if (x.ref?.[0]) { ref.href = ytLink(x.ref[0], x.ref[1]); ref.classList.remove("hidden"); ref.setAttribute("aria-label", `${x.title} 레퍼런스 (새 창)`); } else ref.classList.add("hidden");
-      drawBpm(); drawLive();
-      const dots = V.pages.length <= 24 ? V.pages.map((_, k) => `<i class="${k === V.cur ? "cur" : k < V.cur ? "on" : ""}"></i>`).join("") : "";
+      drawBpm(); drawLive(); drawPart();
+      const dots = V.pages.length <= 24 ? V.pages.map((_, k) => `<i class="${k === V.cur || k === two ? "cur" : k < V.cur ? "on" : ""}"></i>`).join("") : "";
       $("#cvvDots", el).innerHTML = dots;
-      const nx = V.pages[V.cur + 1];
+      const nx = V.pages[(two ?? V.cur) + 1];
       $("#cvvNext", el).textContent = nx ? `다음 쪽: ${V.items[nx.i].title}${nx.of > 1 ? ` ${nx.n}/${nx.of}` : ""}` : "마지막 쪽이에요";
+      const back = el.querySelector("[data-cvv=unone]");
+      if (back) { back.classList.toggle("hidden", !(V.temp && V.mode !== "one" && !V.penTemp)); back.textContent = `${VIEW_NAME[V.mode]} 보기로`; }
+    };
+    // 두 쪽 · 세로일 때도 아래 한 쪽 무대는 지금 쪽을 들고 있어요 (메모 · 악보 고치기 단추가 그 쪽 기준)
+    const syncInk = () => {
+      clearTimeout(V.syncT);
+      V.syncT = setTimeout(() => { const pg = V.pages[V.cur]; if (!pg || !V.ink) return; if (pg.path || pg.img) Promise.resolve(V.ink.show(pg, () => false)).catch(() => {}); else V.ink.clear(); }, 250);
+    };
+    const draw = async () => {
+      if (multiOn() && V.mode === "two") V.cur = V.ml.start(V.cur);
+      const pg = V.pages[V.cur]; if (!pg) return;
+      const t = ++V.token, x = V.items[pg.i];
+      drawMeta();
+      if (multiOn()) { V.ml.go(V.cur); syncInk(); return; }
       const cv = $("#cvvCanvas", el), blank = $("#cvvBlank", el), load = $("#cvvLoad", el);
       if (!pg.path && !pg.img) {
         V.ink?.clear(); cv.classList.add("hidden"); blank.classList.remove("hidden"); load.classList.add("hidden");
@@ -962,11 +1076,23 @@
       } catch (err) { if (t === V.token) { load.textContent = err.message || "악보를 열지 못했어요"; } }
     };
     const go = (k, auto) => {
-      const n = Math.max(0, Math.min(V.pages.length - 1, k));
+      let n = Math.max(0, Math.min(V.pages.length - 1, k));
+      if (multiOn() && V.mode === "two") n = V.ml.start(n);
       if (!auto && V.follow) { V.follow = false; drawLive(); }
       if (n !== V.cur) { V.cur = n; draw(); }
     };
+    // 030: 넘기기 — 두 쪽이면 짝 단위로
+    const turn = (d) => (multiOn() && V.mode === "two" ? go(d > 0 ? V.ml.next(V.cur) : V.ml.prev(V.cur)) : go(V.cur + d));
     const goItem = (id, auto) => { const i = V.items.findIndex((x) => x.id === id); if (i >= 0) go(V.pages.findIndex((p) => p.i === i), auto); };
+    // 030: 보기 방식 바꾸기 (skipDraw = 펜을 켜서 한 쪽으로 잠깐 바꿀 때 — 아래 무대가 이미 그 쪽을 들고 있어요)
+    const applyMode = (skipDraw) => {
+      el.querySelectorAll("[data-cvv-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cvvMode === V.mode)));
+      el.classList.toggle("cvv-multi", multiOn());
+      if (multiOn()) { if (V.mode === "two") V.cur = V.ml.start(V.cur); V.ml.show(V.mode, V.pages, V.items, V.cur); }
+      else V.ml?.hide();
+      if (skipDraw) return drawMeta();
+      V.token++; draw();
+    };
     // 다시 만들기: 지금 보던 곡 · 쪽 그대로
     const rebuild = () => {
       const pg = V.pages[V.cur], id = V.items[pg?.i]?.id, n = pg?.n || 1;
@@ -976,6 +1102,7 @@
       if (c < 0) c = V.pages.findIndex((p) => V.items[p.i]?.id === id);
       V.cur = c >= 0 ? c : Math.min(V.cur, V.pages.length - 1);
       V.ink?.prefetch(V.pages.map((p) => p.ink?.key));
+      if (multiOn()) { if (V.mode === "two") V.cur = V.ml.start(V.cur); V.ml.show(V.mode, V.pages, V.items, V.cur); }
       draw();
     };
     // 백업찬양이 바뀌면 (후보 · 확정 · 기도회 시작 · 다음 곡 시작 · 끝)
@@ -999,7 +1126,11 @@
       if (t === "b") window.BACKUP?.setBpm?.(v, data.bpm, data.meter);
     };
     el.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-cvv]"); if (b) { const a = b.dataset.cvv; if (a === "close") return closeLayer(); if (a === "prev") return go(V.cur - 1); if (a === "next") return go(V.cur + 1);
+      const mb2 = e.target.closest("[data-cvv-mode]");
+      if (mb2) { const m = mb2.dataset.cvvMode; if (m === V.mode && !V.temp) return; if (V.ink?.state?.pen) V.ink.setPen(false); V.mode = m; V.temp = false; V.penTemp = false; ls.set(VIEW_K, m); applyMode(); return toast(`${VIEW_NAME[m]} 보기${m === "two" ? " · 곡 안에서 1·2쪽, 3·4쪽씩" : m === "scroll" ? " · 위아래로 밀어서 봐요" : ""}`, 1800); }
+      const b = e.target.closest("[data-cvv]"); if (b) { const a = b.dataset.cvv; if (a === "close") return closeLayer(); if (a === "prev") return turn(-1); if (a === "next") return turn(1);
+        if (a === "unone") { if (V.ink?.state?.pen) V.ink.setPen(false); V.temp = false; V.penTemp = false; return applyMode(); }
+        if (a === "part") return partMenu(b);
         if (a === "golive") { const lv = live(); if (!lv) return; V.follow = true; drawLive(); if (lv.now) goItem(lv.now, true); return; }
         if (a === "unfollow") { V.follow = false; return drawLive(); }
         if (a === "livectl") { closeLayer(); return setTimeout(() => window.BACKUP?.openLive(), 300); }
@@ -1023,12 +1154,86 @@
       $("#cvvStage", el).addEventListener("pointerdown", (e) => { sx = e.clientX; sy = e.clientY; });
       $("#cvvStage", el).addEventListener("pointerup", (e) => { if (sx === null) return; const dx = e.clientX - sx, dy = e.clientY - sy; sx = null; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(V.cur + (dx < 0 ? 1 : -1)); });
     }
-    const onKey = (e) => { if (!document.body.contains(el) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(V.cur + 1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); go(V.cur - 1); } };
+    const onKey = (e) => { if (!document.body.contains(el) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); turn(1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); turn(-1); } };
     document.addEventListener("keydown", onKey);
     if (!V.ink) window.addEventListener("resize", () => { if (document.body.contains(el)) draw(); });
-    V.go = go; V.goItem = goItem; V.rebuild = rebuild; el._viewer = V;
-    Object.defineProperty(V, "state", { get: () => ({ cur: V.cur, item: V.items[V.pages[V.cur]?.i]?.id || null, ids: V.items.map((x) => x.id), follow: V.follow, live: !!live(), now: live()?.now || null, pages: V.pages.length }) });
-    draw();
+
+    // ---------------------------------------------------------------- 030: 파트 악보 (일렉 · 드럼 …)
+    //  공용 악보가 먼저 · 위쪽 단추로 '공용 | 내 파트'를 바꿔요 · 고른 파트 악보는 예배마다 기억 · 없으면 여기서 바로 올려요
+    const partsFor = (x) => (x?.song_id ? V.parts.filter((q) => q.song_id === x.song_id && V.myParts.includes(q.part)) : []);
+    function drawPart() {
+      const b = $("#cvvPart", el); if (!b) return;
+      const x = V.items[V.pages[V.cur]?.i];
+      const show = V.partsOn && x?.song && (partsFor(x).length || V.myParts.length);
+      b.classList.toggle("hidden", !show);
+      if (!show) return;
+      const list = partsFor(x);
+      b.classList.toggle("on", !!x.part);
+      b.innerHTML = x.part ? `<b>${esc(partName(x.part.part))}</b><span>파트 악보 ▾</span>` : list.length ? `<b>공용</b><span>${esc([...new Set(list.map((q) => partName(q.part)))].join(" · "))} 있음 ▾</span>` : `<span>+ 내 파트 악보</span>`;
+      b.setAttribute("aria-label", x.part ? `${partName(x.part.part)} 파트 악보 보는 중 · 바꾸기` : "악보 바꾸기 · 파트 악보");
+    }
+    const setAlt = (x, id, quiet) => {
+      if (id) V.alt[x.id] = id; else delete V.alt[x.id];
+      if (id && svc?.id) { V.picks[x.song_id] = id; PARTS.pick(svc.id, x.song_id, id).then(() => {}, () => {}); }
+      rebuild();
+      if (!quiet) toast(id ? `${partName(V.parts.find((q) => q.id === id)?.part)} 파트 악보로 봐요 · 위 단추로 공용으로 돌아가요` : "공용 악보로 봐요", 2200);
+    };
+    function partMenu(btn) {
+      document.querySelector(".pt-pop")?.remove();
+      const x = V.items[V.pages[V.cur]?.i]; if (!x?.song) return;
+      const pk = V.picks[x.song_id];   // 이 예배에서 지난번에 고른 파트 악보가 맨 위
+      const list = partsFor(x).sort((a, b) => (b.id === pk) - (a.id === pk));
+      const pop = document.createElement("div"); pop.className = "pt-pop"; pop.setAttribute("role", "menu");
+      pop.innerHTML = `<button type="button" role="menuitemradio" data-pt="common" aria-checked="${!x.part}"><b>공용 악보</b><span>콘티에 올라온 악보</span><i>${x.part ? "" : "✓"}</i></button>
+        ${list.map((q) => `<button type="button" role="menuitemradio" data-pt="${q.id}" aria-checked="${x.part?.id === q.id}"><b>${esc(partName(q.part))} · ${esc(q.name)}</b><span>${[q.key ? `키 ${esc(q.key)}${x.rawKey && q.key !== x.rawKey ? " · 콘티 키와 달라요" : ""}` : "", `${q.pages}쪽`, q.by_name ? `${esc(q.by_name)} 올림` : "", md(String(q.created_at).slice(0, 10))].filter(Boolean).join(" · ")}</span><i>${x.part?.id === q.id ? "✓" : ""}</i></button>`).join("")}
+        ${V.myParts.length ? `<div class="pt-sep"></div>${V.myParts.length > 4
+          ? `<div class="pt-addrow"><select id="ptSel" aria-label="올릴 파트">${V.myParts.map((p) => `<option value="${p}">${esc(partName(p))}</option>`).join("")}</select><label class="pt-add">+ 파트 악보 올리기 <small>PDF · 사진</small><input type="file" accept="application/pdf,image/*" multiple data-pt-up="?" hidden></label></div>`
+          : V.myParts.map((p) => `<label class="pt-add">+ ${esc(partName(p))} 악보 올리기 <small>PDF · 사진</small><input type="file" accept="application/pdf,image/*" multiple data-pt-up="${p}" hidden></label>`).join("")}
+          <p class="pt-note">같은 포지션 팀원끼리 봐요 · 올리면 이 곡에 쌓여서 다음에도 써요</p>` : ""}`;
+      document.body.appendChild(pop);
+      const r = btn.getBoundingClientRect(), w = Math.min(340, window.innerWidth - 24);
+      Object.assign(pop.style, { width: `${w}px`, left: `${Math.max(12, Math.min(window.innerWidth - w - 12, r.left))}px`, top: `${r.bottom + 6}px` });
+      const close = () => { pop.remove(); document.removeEventListener("pointerdown", outside, true); };
+      const outside = (e) => { if (!pop.contains(e.target) && !btn.contains(e.target)) close(); };
+      setTimeout(() => document.addEventListener("pointerdown", outside, true), 0);
+      pop.addEventListener("click", (e) => {
+        const t = e.target.closest("[data-pt]"); if (!t) return;
+        close();
+        if (t.dataset.pt === "common") { if (x.part) setAlt(x, null); return; }
+        if (+t.dataset.pt !== x.part?.id) setAlt(x, +t.dataset.pt);
+      });
+      pop.addEventListener("change", async (e) => {
+        const inp = e.target.closest("[data-pt-up]"); if (!inp?.files?.length) return;
+        const part = inp.dataset.ptUp === "?" ? pop.querySelector("#ptSel")?.value : inp.dataset.ptUp; close();
+        try {
+          const ps = await PARTS.upload(x.song_id, part, x.rawKey, inp.files, `${(await PARTS.name()) || ""} ${partName(part)}${x.rawKey ? " " + x.rawKey : ""}`.trim());
+          if (!ps) return;
+          V.parts.unshift(ps); setAlt(x, ps.id, true);
+          toast(`'${ps.name}'을 올렸어요 · 바로 고칠 수 있어요`, 2600);
+          setTimeout(() => { if (svc?.id) V.ink?.setPen(true, "shared"); }, 500);
+        } catch (err) { toast(err.message || "올리지 못했어요", 4500); }
+      });
+    }
+    // 예배 화면에서만 (곡 상세 · 콘티 쓰기 통합본 보기는 제외)
+    if (merged && svc?.id && window.sb) (async () => {
+      try {
+        V.myParts = await PARTS.my();
+        const songs = [...new Set(V.items.filter((x) => x.song && x.song_id).map((x) => x.song_id))];
+        if (!songs.length) return;
+        const [list, picks] = await Promise.all([PARTS.list(songs), PARTS.picks(svc.id)]);
+        V.parts = list.filter((q) => V.myParts.includes(q.part));
+        picks.forEach((p) => (V.picks[p.song_id] = p.part_sheet_id));
+        V.partsOn = !!(V.myParts.length || V.parts.length);
+        drawPart();
+      } catch {}
+    })();
+
+    V.go = go; V.turn = turn; V.goItem = goItem; V.rebuild = rebuild; V.applyMode = applyMode; el._viewer = V;
+    Object.defineProperty(V, "state", { get: () => ({ cur: V.cur, item: V.items[V.pages[V.cur]?.i]?.id || null, ids: V.items.map((x) => x.id), follow: V.follow, live: !!live(), now: live()?.now || null, pages: V.pages.length,
+      mode: V.mode, temp: V.temp, multi: multiOn(), ml: V.ml?.state || null, part: V.items[V.pages[V.cur]?.i]?.part?.id || null, parts: V.parts.length, myParts: V.myParts.slice() }) });
+    if (multiOn()) applyMode(); else draw();
+    // 030: 곡 칸에서 파일로 더한 악보 — 열자마자 '악보 고치기'
+    if (startFix && V.ink) setTimeout(async () => { for (let i = 0; i < 40 && !V.ink.state.canEdit; i++) await new Promise((ok) => setTimeout(ok, 150)); if (V.ink.state.canEdit) V.ink.setPen(true, "shared"); }, 50);
     return el;
   }
   // 한 쪽(PDF 쪽 또는 그림)을 무대(stage) 크기에 맞춰 캔버스에 그림
@@ -1169,6 +1374,14 @@
     const inMd = ((await sb.rpc("medley_list")).data || []).filter((m) => m.songs.some((x) => x.song_id === songId));
     const orig = (sheets || []).filter((x) => x.kind === "original"), saved = (sheets || []).filter((x) => x.kind === "sheet");
     const log = H ? H.plays.filter((p) => p[2] === songId).sort((a, b) => b[0].localeCompare(a[0])) : [];
+    // 030: 파트 악보 (같은 포지션끼리)
+    const myParts = await PARTS.my().catch(() => []);
+    const parts = myParts.length ? (await PARTS.list([songId]).catch(() => [])).filter((q) => myParts.includes(q.part)) : [];
+    let meId = null; try { meId = (await sb.auth.getSession()).data?.session?.user?.id || null; } catch {}
+    const isAdm = myParts.length ? (await sb.rpc("is_admin").then((r) => r.data === true, () => false)) : false;
+    const partRow = (q) => `<div class="cv-sheet"><span class="cv-thumb ${q.thumb ? "" : "none"}">${q.thumb ? `<img src="${q.thumb}" alt="">` : ""}</span>
+        <span class="cv-st2"><b><span class="chip chip-violet">${esc(partName(q.part))}</span> ${esc(q.name)}</b><small>${[q.key ? `키 ${esc(q.key)}` : "", `${q.pages}쪽`, q.by_name ? `${esc(q.by_name)} 올림` : "", md(String(q.created_at).slice(0, 10))].filter(Boolean).join(" · ")}</small></span>
+        <span class="row" style="gap:6px;flex:none"><button type="button" class="btn btn-ghost btn-sm" data-sd-part="${q.id}">보기</button>${q.created_by === meId || isAdm ? `<button type="button" class="btn btn-ghost btn-sm" data-sd-pdel="${q.id}">지우기</button>` : ""}</span></div>`;
     const sheetRow = (x) => `<div class="cv-sheet"><span class="cv-thumb ${x.thumb ? "" : "none"}">${x.thumb ? `<img src="${x.thumb}" alt="">` : ""}</span>
         <span class="cv-st2"><b>${esc(x.name)}</b><small>${x.kind === "original" ? `${x.key ? esc(x.key) + " · " : ""}필기 없음 · ${x.pages}쪽${x.by ? ` · ${esc(x.by)} 올림` : ""}` : `${x.from_date ? md(x.from_date) + " · " : ""}${x.pages}쪽 · ${x.used}번 씀${x.ink ? ` · 필기 ${x.ink}` : ""}${x.base_id ? " · 필기본" : ""}`}</small></span>
         <button type="button" class="btn btn-ghost btn-sm" data-sd-view="${x.id}">보기</button></div>`;
@@ -1181,7 +1394,11 @@
           ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
           ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf" id="sdOrig" hidden></label>` : ""}</section>
         <section class="card"><div class="card-title cv-ct">저장된 악보 <small>콘티에서 이름을 붙여 저장한 것</small></div>
-          ${saved.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요. 콘티에 이 곡을 넣고 통합본을 올리면 쌓여요.</p>`}</section>
+          ${saved.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요. 콘티에 이 곡을 넣고 파일로 더하거나 통합본을 올리면 쌓여요.</p>`}</section>
+        ${myParts.length ? `<section class="card" id="sdParts"><div class="card-title cv-ct">파트 악보 <small>일렉 · 드럼처럼 포지션마다 · 같은 포지션 팀원끼리 봐요</small></div>
+          ${parts.map(partRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
+          <div class="row" style="gap:6px">${isAdm ? `<select class="select" id="sdPartSel" style="width:auto;min-height:36px" aria-label="올릴 파트">${myParts.map((p) => `<option value="${p}">${esc(partName(p))}</option>`).join("")}</select><label class="btn btn-soft btn-sm cv-upl" style="margin-top:0">+ 파트 악보 올리기<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="?" hidden></label>`
+            : myParts.map((p) => `<label class="btn btn-soft btn-sm cv-upl">+ ${esc(partName(p))} 악보<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="${p}" hidden></label>`).join("")}</div></section>` : ""}
         ${st?.refs?.length ? `<section class="card"><div class="card-title cv-ct">레퍼런스 <small>${st.refs.length}개</small></div>
           ${st.refs.slice(0, 6).map((r, i) => `<div class="cv-ref"><a class="hx-yt" href="${ytLink(r[0], r[3])}" target="_blank" rel="noopener">▶ 영상 ${i + 1}</a><span class="small muted">${r[1]}번 사용 · 마지막 ${r[4] ? r[4].slice(2).replace(/-/g, ".") : ""}${r[2] ? ` · ${esc(r[2])}` : ""}</span></div>`).join("")}</section>` : ""}
         ${log.length ? `<section class="card"><div class="card-title cv-ct">부른 기록 <small>${st?.count || log.length}번</small></div>
@@ -1190,8 +1407,21 @@
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-sd=close]")) return closeLayer();
       const mdb = e.target.closest("[data-sd-md]"); if (mdb) return medleyDetail(+mdb.dataset.sdMd);
+      const pv = e.target.closest("[data-sd-part]");
+      if (pv) { const q = parts.find((y) => y.id === +pv.dataset.sdPart); if (q) openViewer(null, { single: { title: `${song.title} · ${partName(q.part)} · ${q.name}`, key: q.key, path: q.path, pages: q.pages, ink: { key: `t:${q.id}` } } }); return; }
+      const pd = e.target.closest("[data-sd-pdel]");
+      if (pd) { const q = parts.find((y) => y.id === +pd.dataset.sdPdel); if (!q || !confirm(`'${q.name}' 파트 악보를 지울까요? 이 악보에 쓴 공유 필기도 함께 지워져요.`)) return;
+        sb.from("part_sheets").delete().eq("id", q.id).then(({ error }) => { toast(error ? "지우지 못했어요 · 올린 사람이나 리더십만 지울 수 있어요" : "지웠어요"); if (!error) songDetail(songId); }); return; }
       const v = e.target.closest("[data-sd-view]");
       if (v) { const x = (sheets || []).find((s) => s.id === +v.dataset.sdView); if (x) { openViewer(null, { single: { title: `${song.title} · ${x.name}`, key: x.key, path: x.path, pages: x.pages, ink: x.kind === "sheet" ? { key: `s:${x.base_id || x.id}`, song: song.id } : null, shared: x.kind === "sheet" ? { sheet: x.id, date: todayISO(), canEdit: false } : null } }); } }
+    });
+    el.addEventListener("change", async (e) => {
+      const inp = e.target.closest("[data-sd-pup]"); if (!inp?.files?.length) return;
+      const part = inp.dataset.sdPup === "?" ? $("#sdPartSel", el)?.value : inp.dataset.sdPup, files = [...inp.files]; inp.value = "";
+      try {
+        const ps = await PARTS.upload(songId, part, song.main_key || "", files, `${(await PARTS.name()) || ""} ${partName(part)}${song.main_key ? " " + song.main_key : ""}`.trim());
+        if (ps) { toast(`'${ps.name}'을 올렸어요 · 이 곡이 콘티에 들어오면 악보 보기 위쪽 단추로 바꿔 봐요`, 4000); songDetail(songId); }
+      } catch (err) { toast(err.message || "올리지 못했어요", 4500); }
     });
     $("#sdOrig", el)?.addEventListener("change", async (e) => {
       const file = e.target.files?.[0]; if (!file) return;
@@ -1338,7 +1568,7 @@
         ${bpmCell(x)}
         <button type="button" class="ce-x" data-ce="rm" aria-label="${esc(x.title)} 빼기">${ICO.x}</button>
         <div class="ce-sh"><span class="ce-lab">악보</span>${x.sheet.mode === "new"
-          ? `<div class="ce-new"><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button>${list.length ? "" : `<span class="small muted ce-hint">저장된 악보가 아직 없어요</span>`}</div>`
+          ? `<div class="ce-new"><label class="btn btn-soft btn-sm ce-addfile">＋ 파일로 추가<input type="file" accept="application/pdf,image/*" multiple data-ce-add hidden></label><span class="ce-or small muted">또는 통합본에서</span><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button>${list.length ? "" : `<span class="small muted ce-hint">저장된 악보가 아직 없어요 · PDF나 사진을 바로 더하거나, 아래 통합본으로 한 번에 올려요</span>`}</div>`
           : `<button type="button" class="ce-shsel ${open ? "open" : ""}" data-ce="sheet-open"><span class="nm">${sheet ? esc(sheet.name) : x.sheet.mode === "saved" ? "고른 악보" : "악보 없이"}</span><span class="mt">${sheet ? [sheet.kind === "original" ? "원본 · 필기 없음" : sheet.from_date ? md(sheet.from_date) : "", `${sheet.pages}쪽`, sheet.kind === "sheet" ? `${sheet.used}번 씀` : ""].filter(Boolean).join(" · ") : list.length ? `저장된 악보 ${list.length}개` : ""}</span><span class="cv">▾</span></button>`}
           ${open ? sheetList(x, list) : ""}</div>
         <div class="ce-more"><button type="button" class="linkbtn" data-ce="more">${E.more === i ? "접기" : `메모 · 레퍼런스 · 메들리${x.memo ? " · 메모 있음" : ""}${x.diff ? " · 키 다름*" : ""}`}</button>
@@ -1368,7 +1598,7 @@
         <span class="ce-t"><b>${esc(x.title)}</b><small>${x.memo ? esc(x.memo) : x.join ? "앞 곡에 이어서" : x.medley ? "메들리" : ""}</small></span>
         <span class="cv-key">${esc(keyText({ key: x.key, diff_key: x.diff }))}</span><span></span>${bpmCell(x)}<span></span>
         <div class="ce-sh"><span class="ce-lab">악보</span>${x.sheet.mode === "new"
-          ? `<div class="ce-new"><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button></div>`
+          ? `<div class="ce-new"><label class="btn btn-soft btn-sm ce-addfile">＋ 파일로 추가<input type="file" accept="application/pdf,image/*" multiple data-ce-add hidden></label><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button></div>`
           : `<button type="button" class="ce-shsel ${open ? "open" : ""}" data-ce="sheet-open"><span class="nm">${sheet ? esc(sheet.name) : x.sheet.mode === "saved" ? "고른 악보" : "악보 없이"}</span><span class="mt">${sheet ? [sheet.kind === "original" ? "원본 · 필기 없음" : sheet.from_date ? md(sheet.from_date) : "", `${sheet.pages}쪽`].filter(Boolean).join(" · ") : list.length ? `저장된 악보 ${list.length}개` : ""}</span><span class="cv">▾</span></button>`}
           ${open ? sheetList(x, list) : ""}</div></div>`;
     }
@@ -1379,7 +1609,8 @@
           ${pv?.id === v.id ? `<div class="ce-prev"><span class="cv-thumb lg">${v.thumb ? `<img src="${v.thumb}" alt="${esc(v.name)} 첫 쪽">` : ""}</span>
             <span class="ce-prev-i"><small>미리보기</small><b>${esc(v.name)}</b><span>${[v.kind === "original" ? "원본 악보" : v.from_date ? fmtDate(v.from_date, { year: "numeric", month: "numeric", day: "numeric" }) : "", v.kind !== "original" && v.from_leaders?.length ? `${esc(v.from_leaders.join(", "))} 콘티` : "", `${v.pages}쪽`].filter(Boolean).join(" · ")}</span>
               <span class="row"><button type="button" class="btn btn-ghost btn-sm" data-ce="sheet-big" data-id="${v.id}">크게 보기</button><button type="button" class="btn btn-primary btn-sm" data-ce="sheet-use" data-id="${v.id}">이 악보 쓰기</button></span></span></div>` : ""}`).join("")}
-        <button type="button" class="ce-opt new" data-ce="sheet-new"><span class="cv-thumb sm plus">+</span><b>새 악보로 저장</b><span>올린 통합본의 이 곡 쪽을 새 이름으로</span><i></i></button>
+        <label class="ce-opt new file"><span class="cv-thumb sm plus">＋</span><b>파일로 추가</b><span>PDF · 사진으로 이 곡 악보를 바로 더하고 고쳐요</span><i></i><input type="file" accept="application/pdf,image/*" multiple data-ce-add hidden></label>
+        <button type="button" class="ce-opt new" data-ce="sheet-new"><span class="cv-thumb sm plus">+</span><b>새 악보로 저장</b><span>통합본을 올리면 이 곡 쪽을 새 이름으로</span><i></i></button>
         <button type="button" class="ce-opt" data-ce="sheet-none"><span class="cv-thumb sm none"></span><b>악보 없이</b><span>보기 화면에 빈 쪽으로</span><i>${x.sheet.mode === "none" ? "✓" : ""}</i></button></div>`;
     }
     function searchHTML() {
@@ -1412,7 +1643,12 @@
               <span class="ce-cmp-a"><b>올린 쪽이 고른 악보와 달라 보여요</b><span class="small muted">필기를 새로 했으면 새로 저장하세요.</span>
                 <button type="button" class="btn btn-primary btn-sm" data-cmp="new" data-i="${p.i}">새 악보로 저장</button><button type="button" class="btn btn-ghost btn-sm" data-cmp="keep" data-i="${p.i}">그대로 쓰기</button></span></div>` : ""}</div>`).join("")}</div>`;
       }
-      return `<section class="panel ce-pdf"><h2>악보 PDF <small>필기 포함 통합본 1개</small></h2>
+      // 030: 통합본 보며 고치기 (확정 전에도) · 노트 앱 통합본은 접어서 보조로
+      const fixWho = sheetsOnly ? "이 예배 밴드도 고칠 수 있어요" : E.pub ? "올린 콘티 · 고친 필기는 바로 저장 · 알림 없음" : "확정 전에도 고칠 수 있어요 · 고친 필기는 바로 저장 · 팀원에게는 콘티를 올린 뒤 보여요";
+      return `<section class="panel ce-view"><h2>악보 <small>곡마다 위에서 고르거나 파일로 더해요</small></h2>
+        <div class="ce-draft ce-viewall"><span><b>통합본 보며 고치기</b><span class="small muted">곡 순서대로 이어서 보면서 '악보 고치기'로 바로 필기해요 · ${n}곡 중 ${haveSheets}곡 악보 · ${fixWho}</span></span>
+          <button type="button" class="btn btn-primary btn-sm" data-ce="viewall" ${haveSheets ? "" : "disabled"}>통합본 보며 고치기</button></div></section>
+      <details class="panel ce-pdf" ${U ? "open" : ""}><summary><b>노트 앱으로 한 번에 (통합본 PDF)</b><small>초안을 받아 노트 앱에서 고친 뒤 통째로 올리는 예전 방식</small></summary>
         <div class="ce-draft"><span><b>① 초안 받기</b><span class="small muted">곡마다 고른 악보(저장된 악보 · 원본)를 콘티 순서대로 이어 붙인 PDF · ${n}곡 중 ${haveSheets}곡 있음${n > haveSheets ? ", 없는 곡은 빈 쪽" : ""}</span></span>
           <button type="button" class="btn btn-soft btn-sm" data-ce="draft" ${n ? "" : "disabled"}>초안 PDF 받기</button></div>
         <span class="ce-step">② 노트 앱에서 고친 통합본 올리기</span>
@@ -1420,7 +1656,7 @@
           : `<span class="cv-pdfic">PDF</span><span class="ce-upl-t"><b>${E.pub && E.items.some((x) => x.sheet.mode === "saved") ? "지금 악보를 그대로 써요" : "아직 올린 통합본이 없어요"}</b><span class="small muted">${E.pub ? "PDF를 바꿀 때만 새로 올려 주세요" : "올리면 곡별로 나눠서 저장해요"}</span></span>`}
           <label class="btn btn-ghost btn-sm">${U ? "다른 파일" : "PDF 고르기"}<input type="file" accept="application/pdf" data-ce-file hidden></label></div>
         ${U ? `<span class="small" style="font-weight:700">곡별 페이지 <span class="muted" style="font-weight:500">· 곡 순서대로 나눠 뒀어요. 틀린 쪽만 눌러 고쳐 주세요</span></span>${pages}${sum}` : ""}
-      </section>`;
+      </details>`;
     }
     function draw() {
       E.items.forEach((x) => { if (x.sheet.mode === "new" && x.sheet.name == null) x.sheet.name = defaultName(x); if (x.sheet.mode === "new" && x.sheet.name === "" && !x.sheet.touched) x.sheet.name = defaultName(x); });
@@ -1467,6 +1703,7 @@
     el.addEventListener("change", async (e) => {
       const t = e.target;
       if (t.matches("[data-ce-file]")) return pickPdf(t.files?.[0]);
+      if (t.matches("[data-ce-add]")) { const r2 = t.closest(".ce-row"); const files = [...(t.files || [])]; t.value = ""; if (r2 && files.length) addFile(E.items[+r2.dataset.i], files); return; }
       const row = t.closest(".ce-row"); if (!row) return;
       const x = E.items[+row.dataset.i], f = t.dataset.f;
       if (f === "dur") {
@@ -1538,6 +1775,7 @@
       if (a === "sheet-none") { x.sheet = { mode: "none" }; x.cmp = null; E.open = null; persist(); return redrawList(); }
       if (a === "sheet-cancel") { const list = sheetsOf(E, x); x.sheet = x.sheet.fromId ? { mode: "saved", id: x.sheet.fromId } : list[0] ? { mode: "saved", id: list[0].id } : { mode: "none" }; x.cmp = x.sheet.fromId ? "keep" : null; persist(); return redrawList(); }
       if (a === "save-medley") return saveGroupAsMedley(i, b);
+      if (a === "viewall") return viewAll();
       if (a === "draft") return downloadDraft(E, svc);
       if (a === "save") return submit(false, b);
       if (a === "publish") return submit(true, b);
@@ -1620,6 +1858,45 @@
       persist(); redrawList(); toast(`메들리 '${data.title}'로 저장했어요 · 다음부터 곡 찾기에서 메들리로 넣을 수 있어요`, 4000);
     }
     function defaultName(x) { return `${leaderName || "인도자"} ${x.medley_id && !x.join && x.medley_title ? x.medley_title : x.key || ""}`.trim().slice(0, 60); }
+    // 030: 곡 칸에서 파일(PDF · 사진)로 바로 더하기 → 저장된 악보로 만들고 → 바로 '악보 고치기'
+    async function addFile(x, files) {
+      if (!x) return;
+      const name0 = defaultName(x);
+      const nm = prompt(`'${x.title}' 악보 이름 (다음에 이 이름으로 골라 써요)`, name0);
+      if (nm === null) return;
+      toast("악보를 올리는 중…", 20000);
+      try {
+        const f = await filesToPdf(files);
+        const path = `sheets/${x.song_id}/${uuid()}.pdf`;
+        await putFile(path, f.bytes);
+        const head = !!(x.medley_id && !x.join);
+        const { data, error } = await sb.rpc("add_song_sheet", { p_service: svc.id, p_song: x.song_id, p_medley: head ? x.medley_id : null, p_name: (nm.trim() || name0).slice(0, 60),
+          p_key: x.key || null, p_path: path, p_pages: f.pages, p_size: f.bytes.length, p_thumb: f.thumb });
+        if (error) throw new Error(error.message || "악보를 저장하지 못했어요");
+        const k = head ? "m" + x.medley_id : x.song_id;
+        (E.sheets[k] = E.sheets[k] || []).unshift(data);
+        x.sheet = { mode: "saved", id: data.id }; x.cmp = null; E.open = null; E.preview = null;
+        if (E.up) await checkSame(E);
+        persist(); redrawList();
+        document.querySelectorAll(".toast").forEach((t) => t.remove());
+        toast(`'${data.name}' 악보를 더했어요 · ${E.pub ? "'수정 올리기'를 눌러야 콘티에 바뀌어요" : "올리면 이 악보로 보여요"}`, 3500);
+        overLayer(() => openViewer(null, { single: { title: `${x.title} · ${data.name}`, key: x.key, path, pages: f.pages,
+          ink: { key: `s:${data.id}`, song: x.song_id }, shared: { sheet: data.id, date: svc.date, svc: svc.id, canEdit: true, canEraseAll: !!svc.can_edit, kind: "sheet", name: data.name } }, startFix: true }));
+      } catch (err) { document.querySelectorAll(".toast").forEach((t) => t.remove()); toast(err.message || "올리지 못했어요", 4500); }
+    }
+    // 030: 통합본 보며 고치기 — 지금 고른 악보(저장 안 한 것 포함)를 곡 순서대로 이어서 · 공유 필기로 바로 고쳐요
+    function viewAll() {
+      const items = E.items.map((x, i) => {
+        const v = x.sheet.mode === "saved" ? sheetsOf(E, x).find((s) => s.id === x.sheet.id) : null;
+        return { ord: i + 1, song_id: x.song_id, title: x.title, key: x.key, diff_key: !!x.diff, join_prev: i > 0 && !!x.join, medley_id: x.medley_id, medley_title: x.medley_title,
+          refs: x.refs || [], bpm: x.bpm, meter: x.meter, sheet_id: v?.id || null, sheet_path: v?.path || null, sheet_pages: v?.pages || null, sheet_kind: v?.kind || null,
+          sheet_name: v?.name || null, sheet_base: v ? v.base_id || v.id : null };
+      });
+      const fake = { ...svc, applied: [], proc: [], extras: [], flow: null, entrance: false, setlist: { ...(svc.setlist || {}), status: svc.setlist?.status || "draft", items } };
+      const list = viewerItems(fake, null);
+      if (!list.some((x) => x.src?.length)) return toast("고른 악보가 없어요 · 곡마다 악보를 고르거나 파일로 더해 주세요");
+      overLayer(() => openViewer(fake, { items: list, title: `${svcShort(svc)} · 통합본${E.pub ? "" : " (확정 전)"}`, noFork: true }));
+    }
     async function pickPdf(file) {
       if (!file) return;
       if (file.type && file.type !== "application/pdf") return toast("PDF 파일을 골라 주세요");
@@ -1656,7 +1933,8 @@
         }
         let PL = null, srcPdf = null;
         for (let i = 0; i < E.items.length; i++) {
-          const x = E.items[i], p = plan.find((q) => q.i === i);
+          // 029.1: 올린 쪽이 없는 곡(메들리 뒷곡 등)은 계획 줄만 있고 from/to가 없어요 → 쪽 · 새 악보 저장 없이
+          const x = E.items[i], p0 = plan.find((q) => q.i === i), p = p0 && p0.from != null ? p0 : null;
           const it = { song_id: x.song_id, key: x.key || null, medley: !!x.medley, join_prev: i > 0 && !!x.join, medley_id: x.medley_id || null, diff_key: !!x.diff,
             refs: x.join ? [] : x.refs || [], duration_sec: x.join ? 0 : x.dur || null, duration_src: x.join ? "medley" : x.dur ? x.src : null, memo: x.memo || null, sheet_id: null,
             bpm: x.bpm || null, meter: x.bpm ? x.meter || "4/4" : null };
@@ -1706,12 +1984,18 @@
     }
     return el;
   }
-  // 곡 상세 위에 악보 하나 크게 보기 (편집 화면은 그대로)
-  function openViewerOver(title, v, date) {
-    const keep = layer; layer = null; keep.el.style.display = "none"; document.body.classList.add("cv-open");
-    openViewer(null, { single: { title: `${title} · ${v.name}`, key: v.key, path: v.path, pages: v.pages, shared: v.kind === "sheet" ? { sheet: v.id, date: date || todayISO(), canEdit: false } : null } }).then((vel) => {
-      const prev = layer; prev.onClose = () => { keep.el.style.display = ""; layer = keep; document.body.classList.add("cv-open"); };
+  // 지금 화면(콘티 쓰기 · 곡 상세) 위에 악보 보기를 겹쳐 띄움 — 닫으면 아래 화면으로 (030: 보기 화면의 정리 작업도 그대로 해요)
+  function overLayer(open) {
+    const keep = layer; if (!keep) return open();
+    layer = null; keep.el.style.display = "none"; document.body.classList.add("cv-open");
+    return Promise.resolve(open()).then(() => {
+      const top = layer; if (!top || top === keep) { keep.el.style.display = ""; layer = keep; return; }
+      const done = top.onClose;
+      top.onClose = () => { try { done?.(); } catch {} keep.el.style.display = ""; layer = keep; document.body.classList.add("cv-open"); };
     });
+  }
+  function openViewerOver(title, v, date) {
+    return overLayer(() => openViewer(null, { single: { title: `${title} · ${v.name}`, key: v.key, path: v.path, pages: v.pages, shared: v.kind === "sheet" ? { sheet: v.id, date: date || todayISO(), canEdit: false } : null } }));
   }
   async function loadSongMeta(E, ids) {
     ids = [...new Set(ids)].filter((id) => !E.sheets[id]);

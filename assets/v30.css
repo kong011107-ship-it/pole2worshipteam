@@ -1,0 +1,122 @@
+/* =====================================================================
+   030 (v30): 악보 보기 두 쪽 · 세로 · 파트 악보 · 곡 칸 파일 추가 · 통합본 보며 고치기 · 리더십 화면 태블릿 세로
+   conti.js · share.js가 이 파일을 붙여요 (admin.html은 <link>로 바로)
+   ===================================================================== */
+
+/* ---------- 악보 보기: 보기 방식 (한 쪽 · 두 쪽 · 세로) ---------- */
+.cvv-modes { flex: none; display: inline-flex; padding: 2px; gap: 2px; border-radius: 17px; border: 1px solid rgba(255,255,255,.22); }
+.cvv-modes button { min-height: 28px; padding: 0 10px; border: 0; border-radius: 14px; background: transparent; color: #E8E0F4; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.cvv-modes button[aria-pressed=true] { background: #fff; color: var(--violet); }
+.cvv-back2 { background: rgba(255,210,122,.16); border-color: rgba(255,210,122,.55); color: #FFE7B3; }
+@media (max-width: 600px) {
+  .cvv-modes button { padding: 0 7px; font-size: 11.5px; }
+  .cvv-top .cvv-title { font-size: 14px; }
+}
+@media (max-width: 420px) { .cvv-top .cvv-pg { display: none; } }
+
+/* 두 쪽 · 세로 겹 (한 쪽 무대 위에 덮어요) */
+.ivm { position: absolute; inset: 0; z-index: 7; background: #1A1424; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.ivm.hidden { display: none; }
+.ivm.two { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.ivm-sp { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 100%; }
+.ivm .ivm-pg { position: relative; background: #fff; box-shadow: 0 6px 30px rgba(0,0,0,.4); border-radius: 2px; overflow: hidden; }
+.ivm .ivm-cv { display: block; width: 100%; height: 100%; }
+.ivm.scroll { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.ivm-col { width: min(100%, 980px); margin: 0 auto; padding: 6px 10px 40px; display: flex; flex-direction: column; gap: 10px; }
+.ivm.scroll .ivm-pg { width: 100%; }
+.ivm-h { display: flex; align-items: center; gap: 8px; padding: 10px 2px 0; color: #E8E0F4; font-size: 14px; }
+.ivm-h i { font-style: normal; font-size: 12px; font-weight: 800; min-width: 24px; height: 22px; padding: 0 6px; border-radius: 11px; background: rgba(255,255,255,.12); display: inline-grid; place-items: center; }
+.ivm-h b { font-size: 15px; }
+.ivm-h span { font-size: 12px; font-weight: 800; color: #C9B2EC; }
+.ivm-end { text-align: center; color: #A99BC4; font-size: 12px; padding: 14px 0 0; }
+.ivm-blank { width: 100%; height: 100%; min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--ink); background: #fff; padding: 20px; text-align: center; }
+.ivm-blank b { font-size: 20px; }
+.ivm-blank span { font-size: 13px; color: var(--muted); }
+.ivm.scroll .ivm-pg:has(.ivm-blank) { aspect-ratio: auto !important; }
+
+/* ---------- 악보 보기: 파트 악보 단추 · 고르기 ---------- */
+.cvv-part { flex: none; display: inline-flex; align-items: baseline; gap: 6px; min-height: 34px; margin: 0 0 10px 10px; padding: 0 12px; border-radius: 17px; border: 1px dashed rgba(255,255,255,.4); background: transparent; color: #E8E0F4; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.cvv-part b { font-size: 13px; font-weight: 800; color: #fff; }
+.cvv-part.on { border-style: solid; border-color: #F7A8D0; background: rgba(247,168,208,.16); }
+.cvv-part.on b { color: #FFD1E6; }
+.cvv-part.hidden { display: none; }
+.pt-pop { position: fixed; z-index: 2000; display: flex; flex-direction: column; gap: 2px; max-height: 70vh; overflow-y: auto; padding: 6px; background: #fff; color: var(--ink); border-radius: var(--r-lg); border: 1px solid var(--line-2); box-shadow: 0 16px 40px rgba(23,9,46,.3); }
+.pt-pop > button { display: grid; grid-template-columns: 1fr 18px; gap: 2px 8px; align-items: center; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px; background: #fff; text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
+.pt-pop > button:hover, .pt-pop > button[aria-checked=true] { background: var(--tint); }
+.pt-pop > button b { font-size: 14px; }
+.pt-pop > button span { grid-column: 1; font-size: 12px; color: var(--muted); }
+.pt-pop > button i { grid-column: 2; grid-row: 1 / span 2; font-style: normal; color: var(--violet); font-weight: 800; }
+.pt-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+.pt-add { display: flex; align-items: baseline; gap: 6px; padding: 10px 12px; border-radius: 10px; color: var(--violet); font-size: 14px; font-weight: 800; cursor: pointer; }
+.pt-add:hover { background: var(--tint); }
+.pt-add small { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.pt-addrow { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
+.pt-addrow select { min-height: 36px; border: 1px solid var(--line-2); border-radius: 8px; padding: 0 8px; font: inherit; font-size: 13px; background: #fff; }
+.pt-note { margin: 2px 12px 6px; font-size: 11.5px; color: var(--muted); }
+
+/* ---------- 콘티 쓰기: 곡 칸에서 파일로 추가 · 통합본 보며 고치기 ---------- */
+label.ce-opt { cursor: pointer; }
+.ce-opt.file b { color: var(--violet); }
+.ce-addfile { min-height: 34px; padding: 0 12px; cursor: pointer; }
+.ce-or { white-space: nowrap; }
+.ce-viewall { background: var(--tint); border: 1px solid var(--violet-soft); }
+.ce-viewall .btn { flex: none; }
+details.ce-pdf > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
+details.ce-pdf > summary::-webkit-details-marker { display: none; }
+details.ce-pdf > summary b { font-size: 16px; font-weight: 800; }
+details.ce-pdf > summary b::before { content: "▸ "; color: var(--muted-2); }
+details.ce-pdf[open] > summary b::before { content: "▾ "; }
+details.ce-pdf > summary small { font-size: 12px; font-weight: 600; color: var(--muted); }
+details.ce-pdf:not([open]) { gap: 0; }
+@media (max-width: 600px) {
+  .ce-viewall { flex-direction: column; align-items: stretch; }
+  .ce-new { gap: 6px; }
+  .ce-or { display: none; }
+}
+
+/* ---------- 곡 상세: 파트 악보 ---------- */
+#sdParts .cv-st2 b { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#sdParts .row .cv-upl { margin-top: 4px; }
+
+/* =====================================================================
+   리더십 화면 — 태블릿 세로 (761 ~ 1023px)
+   예전: 메뉴(232px) + 내용(최소 760px)이 한 줄에 안 들어가서 내용이 메뉴 아래로 떨어지고 왼쪽 메뉴 칸만 덩그러니 남았어요.
+   이제: 휴대폰처럼 메뉴를 위쪽 가로 줄로, 내용은 화면 폭 전체로 (가로 1024px부터는 예전처럼 왼쪽 메뉴)
+   ===================================================================== */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .shell { flex-direction: column; flex-wrap: nowrap; }
+  .side { position: sticky; top: 0; z-index: 20; max-width: none; min-width: 0; flex: none; width: 100%; padding: 12px 24px; gap: 10px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .side-top .switch-btn { display: inline-flex; }
+  .side nav { flex-direction: row; align-items: center; overflow-x: auto; min-width: 0; gap: 2px; padding-right: 24px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .side nav > a { white-space: nowrap; flex: none; }
+  .side nav > a.nav-switch { display: none; }
+  .side .me { display: none; }
+  .nav-sec { flex-direction: row; flex: none; align-items: center; }
+  .side nav button.nav-group { width: auto; white-space: nowrap; gap: 4px; padding: 0 10px; min-height: 40px; }
+  .side nav button.nav-group[aria-expanded=true] { background: var(--tint); color: var(--violet); }
+  .nav-items { display: flex; transition: none; }
+  .nav-items > div { flex-direction: row; overflow: visible; }
+  .nav-sec:not(.open) > .nav-items { display: none; }
+  .nav-sec:not(.open) .nav-items a { visibility: visible; }
+  .nav-sec.open > .nav-items > div { padding: 0; }
+  .side nav .nav-items a { white-space: nowrap; padding: 0 12px; }
+  .nav-chev { transform: rotate(-90deg); }
+  .nav-group[aria-expanded=true] .nav-chev { display: none; }
+  .side nav > .nav-div { flex: none; width: 1px; height: 22px; margin: 0 4px; border: 0; background: var(--line-2); }
+  .content { flex: 1 1 auto; width: 100%; padding: 22px 24px 48px; }
+  .page-title { font-size: 23px; }
+  /* 내용 안: 넓은 표는 그 칸 안에서만 옆으로 밀어요 */
+  .content .panel, .content .box, .content .dcard, .content .card { min-width: 0; }
+  .ca-acts { white-space: normal; }
+  .ca-acts .btn { margin: 2px 0; }
+  .ca-acts .btn + .btn { margin-left: 4px; }
+  .lu-pool { max-width: none; position: static; flex-basis: 100%; }
+  .modal-back { padding: 40px 20px; }
+}
+/* 휴대폰 · 작은 태블릿(아이패드 미니 세로 744px 등, 760px 이하): 내용이 짧으면 위쪽 메뉴 칸이 화면 높이를 나눠 가져 길게 늘어나던 것 고침 */
+@media (max-width: 760px) {
+  .shell { flex-direction: column; flex-wrap: nowrap; }
+  .side { flex: none; width: 100%; }
+  .content { flex: 1 1 auto; width: 100%; }
+}

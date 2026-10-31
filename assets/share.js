@@ -6,6 +6,9 @@
 //  데이터는 /api/conti { action: "share" | "share-live", t } — 악보 파일은 서명된 주소(6시간)로 받아 파일 경로 기준으로 이 기기에 저장
 // =====================================================================
 (function () {
+  // 030: 두 쪽 · 세로 보기 스타일
+  if (!document.querySelector('link[href*="v30.css"]')) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "assets/v30.css?v=32"; document.head.appendChild(l); }
+  const VIEW_K = "pole2.view.mode", VIEW_NAME = { one: "한 쪽", two: "두 쪽", scroll: "세로" };
   const T = new URLSearchParams(location.search).get("t") || "";
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -248,7 +251,7 @@
   function openViewer(at, follow = false) {
     S.viewer?.close();
     if (window.INK) INK.setup({ lib: { sheetDoc: doc, sheetImage: image, renderPage }, local: `share:${T.slice(0, 12)}` });
-    const V = { follow: false, cur: 0, token: 0, items: [], pages: [] };
+    const V = { follow: false, cur: 0, token: 0, items: [], pages: [], mode: ["one", "two", "scroll"].includes(ls.get(VIEW_K)) ? ls.get(VIEW_K) : "one", temp: false };
     const el = document.createElement("div"); el.className = "cv-layer cv-viewer shv-viewer";
     document.body.appendChild(el); document.body.classList.add("cv-open");
     history.pushState({ shv: 1 }, "");
@@ -261,15 +264,20 @@
     build();
     const f0 = svc();
     el.innerHTML = `<div class="cvv-top"><button type="button" class="cvv-back" data-v="close" aria-label="닫기"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <b class="cvv-title">${f0 ? `${md(f0.date)} ${esc(f0.ministry ? f0.title : "주일")} · 악보` : "악보"}</b><span class="cvv-pg" id="vPg"></span><a class="cvv-ref hidden" id="vRef" target="_blank" rel="noopener">${PLAY}<span>레퍼런스</span></a>${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
+        <b class="cvv-title">${f0 ? `${md(f0.date)} ${esc(f0.ministry ? f0.title : "주일")} · 악보` : "악보"}</b><span class="cvv-pg" id="vPg"></span><a class="cvv-ref hidden" id="vRef" target="_blank" rel="noopener">${PLAY}<span>레퍼런스</span></a>${window.INK?.multi ? `<span class="cvv-modes" role="group" aria-label="보기 방식">${Object.entries(VIEW_NAME).map(([k, n]) => `<button type="button" data-v-mode="${k}" aria-pressed="${V.mode === k}">${n}</button>`).join("")}</span><button type="button" class="cvv-pen cvv-back2 hidden" data-v="unone"></button>` : ""}${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
       <div class="cvv-strip"><span class="cvv-bpmbox" id="vBpm"></span><div class="cvv-jump" role="tablist" id="vJump"></div></div>
       <div class="iv-host hidden" id="vInk"></div>
       <div class="cvv-stage" id="vStage"><canvas id="vCv" aria-label="악보"></canvas><div class="cvv-blank hidden" id="vBlank"></div>
         <button type="button" class="cvv-tap l" data-v="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-v="next" aria-label="다음 쪽"><span>다음 ›</span></button><div class="cvv-load" id="vLoad">불러오는 중…</div></div>
       <div class="cvv-live hidden" id="vLive"></div>
       <div class="cvv-foot"><span id="vNext"></span><span class="small">보기 전용 · 메모는 이 기기에만</span></div>`;
-    const iv = window.INK ? INK.view({ stage: $("#vStage", el), canvas: $("#vCv", el), root: el, bar: $("#vInk", el), onTurn: (d) => go(V.cur + d) }) : null;
+    const iv = window.INK ? INK.view({ stage: $("#vStage", el), canvas: $("#vCv", el), root: el, bar: $("#vInk", el), onTurn: (d) => turn(d),
+      onPen: (on) => { if (on && V.mode !== "one" && !V.temp) { V.temp = true; applyMode(true); } else if (!on && V.temp && V.penTemp) { V.temp = false; applyMode(); } V.penTemp = on && V.temp; } }) : null;
     V.ink = iv;
+    // 030: 두 쪽 · 세로
+    const ml = window.INK?.multi ? INK.multi({ stage: $("#vStage", el), onPage: (k) => { if (k !== V.cur) { V.cur = k; drawMeta(); syncInk(); } }, onTurn: (d) => turn(d),
+      onOpen: (k) => { V.temp = true; V.penTemp = false; V.cur = k; applyMode(); } }) : null;
+    const multiOn = () => !!ml && V.mode !== "one" && !V.temp;
     const strip = () => { $("#vJump", el).innerHTML = V.items.map((x, i) => `<button type="button" data-vi="${i}" class="${x.kind || ""}"><i>${esc(x.tag)}</i>${esc(x.title)}${x.key ? ` · ${esc(x.key)}` : ""}</button>`).join(""); };
     const liveName = (ref) => { const x = V.items.find((y) => y.id === ref); if (x) return `${x.kind === "backup" ? x.tag + " " : ""}${x.title}`; return PROC[String(ref || "").slice(2)]?.[0] || "준비 중"; };
     const drawLive = () => {
@@ -280,18 +288,32 @@
         ? `<span class="cvv-lv-on"><span class="bk-dot"></span>기도회 따라가는 중 · 지금 <b>${esc(liveName(lv().now))}</b></span><button type="button" class="cvv-lv-free" data-v="unfollow">그만 따라가기</button>`
         : `<button type="button" class="cvv-lv-go" data-v="golive"><span class="bk-dot"></span><span>기도회로 가기 · 지금 곡: <b>${esc(liveName(lv().now))}</b></span></button>`;
     };
-    const draw = async () => {
+    const drawMeta = () => {
       const pg = V.pages[V.cur]; if (!pg) return;
-      const t = ++V.token, x = V.items[pg.i];
-      $("#vPg", el).textContent = `${V.cur + 1} / ${V.pages.length}쪽`;
+      const x = V.items[pg.i];
+      const two = multiOn() && V.mode === "two" ? ml.partner(V.cur) : null;
+      $("#vPg", el).textContent = two != null ? `${V.cur + 1}–${two + 1} / ${V.pages.length}쪽` : `${V.cur + 1} / ${V.pages.length}쪽`;
       el.querySelectorAll("[data-vi]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.vi === pg.i)));
       el.querySelector(`[data-vi="${pg.i}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
       $("#vBpm", el).innerHTML = x.bpm ? `<span class="cvv-bpm"><b>♩=${x.bpm}</b>${x.meter && x.meter !== "4/4" ? `<small>${esc(x.meter)}</small>` : ""}</span>` : "";
       const ref = $("#vRef", el);
       if (x.ref?.[0]) { ref.href = ytLink(x.ref[0], x.ref[1]); ref.classList.remove("hidden"); ref.setAttribute("aria-label", `${x.title} 레퍼런스 (새 창)`); } else ref.classList.add("hidden");
       drawLive();
-      const nx = V.pages[V.cur + 1];
+      const nx = V.pages[(two ?? V.cur) + 1];
       $("#vNext", el).textContent = nx ? `다음 쪽: ${V.items[nx.i].title}${nx.of > 1 ? ` ${nx.n}/${nx.of}` : ""}` : "마지막 쪽이에요";
+      const back = el.querySelector("[data-v=unone]");
+      if (back) { back.classList.toggle("hidden", !(V.temp && V.mode !== "one" && !V.penTemp)); back.textContent = `${VIEW_NAME[V.mode]} 보기로`; }
+    };
+    const syncInk = () => {
+      clearTimeout(V.syncT);
+      V.syncT = setTimeout(() => { const pg = V.pages[V.cur]; if (!pg || !iv) return; if (pg.path || pg.img) Promise.resolve(iv.show(pg, () => false)).catch(() => {}); else iv.clear(); }, 250);
+    };
+    const draw = async () => {
+      if (multiOn() && V.mode === "two") V.cur = ml.start(V.cur);
+      const pg = V.pages[V.cur]; if (!pg) return;
+      const t = ++V.token, x = V.items[pg.i];
+      drawMeta();
+      if (multiOn()) { ml.go(V.cur); syncInk(); return; }
       const cv = $("#vCv", el), blank = $("#vBlank", el), ld = $("#vLoad", el);
       if (!pg.path && !pg.img) { iv?.clear(); cv.classList.add("hidden"); ld.classList.add("hidden"); blank.classList.remove("hidden"); blank.innerHTML = x.note ? `<b>백업찬양</b><span>${esc(x.note)}</span>` : `<b>${esc(x.title)}</b><span>${x.key ? esc(x.key) + " · " : ""}${x.memo ? esc(x.memo) + " · " : ""}악보가 없어요</span>`; return; }
       blank.classList.add("hidden"); ld.classList.remove("hidden"); ld.textContent = "불러오는 중…";
@@ -302,25 +324,38 @@
         for (const n2 of [V.pages[V.cur + 1], V.pages[V.cur - 1]]) { if (!n2) continue; if (n2.path) doc(n2.path).catch(() => {}); if (n2.img) image(n2.img).catch(() => {}); iv?.warm?.(n2); }
       } catch (err) { if (t === V.token) ld.textContent = err.message || "악보를 열지 못했어요"; }
     };
-    const go = (k, auto) => { const n = Math.max(0, Math.min(V.pages.length - 1, k)); if (!auto && V.follow) { V.follow = false; drawLive(); } if (n !== V.cur) { V.cur = n; draw(); } };
+    const go = (k, auto) => { let n = Math.max(0, Math.min(V.pages.length - 1, k)); if (multiOn() && V.mode === "two") n = ml.start(n); if (!auto && V.follow) { V.follow = false; drawLive(); } if (n !== V.cur) { V.cur = n; draw(); } };
+    const turn = (d) => (multiOn() && V.mode === "two" ? go(d > 0 ? ml.next(V.cur) : ml.prev(V.cur)) : go(V.cur + d));
     const goItem = (id, auto) => { const i = V.items.findIndex((x) => x.id === id); if (i >= 0) go(Math.max(0, V.pages.findIndex((p) => p.i === i)), auto); };
+    const applyMode = (skipDraw) => {
+      el.querySelectorAll("[data-v-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vMode === V.mode)));
+      el.classList.toggle("cvv-multi", multiOn());
+      if (multiOn()) { if (V.mode === "two") V.cur = ml.start(V.cur); ml.show(V.mode, V.pages, V.items, V.cur); } else ml?.hide();
+      if (skipDraw) return drawMeta();
+      V.token++; draw();
+    };
     const rebuild = () => {
       const pg = V.pages[V.cur], id = V.items[pg?.i]?.id, n = pg?.n || 1;
       build(); strip();
       let c = V.pages.findIndex((p) => V.items[p.i]?.id === id && p.n === n); if (c < 0) c = V.pages.findIndex((p) => V.items[p.i]?.id === id);
       V.cur = c >= 0 ? c : Math.min(V.cur, V.pages.length - 1);
+      if (multiOn()) { if (V.mode === "two") V.cur = ml.start(V.cur); ml.show(V.mode, V.pages, V.items, V.cur); }
       draw();
     };
     strip();
     const first = follow && liveOn() ? lv().now : at;
     if (first) { const i = first === "backup" ? V.items.findIndex((x) => x.kind === "backup") : V.items.findIndex((x) => x.id === first); V.cur = Math.max(0, V.pages.findIndex((p) => p.i === Math.max(0, i))); }
     V.follow = !!(follow && liveOn());
-    draw(); wake(true);
-    const onKey = (e) => { if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(V.cur + 1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); go(V.cur - 1); } };
+    if (multiOn()) applyMode(); else draw();
+    wake(true);
+    const onKey = (e) => { if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); turn(1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); turn(-1); } };
     document.addEventListener("keydown", onKey);
     el.addEventListener("click", (e) => {
+      const mb = e.target.closest("[data-v-mode]");
+      if (mb) { const m = mb.dataset.vMode; if (m === V.mode && !V.temp) return; if (iv?.state?.pen) iv.setPen(false); V.mode = m; V.temp = false; V.penTemp = false; ls.set(VIEW_K, m); applyMode(); return toast(`${VIEW_NAME[m]} 보기`, 1500); }
       const b = e.target.closest("[data-v]");
-      if (b) { const a = b.dataset.v; if (a === "close") return history.back(); if (a === "prev") return go(V.cur - 1); if (a === "next") return go(V.cur + 1);
+      if (b) { const a = b.dataset.v; if (a === "close") return history.back(); if (a === "prev") return turn(-1); if (a === "next") return turn(1);
+        if (a === "unone") { if (iv?.state?.pen) iv.setPen(false); V.temp = false; V.penTemp = false; return applyMode(); }
         if (a === "golive") { V.follow = true; drawLive(); if (lv().now) goItem(lv().now, true); return; }
         if (a === "unfollow") { V.follow = false; return drawLive(); } }
       const i = e.target.closest("[data-vi]"); if (i) go(V.pages.findIndex((p) => p.i === +i.dataset.vi));
@@ -329,7 +364,7 @@
     window.addEventListener("popstate", onPop);
     const vapi = {
       get hasLive() { return liveOn(); },
-      close(fromPop) { window.removeEventListener("popstate", onPop); document.removeEventListener("keydown", onKey); iv?.destroy(); el.remove(); document.body.classList.remove("cv-open"); S.viewer = null; wake(false); if (!fromPop && history.state?.shv) history.back(); },
+      close(fromPop) { window.removeEventListener("popstate", onPop); document.removeEventListener("keydown", onKey); iv?.destroy(); ml?.destroy(); el.remove(); document.body.classList.remove("cv-open"); S.viewer = null; wake(false); if (!fromPop && history.state?.shv) history.back(); },
       refresh() { rebuild(); },
       onLive(prev) {
         const was = !!(prev?.active);
@@ -339,7 +374,7 @@
         drawLive();
       },
     };
-    el._viewer = V; V.api = vapi;
+    el._viewer = V; V.api = vapi; V.ml = ml; V.turn = turn; V.applyMode = applyMode;
     S.viewer = vapi;
     poll();
     return vapi;

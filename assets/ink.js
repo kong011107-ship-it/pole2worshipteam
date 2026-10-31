@@ -351,7 +351,8 @@
   }
 
   // ------------------------------------------------------------------ 보기 (확대 · 이동 · 필기)
-  function view({ stage, canvas, root, bar, onTurn, label = "" }) {
+  //  030: onPen(on, layer) — 펜을 켜고 끌 때 (두 쪽 · 세로 보기에서 필기는 한 쪽으로 잠깐 바꿔요)
+  function view({ stage, canvas, root, bar, onTurn, onPen, label = "" }) {
     const tapeCv = document.createElement("canvas"); tapeCv.className = "iv-tape";
     const ink = document.createElement("canvas"); ink.className = "iv-ink";
     const paper = document.createElement("div"); paper.className = "iv-paper hidden";
@@ -478,7 +479,7 @@
           : `<span class="iv-grp iv-sw">${cols.map((c, i) => `<button type="button" class="iv-c" data-iv-c="${i}" style="--c:${c}" aria-pressed="${ci === i}" aria-label="${names[i]}"></button>`).join("")}</span>`}
         ${tool !== "eraser" ? `<span class="iv-grp">${sizes.map(([w, n], i) => `<button type="button" class="iv-sz" data-iv-sz="${i}" aria-pressed="${si === i}" aria-label="${n}"><i style="width:${4 + i * 4}px;height:${4 + i * 4}px"></i></button>`).join("")}</span>` : ""}
         <button type="button" data-iv="undo" ${myUndo ? "" : "disabled"}>되돌리기</button>
-        ${sh ? `<button type="button" data-iv="who" aria-pressed="${pref.who}">고친 사람 보기</button>${V.sh?.kind === "extra" ? "" : `<button type="button" data-iv="fork">새 악보로 저장</button>`}${V.sh?.canEraseAll ? `<button type="button" data-iv="wipe">전부 지우기</button>` : ""}` : ""}
+        ${sh ? `<button type="button" data-iv="who" aria-pressed="${pref.who}">고친 사람 보기</button>${V.sh?.kind === "extra" || !V.sh?.fork ? "" : `<button type="button" data-iv="fork">새 악보로 저장</button>`}${V.sh?.canEraseAll ? `<button type="button" data-iv="wipe">전부 지우기</button>` : ""}` : ""}
         <button type="button" data-iv="finger" aria-pressed="${pref.finger}" title="애플펜슬이 없으면 켜요">손가락으로 쓰기</button>
         <span class="iv-sp"></span>
         ${sh ? `<span class="iv-me sh">모두에게 보여요 · 알림 없음</span>` : note ? `<span class="chip ${V.oldVer ? "chip-warn" : "chip-gray"}">${note}</span>` : S.local ? `<span class="iv-me" title="아이폰 · 아이패드는 사파리와 홈 화면 앱이 따로 저장해요">이 기기에만 저장돼요</span>` : `<span class="iv-me">나만 보여요</span>`}</div>
@@ -514,6 +515,7 @@
         shLoad([V.sh?.sheet], true).then((c) => { if (c) refreshShared(); });
       }
       if (!V.pen) { V.forkAsk = false; save(); flush(); }
+      if ((was || false) !== (V.pen && V.layer)) { try { onPen?.(V.pen, V.layer); } catch {} }
       renderBar(); renderHint(); apply();
       if (was === "shared" || (V.pen && layer === "shared")) compose();
       if (!V.pen && !zoomed()) fit();
@@ -892,6 +894,133 @@
   async function sharedFor(sheets, date) { await uid(); await shLoad(sheets, true); return (sheet, page) => shVisible(sheet, page, date); }
   // 029: 섬김이 링크 — 메모는 이 기기에만 (링크마다), 악보 도구는 링크 화면 것으로
   function setup({ lib, local } = {}) { if (lib) LIB = lib; if (local) { S.local = String(local); S.uid = "local"; } }
-  window.INK = { view, flush, load, setup, PENS, HIS, _S: S, _SH: SH, _RC: RC, ICON_PEN, paintOnPage, paintTape, sharedFor, U };
+
+  // =================================================================== 030: 두 쪽 · 세로 보기
+  //  쪽 그림 = 악보 + 공유 필기 + 내 메모(쪽 안만) — 보기만. 필기는 '메모' · '악보 고치기'를 누르면 한 쪽 보기로 잠깐 바꿔서
+  async function pageImage(pg, wpx) {
+    await uid();
+    if (pg.ink?.key) await load([pg.ink.key]).catch(() => {});
+    if (pg.shared?.sheet && !pg.shared.static) await shLoad([pg.shared.sheet]).catch(() => {});
+    const meta = await pageMeta(pg);
+    const { cv: base } = await paintCached(pg, meta, wpx);
+    const cv = document.createElement("canvas"); cv.width = base.width; cv.height = base.height;
+    const g = cv.getContext("2d"); g.drawImage(base, 0, 0);
+    const tf = { ox: 0, oy: 0, k: cv.width };
+    const sh = pg.shared?.sheet ? (pg.shared.static || shVisible(pg.shared.sheet, pg.shared.page, pg.shared.date, pg.shared.ver)) : [];
+    if (sh.length) paintOnPage(g, sh, tf);
+    const memo = pg.ink?.key && !pref.hide ? S.mem.get(idOf(pg.ink.key, pg.ink.page))?.strokes || [] : [];
+    if (memo.length) { paintTape(g, memo, tf); paintOnPage(g, memo.filter((s) => s.t !== "t"), tf); }
+    return { cv, A: meta.A };
+  }
+  //  multi({ stage, onPage(k), onTurn(d), onOpen(k) })
+  //    show(mode, pages, items, cur) — mode 'two'(곡 안에서만 1·2 · 3·4 짝) · 'scroll'(위아래로 이어 붙임)
+  //    go(k) → 그 쪽이 보이게 (두 쪽이면 짝의 첫 쪽을 돌려줌) · hide() · refresh() · start(k) · next(k) · prev(k)
+  function multi({ stage, onPage, onTurn, onOpen }) {
+    const box = document.createElement("div"); box.className = "ivm hidden"; box.setAttribute("aria-label", "악보");
+    stage.appendChild(box);
+    const M = { mode: null, pages: [], items: [], cur: 0, token: 0, obs: null, els: [], done: new Set(), raf: 0, lastTap: 0 };
+    const dpr = () => Math.min(window.devicePixelRatio || 1, 2.5);
+    // 두 쪽 짝: 같은 곡 안에서 홀수 쪽이 왼쪽
+    const start = (k) => { const p = M.pages[k]; if (!p) return k; return p.n % 2 === 0 && M.pages[k - 1]?.i === p.i ? k - 1 : k; };
+    const partner = (a) => { const p = M.pages[a], q = M.pages[a + 1]; return p && q && q.i === p.i && p.n % 2 === 1 ? a + 1 : null; };
+    const next = (k) => { const a = start(k), b = partner(a); return Math.min(M.pages.length - 1, (b ?? a) + 1); };
+    const prev = (k) => start(Math.max(0, start(k) - 1));
+    const blankHTML = (pg) => { const x = M.items[pg.i] || {}; return `<div class="ivm-blank"><b>${esc(x.title || "")}</b><span>${x.note ? esc(x.note) : `${x.key ? esc(x.key) + " · " : ""}악보가 없어요`}</span></div>`; };
+    async function paint(holder, k, wpx) {
+      const pg = M.pages[k]; if (!pg) return;
+      if (!pg.path && !pg.img) { holder.innerHTML = blankHTML(pg); holder.style.aspectRatio = ""; return; }
+      try {
+        const { cv, A } = await pageImage(pg, wpx);
+        cv.className = "ivm-cv"; holder.replaceChildren(cv); holder.style.aspectRatio = `1 / ${A}`; holder.dataset.a = A;
+      } catch (err) { holder.innerHTML = `<div class="ivm-blank"><span>${esc(err.message || "악보를 열지 못했어요")}</span></div>`; }
+    }
+    // ---- 두 쪽
+    async function drawTwo(k) {
+      const t = ++M.token, a = start(k), b = partner(a);
+      M.cur = a;
+      box.innerHTML = `<div class="ivm-sp ${b == null ? "one" : ""}"><div class="ivm-pg" data-k="${a}"></div>${b != null ? `<div class="ivm-pg" data-k="${b}"></div>` : ""}</div>`;
+      const W = box.clientWidth, H = box.clientHeight, gap = 10;
+      const cells = [...box.querySelectorAll(".ivm-pg")];
+      // 크기: 한 쪽 너비 = min(화면 너비 / 2, 높이 / 비율)
+      const metaA = async (kk) => { const pg = M.pages[kk]; if (!pg?.path && !pg?.img) return 1.414; try { return (await pageMeta(pg)).A; } catch { return 1.414; } };
+      const As = await Promise.all(cells.map((c) => metaA(+c.dataset.k)));
+      if (t !== M.token) return a;
+      const n = cells.length, wEach = Math.max(80, Math.min((W - gap * (n + 1)) / 2, ...As.map((A) => (H - 16) / A)));
+      cells.forEach((c, j) => { c.style.width = `${Math.floor(wEach)}px`; c.style.aspectRatio = `1 / ${As[j]}`; });
+      await Promise.all(cells.map((c) => paint(c, +c.dataset.k, wEach * dpr())));
+      return a;
+    }
+    // ---- 세로 (위아래로 이어서 · 보이는 쪽만 그려요)
+    function buildScroll() {
+      M.done = new Set(); M.obs?.disconnect();
+      let html = "", last = -1;
+      M.pages.forEach((p, k) => {
+        if (p.i !== last) { const x = M.items[p.i] || {}; html += `<div class="ivm-h"><i>${esc(x.tag || String(p.i + 1))}</i><b>${esc(x.title || "")}</b>${x.key ? `<span>${esc(x.key)}</span>` : ""}</div>`; last = p.i; }
+        html += `<div class="ivm-pg" data-k="${k}" style="aspect-ratio:1 / 1.414"></div>`;
+      });
+      box.innerHTML = `<div class="ivm-col">${html}<div class="ivm-end">마지막 쪽이에요</div></div>`;
+      M.els = [...box.querySelectorAll(".ivm-pg")];
+      M.obs = new IntersectionObserver((ents) => ents.forEach((en) => {
+        if (!en.isIntersecting) return;
+        const k = +en.target.dataset.k; if (M.done.has(k)) return;
+        M.done.add(k); paint(en.target, k, en.target.clientWidth * dpr());
+      }), { root: box, rootMargin: "800px 0px" });
+      M.els.forEach((el) => M.obs.observe(el));
+    }
+    function onScroll() {
+      if (M.mode !== "scroll" || M.raf) return;
+      M.raf = requestAnimationFrame(() => {
+        M.raf = 0;
+        const top = box.getBoundingClientRect().top + box.clientHeight * 0.3;
+        let k = 0; for (let j = 0; j < M.els.length; j++) { if (M.els[j].getBoundingClientRect().top <= top) k = j; else break; }
+        if (k !== M.cur) { M.cur = k; onPage?.(k); }
+      });
+    }
+    box.addEventListener("scroll", onScroll, { passive: true });
+    // 손가락: 두 쪽은 밀어서 · 양쪽 끝 눌러서 넘기기 · 두 번 톡 = 그 쪽을 한 쪽 보기로
+    let sw = null;
+    ["pointerdown", "pointermove", "pointerup", "pointercancel", "wheel", "dblclick", "click"].forEach((ev) => box.addEventListener(ev, (e) => e.stopPropagation()));
+    box.addEventListener("pointerdown", (e) => { sw = { x: e.clientX, y: e.clientY, t: Date.now() }; });
+    box.addEventListener("pointerup", (e) => {
+      if (!sw) return; const dx = e.clientX - sw.x, dy = e.clientY - sw.y, s = sw; sw = null;
+      if (M.mode === "two" && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) return onTurn?.(dx < 0 ? 1 : -1);
+      if (Math.abs(dx) + Math.abs(dy) > 12 || Date.now() - s.t > 500) return;
+      const cell = e.target.closest(".ivm-pg");
+      const now = Date.now();
+      if (cell && now - M.lastTap < 320) { M.lastTap = 0; clearTimeout(M.tapT); return onOpen?.(+cell.dataset.k); }
+      M.lastTap = now;
+      if (M.mode === "two") {
+        const r = box.getBoundingClientRect(), x = (e.clientX - r.left) / r.width;
+        clearTimeout(M.tapT);
+        if (x < 0.22 || x > 0.78) M.tapT = setTimeout(() => onTurn?.(x < 0.5 ? -1 : 1), 330);
+      }
+    });
+    let lastWH = "";
+    const ro = window.ResizeObserver ? new ResizeObserver(() => {
+      const wh = `${box.clientWidth}x${box.clientHeight}`; if (wh === lastWH || box.classList.contains("hidden")) return; lastWH = wh;
+      if (M.mode === "two") drawTwo(M.cur); else if (M.mode === "scroll") { M.done.clear(); M.els.forEach((el) => { el.replaceChildren(); M.obs?.unobserve(el); M.obs?.observe(el); }); }
+    }) : null;
+    ro?.observe(box);
+    return {
+      show(mode, pages, items, cur) {
+        M.mode = mode; M.pages = pages; M.items = items; M.cur = cur || 0;
+        box.className = `ivm ${mode}`;
+        if (mode === "scroll") { buildScroll(); this.go(M.cur); return M.cur; }
+        return drawTwo(M.cur);
+      },
+      go(k) {
+        if (M.mode === "two") { if (start(k) !== M.cur || !box.querySelector(".ivm-pg")) return drawTwo(k); return M.cur; }
+        if (M.mode === "scroll") { M.cur = k; const el = M.els[k]; if (el) { const h = el.previousElementSibling?.classList.contains("ivm-h") ? el.previousElementSibling : el; box.scrollTop = h.offsetTop - 6; } return k; }
+        return k;
+      },
+      refresh() { if (M.mode === "two") drawTwo(M.cur); else if (M.mode === "scroll") { M.done.clear(); M.els.forEach((el) => { M.obs?.unobserve(el); M.obs?.observe(el); }); } },
+      hide() { M.mode = null; M.token++; box.className = "ivm hidden"; box.innerHTML = ""; M.obs?.disconnect(); M.els = []; },
+      start, next, prev, partner,
+      get mode() { return M.mode; }, get cur() { return M.cur; },
+      get state() { return { mode: M.mode, cur: M.cur, shown: [...box.querySelectorAll(".ivm-pg")].map((x) => +x.dataset.k), painted: box.querySelectorAll(".ivm-cv").length, scrollTop: box.scrollTop }; },
+      destroy() { ro?.disconnect(); M.obs?.disconnect(); box.remove(); },
+    };
+  }
+  window.INK = { view, multi, pageImage, flush, load, setup, PENS, HIS, _S: S, _SH: SH, _RC: RC, ICON_PEN, paintOnPage, paintTape, sharedFor, U };
   flush();
 })();
