@@ -330,7 +330,7 @@
     const applyMode = (skipDraw) => {
       el.querySelectorAll("[data-v-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vMode === V.mode)));
       el.classList.toggle("cvv-multi", multiOn());
-      if (multiOn()) { if (V.mode === "two") V.cur = ml.start(V.cur); ml.show(V.mode, V.pages, V.items, V.cur); } else ml?.hide();
+      if (multiOn()) { if (V.mode === "two") V.cur = ml.prep(V.pages, V.items).start(V.cur); ml.show(V.mode, V.pages, V.items, V.cur); } else ml?.hide();
       if (skipDraw) return drawMeta();
       V.token++; draw();
     };
@@ -339,7 +339,7 @@
       build(); strip();
       let c = V.pages.findIndex((p) => V.items[p.i]?.id === id && p.n === n); if (c < 0) c = V.pages.findIndex((p) => V.items[p.i]?.id === id);
       V.cur = c >= 0 ? c : Math.min(V.cur, V.pages.length - 1);
-      if (multiOn()) { if (V.mode === "two") V.cur = ml.start(V.cur); ml.show(V.mode, V.pages, V.items, V.cur); }
+      if (multiOn()) { if (V.mode === "two") V.cur = ml.prep(V.pages, V.items).start(V.cur); ml.show(V.mode, V.pages, V.items, V.cur); }
       draw();
     };
     strip();

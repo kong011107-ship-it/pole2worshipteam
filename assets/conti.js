@@ -1088,7 +1088,7 @@
     const applyMode = (skipDraw) => {
       el.querySelectorAll("[data-cvv-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cvvMode === V.mode)));
       el.classList.toggle("cvv-multi", multiOn());
-      if (multiOn()) { if (V.mode === "two") V.cur = V.ml.start(V.cur); V.ml.show(V.mode, V.pages, V.items, V.cur); }
+      if (multiOn()) { if (V.mode === "two") V.cur = V.ml.prep(V.pages, V.items).start(V.cur); V.ml.show(V.mode, V.pages, V.items, V.cur); }
       else V.ml?.hide();
       if (skipDraw) return drawMeta();
       V.token++; draw();
@@ -1102,7 +1102,7 @@
       if (c < 0) c = V.pages.findIndex((p) => V.items[p.i]?.id === id);
       V.cur = c >= 0 ? c : Math.min(V.cur, V.pages.length - 1);
       V.ink?.prefetch(V.pages.map((p) => p.ink?.key));
-      if (multiOn()) { if (V.mode === "two") V.cur = V.ml.start(V.cur); V.ml.show(V.mode, V.pages, V.items, V.cur); }
+      if (multiOn()) { if (V.mode === "two") V.cur = V.ml.prep(V.pages, V.items).start(V.cur); V.ml.show(V.mode, V.pages, V.items, V.cur); }
       draw();
     };
     // 백업찬양이 바뀌면 (후보 · 확정 · 기도회 시작 · 다음 곡 시작 · 끝)

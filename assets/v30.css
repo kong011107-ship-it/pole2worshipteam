@@ -35,7 +35,7 @@
 .ivm.scroll .ivm-pg:has(.ivm-blank) { aspect-ratio: auto !important; }
 
 /* ---------- 악보 보기: 파트 악보 단추 · 고르기 ---------- */
-.cvv-part { flex: none; display: inline-flex; align-items: baseline; gap: 6px; min-height: 34px; margin: 0 0 10px 10px; padding: 0 12px; border-radius: 17px; border: 1px dashed rgba(255,255,255,.4); background: transparent; color: #E8E0F4; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.cvv-part { flex: none; display: inline-flex; align-items: center; line-height: 1; gap: 6px; min-height: 34px; margin: 0 0 10px 10px; padding: 0 12px; border-radius: 17px; border: 1px dashed rgba(255,255,255,.4); background: transparent; color: #E8E0F4; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
 .cvv-part b { font-size: 13px; font-weight: 800; color: #fff; }
 .cvv-part.on { border-style: solid; border-color: #F7A8D0; background: rgba(247,168,208,.16); }
 .cvv-part.on b { color: #FFD1E6; }

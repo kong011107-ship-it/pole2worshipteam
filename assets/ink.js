@@ -920,9 +920,19 @@
     stage.appendChild(box);
     const M = { mode: null, pages: [], items: [], cur: 0, token: 0, obs: null, els: [], done: new Set(), raf: 0, lastTap: 0 };
     const dpr = () => Math.min(window.devicePixelRatio || 1, 2.5);
-    // 두 쪽 짝: 같은 곡 안에서 홀수 쪽이 왼쪽
-    const start = (k) => { const p = M.pages[k]; if (!p) return k; return p.n % 2 === 0 && M.pages[k - 1]?.i === p.i ? k - 1 : k; };
-    const partner = (a) => { const p = M.pages[a], q = M.pages[a + 1]; return p && q && q.i === p.i && p.n % 2 === 1 ? a + 1 : null; };
+    // 두 쪽 짝: 같은 곡 안에서 홀수 쪽이 왼쪽 — 031: 메들리(이어 부르는 '+' 곡)는 묶음 전체를 한 곡처럼 이어서 짝
+    const prep = (pages, items) => {
+      M.pages = pages; M.items = items; M.G = []; M.N = [];
+      let g = -1, n = 0, last = -1;
+      pages.forEach((p, k) => {
+        if (p.i !== last) { const x = items[p.i] || {}; if (!(last >= 0 && (x.join || x.tag === "+"))) { g++; n = 0; } last = p.i; }
+        M.G[k] = g; M.N[k] = ++n;
+      });
+      return api;
+    };
+    const gOf = (k) => M.G?.[k] ?? M.pages[k]?.i, nOf = (k) => M.N?.[k] ?? M.pages[k]?.n;
+    const start = (k) => { const p = M.pages[k]; if (!p) return k; return nOf(k) % 2 === 0 && M.pages[k - 1] && gOf(k - 1) === gOf(k) ? k - 1 : k; };
+    const partner = (a) => { const p = M.pages[a], q = M.pages[a + 1]; return p && q && gOf(a + 1) === gOf(a) && nOf(a) % 2 === 1 ? a + 1 : null; };
     const next = (k) => { const a = start(k), b = partner(a); return Math.min(M.pages.length - 1, (b ?? a) + 1); };
     const prev = (k) => start(Math.max(0, start(k) - 1));
     const blankHTML = (pg) => { const x = M.items[pg.i] || {}; return `<div class="ivm-blank"><b>${esc(x.title || "")}</b><span>${x.note ? esc(x.note) : `${x.key ? esc(x.key) + " · " : ""}악보가 없어요`}</span></div>`; };
@@ -1001,9 +1011,9 @@
       if (M.mode === "two") drawTwo(M.cur); else if (M.mode === "scroll") { M.done.clear(); M.els.forEach((el) => { el.replaceChildren(); M.obs?.unobserve(el); M.obs?.observe(el); }); }
     }) : null;
     ro?.observe(box);
-    return {
+    const api = {
       show(mode, pages, items, cur) {
-        M.mode = mode; M.pages = pages; M.items = items; M.cur = cur || 0;
+        prep(pages, items); M.mode = mode; M.cur = cur || 0;
         box.className = `ivm ${mode}`;
         if (mode === "scroll") { buildScroll(); this.go(M.cur); return M.cur; }
         return drawTwo(M.cur);
@@ -1015,11 +1025,12 @@
       },
       refresh() { if (M.mode === "two") drawTwo(M.cur); else if (M.mode === "scroll") { M.done.clear(); M.els.forEach((el) => { M.obs?.unobserve(el); M.obs?.observe(el); }); } },
       hide() { M.mode = null; M.token++; box.className = "ivm hidden"; box.innerHTML = ""; M.obs?.disconnect(); M.els = []; },
-      start, next, prev, partner,
+      start, next, prev, partner, prep,
       get mode() { return M.mode; }, get cur() { return M.cur; },
       get state() { return { mode: M.mode, cur: M.cur, shown: [...box.querySelectorAll(".ivm-pg")].map((x) => +x.dataset.k), painted: box.querySelectorAll(".ivm-cv").length, scrollTop: box.scrollTop }; },
       destroy() { ro?.disconnect(); M.obs?.disconnect(); box.remove(); },
     };
+    return api;
   }
   window.INK = { view, multi, pageImage, flush, load, setup, PENS, HIS, _S: S, _SH: SH, _RC: RC, ICON_PEN, paintOnPage, paintTape, sharedFor, U };
   flush();
