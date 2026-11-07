@@ -70,7 +70,9 @@ export default handler(async (req, body) => {
       people = (await pollPeople(db, mi)).eligible; dl = mi.poll_deadline;
     }
     const vars = { "사역": mi.name, "마감일": dl ? mdw(dl) : "" };
-    return deliver(db, { kind, items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
+    // 031: 응답과 연습 시간 취합이 같이 열려 있으면 알림 하나에 합쳐요
+    const tail = kind === "minopen" && mi.practice_mode === "poll" && mi.poll_open ? " · 가능하면 연습 시간도 칠해 주세요" : "";
+    return deliver(db, { kind, items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) + tail })),
       url: kind === "poll" ? "/me.html#respond/poll:all" : `/me.html#respond/min:${mi.id}`, label: `${mi.name} · ${kind === "poll" ? "'가능' 응답자" : "응답 대상"} ${people.length}명`, by: user.id, sentKey: `${kind}:${mi.id}` });
   }
 

@@ -7,7 +7,7 @@
 // =====================================================================
 (function () {
   // 030: 두 쪽 · 세로 보기 스타일
-  if (!document.querySelector('link[href*="v30.css"]')) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "assets/v30.css?v=32"; document.head.appendChild(l); }
+  if (!document.querySelector('link[href*="v30.css"]')) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "assets/v30.css?v=33"; document.head.appendChild(l); }
   const VIEW_K = "pole2.view.mode", VIEW_NAME = { one: "한 쪽", two: "두 쪽", scroll: "세로" };
   const T = new URLSearchParams(location.search).get("t") || "";
   const $ = (s, r = document) => r.querySelector(s);

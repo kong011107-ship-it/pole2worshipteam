@@ -4153,7 +4153,8 @@
             <div class="row"><span class="small" style="font-weight:700;width:72px">시간대</span><input type="time" class="input" id="pDS" value="${hm(f.poll_day_start)}" step="1800" style="width:auto"><span class="muted">–</span><input type="time" class="input" id="pDE" value="${hm(f.poll_day_end)}" step="1800" style="width:auto"><span class="small muted">모든 날짜 같게 · 30분 칸 (주말 종일 + 평일 저녁이면 넓게)</span></div>
             <div class="row"><span class="small" style="font-weight:700;width:72px">연습 길이</span><div class="seg" id="pLen">${mins.map((n) => `<button type="button" data-v="${n}" aria-pressed="${f.practice_minutes === n}">${n % 60 ? `${Math.floor(n / 60)}시간 30분` : `${n / 60}시간`}</button>`).join("")}<button type="button" data-v="custom" aria-pressed="${!mins.includes(f.practice_minutes)}">직접</button></div>
               <input type="number" class="input ${mins.includes(f.practice_minutes) ? "hidden" : ""}" id="pLenN" min="30" max="480" step="30" value="${f.practice_minutes}" style="width:90px"><span class="small muted ${mins.includes(f.practice_minutes) ? "hidden" : ""}" id="pLenU">분</span></div>
-            <div class="row"><span class="small" style="font-weight:700;width:72px">응답 마감</span><input type="date" class="input" id="pDl" value="${f.poll_deadline || ""}" style="width:auto"><span class="small muted">취합은 사역 화면에서 열어요</span></div></div></div>`,
+            <div class="row"><span class="small" style="font-weight:700;width:72px">응답 마감</span><input type="date" class="input" id="pDl" value="${f.poll_deadline || ""}" style="width:auto">${mi ? `<span class="small muted">${mi.poll_open ? "지금 취합 중이에요" : "취합은 사역 화면에서 열어요"}</span>` : ""}</div>
+            ${mi ? "" : `<label class="checkrow" style="margin-top:2px"><input type="checkbox" id="pOpenNow" checked><span><b>응답과 함께 연습 시간도 바로 받기</b><small>본 섬김 '가능'을 누르면 바로 아래에 연습 시간 칠하기가 열려요 · 후보 날짜가 아직 안 정해졌으면 끄고, 나중에 사역 화면에서 열어요</small></span></label>`}</div></div>`,
       onInput: (e) => {
         if (!e) return;
         const t = e.target;
@@ -4214,7 +4215,9 @@
         // 사역
         let id = mi?.id;
         if (mi) { const { error } = await sb.from("ministries").update(row).eq("id", id); if (error) throw new Error("저장하지 못했습니다"); }
-        else { const { data, error } = await sb.from("ministries").insert({ ...row, response_open: true }).select("id").single(); if (error) throw new Error("저장하지 못했습니다: " + error.message); id = data.id; }
+        // 031: 새 사역은 연습 시간 취합도 같이 열 수 있어요 (기본 켬)
+        const pollNow = !mi && pmode === "poll" && !!$("#pOpenNow")?.checked;
+        if (!mi) { const { data, error } = await sb.from("ministries").insert({ ...row, response_open: true, poll_open: pollNow }).select("id").single(); if (error) throw new Error("저장하지 못했습니다: " + error.message); id = data.id; }
         // 예배
         const keep = svs.filter((s) => s.id).map((s) => s.id);
         const gone = (mi?.services || []).filter((s) => !keep.includes(s.id)).map((s) => s.id);
@@ -4238,7 +4241,7 @@
             if (error) throw new Error("연습을 저장하지 못했습니다");
           }
         }
-        close(); toast(mi ? "저장했어요" : `${name}을(를) 추가했어요`);
+        close(); toast(mi ? "저장했어요" : `${name}을(를) 추가했어요${pollNow ? " · 연습 시간 취합도 열었어요" : ""}`);
         if (!mi && rmode === "separate") MS.askPush = id;
         nav(`ministry/${id}`);
       },
@@ -4252,7 +4255,7 @@
     if (!(await notifyEnabled("minopen"))) return toast("'사역 응답 열림' 알림이 알림 설정에서 꺼져 있어요", 3500);
     const again = await sentAny([`minopen:${mi.id}`]);
     modal({ title: `${mi.name} 응답 알림 보내기`,
-      body: `<p style="margin:0">응답 대상 ${n}명에게 '${esc(mi.name)} 섬김 응답을 받고 있어요' 푸시 알림을 보내요.${again ? " <b>이미 한 번 보냈어요.</b>" : ""}</p>`,
+      body: `<p style="margin:0">응답 대상 ${n}명에게 '${esc(mi.name)} 섬김 응답을 받고 있어요' 푸시 알림을 보내요.${mi.practice_mode === "poll" && mi.poll_open ? " 연습 시간 취합도 열려 있어서 <b>'가능하면 연습 시간도 칠해 주세요'</b>를 같이 붙여요 (알림은 한 번만)." : ""}${again ? " <b>이미 한 번 보냈어요.</b>" : ""}</p>`,
       confirmLabel: again ? "한 번 더 보내기" : "보내기", cancelLabel: "나중에",
       onConfirm: async (close) => { const t = await sendPush("minopen", { ministry_id: mi.id }); close(); toast(`보냈어요${t}`, 4000); } });
   }

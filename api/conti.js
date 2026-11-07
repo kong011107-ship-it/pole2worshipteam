@@ -2,6 +2,7 @@
 //  { action: "notify", service_id }  — 콘티를 올린(다시 올린) 사람이 부름 → 그 예배 섬김자에게 '올라옴' / '수정됨'
 //      올린 버전마다 한 번만 (setlists.notified_version). 알림 설정에서 꺼 두면 알림함에만 남지 않고 건너뜀
 //      023: 다시 올렸는데 악보만 바뀌었으면 알림 없이 '악보 바뀜'(sheet_changes)만 남김
+//  031: { action: "sheet-notify", service_id } — 악보 없이 올린 곡이 처음 채워지면 라인업에 한 번 (곡마다)
 //  { action: "yt", ids: [...] }        — 레퍼런스 영상 길이 (YouTube Data API · 환경변수 YOUTUBE_API_KEY). 한 번 가져오면 저장
 //  { action: "yt-fill" }               — 리더십: 지난 기록의 레퍼런스 영상 길이를 한 번에 채움
 //  025: 지난 예배 콘티를 고치면 알림 없음 · BPM만 바뀌면 알림 없음
@@ -19,6 +20,7 @@ export default handler(async (req, body) => {
   if (body.action === "notify") return notify(req, db, body);
   if (body.action === "applied-notify") return appliedNotify(req, db, body);
   if (body.action === "backup-notify") return backupNotify(req, db);
+  if (body.action === "sheet-notify") return sheetNotify(req, db, body);
   if (body.action === "yt") { await requireMember(req, db); return { ...(await ytLookup(db, body.ids)) }; }
   if (body.action === "yt-fill") { await requireAdmin(req, db); return ytFill(db); }
   if (body.action === "share") return share(db, body);
@@ -34,21 +36,27 @@ async function notify(req, db, body) {
   if (!s) throw new HttpError(404, "예배를 찾을 수 없어요.");
   const mine = (s.assignments || []).some((a) => a.member_id === me.id && (a.position_code === "leader" || a.is_band_master));
   if (me.role !== "admin" && !mine) throw new HttpError(403, "이 예배의 콘티를 올린 사람이 아니에요.");
-  const { data: sl } = await db.from("setlists").select("id, status, version, notified_version, changes, setlist_items(ord, songs(title))").eq("service_id", sid).maybeSingle();
+  const { data: sl } = await db.from("setlists").select("id, status, version, notified_version, changes, sheet_told, setlist_items(ord, song_id, sheet_id, page_from, join_prev, songs(title))").eq("service_id", sid).maybeSingle();
   if (!sl || sl.status !== "published") throw new HttpError(400, "아직 올라온 콘티가 없어요.");
   if (sl.version <= sl.notified_version) return { skipped: true, recipients: 0, pushed: 0 };
+  const have = sheetSongs(sl);
+  const told = async () => { await db.from("setlists").update({ sheet_told: have.map((x) => x.song_id) }).eq("id", sl.id); };
   // 025: 지난 예배는 고쳐도 알림 없음 (기록 바로잡기)
-  if (s.service_date < kstToday()) { await db.from("setlists").update({ notified_version: sl.version }).eq("id", sl.id).lt("notified_version", sl.version); return { skipped: true, past: true, recipients: 0, pushed: 0 }; }
+  if (s.service_date < kstToday()) { await db.from("setlists").update({ notified_version: sl.version }).eq("id", sl.id).lt("notified_version", sl.version); await told(); return { skipped: true, past: true, recipients: 0, pushed: 0 }; }
   const kind = sl.notified_version > 0 ? "conti_edit" : "conti_up";
   const st = await settingOf(db, kind);
   const done = async () => { await db.from("setlists").update({ notified_version: sl.version }).eq("id", sl.id).lt("notified_version", sl.version); };
-  if (!st.enabled) { await done(); return { skipped: true, recipients: 0, pushed: 0, kind }; }
+  if (!st.enabled) { await done(); await told(); return { skipped: true, recipients: 0, pushed: 0, kind }; }
   // 023: 다시 올렸는데 악보만 바뀌었으면 알림 없이 '악보 바뀜'만
   const txt = [].concat(sl.changes?.text || []);
   //  025: BPM만 바뀐 때도 알림 없음
   if (kind === "conti_edit" && txt.length && txt.every((t) => t === "악보 PDF 교체" || t === "BPM 수정")) {
     if (txt.includes("악보 PDF 교체")) await db.from("setlists").update({ sheet_changes: { at: new Date().toISOString(), by: me.name } }).eq("id", sl.id);
-    await done(); return { skipped: true, sheetOnly: txt.includes("악보 PDF 교체"), bpmOnly: !txt.includes("악보 PDF 교체"), recipients: 0, pushed: 0, kind };
+    await done();
+    // 031: 악보 없이 올렸던 곡이 처음 채워졌으면 그건 알려요 (한 번만)
+    const r1 = await tellFilled(db, s, sl, have, me);
+    if (r1) return { ...r1, kind };
+    return { skipped: true, sheetOnly: txt.includes("악보 PDF 교체"), bpmOnly: !txt.includes("악보 PDF 교체"), recipients: 0, pushed: 0, kind };
   }
   const { count: sibs } = s.ministry_id ? await db.from("services").select("id", { count: "exact", head: true }).eq("ministry_id", s.ministry_id) : { count: 1 };
   const name = serviceName(s, (sibs || 1) > 1);
@@ -61,8 +69,50 @@ async function notify(req, db, body) {
     kind: "conti", by: me.id, url: `/me.html#worship/${sid}`, label: `${name} 콘티 ${kind === "conti_edit" ? "수정" : "올림"} · 섬김자 ${people?.length || 0}명`,
     items: (people || []).map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
   });
-  await done();
+  await done(); await told();
   return r ? { ...r, kind } : { skipped: true, recipients: 0, pushed: 0, kind };
+}
+
+// ---------------------------------------------------------------- 031: 악보 없이 올린 콘티 → 처음 채워진 악보 알림 (곡마다 한 번)
+//  악보가 있는 곡 = 저장된 악보(sheet_id) 또는 통합본 쪽(page_from). 메들리 뒷곡은 앞 곡 악보에 함께라 빼요
+//  setlists.sheet_told = 이미 알린(올릴 때 이미 있던) 곡. 비어 있으면(예전 콘티) 지금 것을 기준으로 삼고 알리지 않아요
+function sheetSongs(sl) {
+  return (sl.setlist_items || []).filter((x) => !x.join_prev && (x.sheet_id || x.page_from)).sort((a, b) => a.ord - b.ord)
+    .map((x) => ({ song_id: x.song_id, title: x.songs?.title || "" }));
+}
+async function tellFilled(db, s, sl, have, me) {
+  if (sl.sheet_told == null) { await db.from("setlists").update({ sheet_told: have.map((x) => x.song_id) }).eq("id", sl.id); return null; }
+  const prev = new Set(sl.sheet_told.map(Number));
+  const fresh = have.filter((x) => !prev.has(Number(x.song_id)));
+  if (!fresh.length) return null;
+  await db.from("setlists").update({ sheet_told: [...new Set([...prev, ...have.map((x) => Number(x.song_id))])] }).eq("id", sl.id);
+  const titles = fresh.map((x) => x.title).filter(Boolean);
+  if (s.service_date < kstToday()) return { skipped: true, past: true, filled: titles, recipients: 0, pushed: 0 };
+  const st = await settingOf(db, "conti_edit");
+  if (!st.enabled) return { skipped: true, filled: titles, recipients: 0, pushed: 0 };
+  const { count: sibs } = s.ministry_id ? await db.from("services").select("id", { count: "exact", head: true }).eq("ministry_id", s.ministry_id) : { count: 1 };
+  const name = serviceName(s, (sibs || 1) > 1);
+  const songs = (sl.setlist_items || []).sort((a, b) => a.ord - b.ord).map((x) => x.songs?.title).filter(Boolean);
+  const ids = [...new Set((s.assignments || []).map((a) => a.member_id).filter((id) => id && id !== me.id))];
+  const { data: people } = ids.length ? await db.from("members").select("id, name").in("id", ids).eq("is_active", true) : { data: [] };
+  const vars = { "예배": name, "곡": songs.join(" · "), "바뀐 것": `악보 올라옴: ${titles.join(" · ")}`, "올린 사람": me.name };
+  const r = await deliverOnce(db, `conti-sheet:${sl.id}:${fresh.map((x) => x.song_id).sort().join(",")}`, {
+    kind: "conti", by: me.id, url: `/me.html#worship/${s.id}`, label: `${name} 악보 올라옴 · 섬김자 ${people?.length || 0}명`,
+    items: (people || []).map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })),
+  });
+  return r ? { ...r, filled: titles } : { skipped: true, filled: titles, recipients: 0, pushed: 0 };
+}
+//  { action: "sheet-notify", service_id } — 밴드 · 인도자가 '악보 저장'(악보만)을 한 뒤 부름
+async function sheetNotify(req, db, body) {
+  const { me } = await requireMember(req, db);
+  const sid = String(body.service_id || "");
+  if (!/^[0-9a-f-]{36}$/i.test(sid)) throw new HttpError(400, "예배를 찾을 수 없어요.");
+  const { data: s } = await db.from("services").select("id, service_date, ministry_id, label, status, ministries(name), assignments(member_id, position_code, is_band_master)").eq("id", sid).maybeSingle();
+  if (!s) throw new HttpError(404, "예배를 찾을 수 없어요.");
+  if (me.role !== "admin" && !(s.assignments || []).some((a) => a.member_id === me.id)) throw new HttpError(403, "이 예배 라인업이 아니에요.");
+  const { data: sl } = await db.from("setlists").select("id, status, version, sheet_told, setlist_items(ord, song_id, sheet_id, page_from, join_prev, songs(title))").eq("service_id", sid).maybeSingle();
+  if (!sl || sl.status !== "published") return { skipped: true, filled: [], recipients: 0, pushed: 0 };
+  return (await tellFilled(db, s, sl, sheetSongs(sl), me)) || { skipped: true, filled: [], recipients: 0, pushed: 0 };
 }
 
 // ---------------------------------------------------------------- 027: 적용찬양 · 백업찬양 알림 (받는 사람 = 그 예배 라인업, 부른 사람 빼고)

@@ -1,0 +1,13 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/assets/app.css"><link rel="stylesheet" href="/assets/v31.css"></head><body>
+<div class="m-wrap"><header class="topbar"><img src="/assets/logo-violet.png" alt="Pole2"><span class="who">공준혁님</span></header>
+<div class="m-subnav" id="worshipNav"><div class="segbar" role="tablist"><button type="button" aria-pressed="false">콘티</button><button type="button" aria-pressed="false">백업찬양</button><button type="button" aria-pressed="true">기록</button></div></div>
+<main class="m-main" id="view-worship"><div id="wsHist"><div class="hx"><div class="tabs hx-tabs" role="tablist"><button aria-selected="true">콘티</button><button>곡</button><button>사람</button></div>
+<section>${'<div class="card" style="height:120px">카드</div>'}</section></div></div></main></div>
+<script>
+const sec = document.querySelector("section"); sec.innerHTML = Array.from({ length: 12 }, (_, i) => `<div class="card" style="min-height:110px"><b>카드 ${i + 1}</b></div>`).join("");
+const $$ = (s) => [...document.querySelectorAll(s)], $ = (s) => document.querySelector(s);
+function stickTabs() { const nav = $$(".m-subnav").find((n) => !n.classList.contains("hidden")); const h = nav ? (parseFloat(getComputedStyle(nav).top) || 51) + nav.offsetHeight : $(".topbar")?.offsetHeight || 51;
+  document.documentElement.style.setProperty("--stick-top", h + "px"); document.body.classList.toggle("m-scrolled", window.scrollY > 2); }
+window.addEventListener("scroll", () => document.body.classList.toggle("m-scrolled", window.scrollY > 2), { passive: true }); stickTabs();
+</script></body></html>

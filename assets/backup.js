@@ -145,8 +145,12 @@
     root.innerHTML = `${B.offline ? `<div class="notice warn">인터넷 연결이 없어 저장해 둔 목록을 보여 줘요.</div>` : ""}
       ${live ? `<button type="button" class="bk-livecard" data-bk="join"><span class="bk-dot"></span><span><b>백업찬양 진행 중</b><small>${esc(B.live.leader || "인도자")} 인도${B.live.now ? ` · 지금 ${esc(refInfo(B.live.now)?.code || "")} ${esc(refInfo(B.live.now)?.title || "")}` : ""}</small></span><span class="btn btn-primary btn-sm">${amLeader() ? "진행 화면" : "참여"}</span></button>` : ""}
       <div class="bk-head"><h2>백업찬양 후보</h2><span class="small muted">${B.book ? `악보집 ${esc(B.book.label)} · ${B.songs.filter((s) => s.book_id).length}곡 · <span id="bkSaved">${savedHTML()}</span>` : "악보집이 아직 없어요"}</span></div>
-      ${slots ? `<div class="bk-slots">${Array.from({ length: slots }, (_, i) => { const s = cs[i];
-          return s ? `<button type="button" class="bk-slot" data-bk-view="${s.id}"><span class="h">${codeHTML(s.code)}<span class="n">${i + 1}</span></span><b>${esc(s.title)}</b></button>` : `<div class="bk-slot empty">${i + 1}</div>`; }).join("")}</div>`
+      ${slots ? `${lead && cs.length ? `<div class="bk-slotbar"><span class="small muted">${cs.length > 1 ? "☰를 끌어서 순서를 바꿔요 · ✕로 빼요" : "✕로 빼요"}</span><button type="button" class="linkbtn" data-bk="clear">모두 비우기</button></div>` : ""}
+        <div class="bk-slots ${lead ? "edit" : ""}" id="bkSlots">${Array.from({ length: slots }, (_, i) => { const s = cs[i];
+          // 031: 인도자는 후보 칸에서 바로 빼고(✕) · 끌어서(☰) 순서를 바꿔요. 칸을 누르면 지금처럼 악보
+          return s ? (lead ? `<div class="bk-slot" data-slot="${s.id}"><button type="button" class="bk-slot-v" data-bk-view="${s.id}"><span class="h">${codeHTML(s.code)}<span class="n">${i + 1}</span></span><b>${esc(s.title)}</b></button>
+              <span class="bk-slot-tools">${cs.length > 1 ? `<span class="bk-grip" data-bk-grip role="button" tabindex="0" aria-label="${esc(s.title)} 순서 바꾸기 (끌기)">☰</span>` : ""}<button type="button" class="bk-slot-x" data-bk-rm="${s.id}" aria-label="${esc(s.title)} 후보에서 빼기">✕</button></span></div>`
+            : `<button type="button" class="bk-slot" data-bk-view="${s.id}"><span class="h">${codeHTML(s.code)}<span class="n">${i + 1}</span></span><b>${esc(s.title)}</b></button>`) : `<div class="bk-slot empty">${i + 1}</div>`; }).join("")}</div>`
         : `<p class="muted small" style="margin:0">${lead ? "아직 후보가 없어요. 아래 목록에서 눌러 골라요." : "아직 후보가 없어요. 이번 주 인도자가 확정하면 여기에 보여요."}</p>`}
       ${lead ? `<span class="small muted">누른 순서대로 1 · 2 · 3번 후보가 돼요. 다시 누르면 빠져요</span>${confirmHTML(cs)}` : B.live?.confirmed && cs.length && !live ? `<span class="small muted">${esc(B.live.confirmed_by || "인도자")} 확정 · ${esc(fmtDateTime(B.live.confirmed_at))}${B.live.service_name ? ` · ${esc(B.live.service_name)}` : ""}</span>` : ""}
       ${B.songs.length || lead ? `<div class="bk-qrow">${B.songs.length ? `<input class="input bk-q" id="bkQ" value="${esc(B.q)}" placeholder="코드나 곡 이름 (예: g5, 성령)" autocomplete="off" aria-label="백업찬양 찾기">` : ""}${lead ? `<button type="button" class="btn btn-soft btn-sm bk-addbtn" data-bk="add" aria-expanded="${B.adding}">+ 이미지로 곡 더하기</button>` : ""}</div>` : ""}
@@ -161,6 +165,47 @@
     if (keepForm) root.querySelector("#bkAddSlot")?.replaceChildren(keepForm);
     if (focus) { const q = root.querySelector("#bkQ"); q?.focus(); try { q?.setSelectionRange(pos, pos); } catch {} }
     root.onclick = onHomeClick; root.oninput = onHomeInput; root.onchange = onHomeChange;
+    root.onpointerdown = onSlotDrag;
+  }
+  // 031: 후보 바꾸기 (빼기 · 순서 · 모두 비우기) — 고르기와 같은 방식으로 잠깐 모았다가 저장
+  function setCands(next) {
+    B.live = { ...B.live, candidates: next }; drawHome();
+    clearTimeout(candT); candT = setTimeout(() => { candT = null; update({ candidates: B.live.candidates }); }, 250);
+  }
+  // 031: 후보 칸 끌어서 순서 바꾸기 (☰ 손잡이 · 손가락 · 펜 · 마우스)
+  function onSlotDrag(e) {
+    const g = e.target.closest("[data-bk-grip]"); if (!g || !canLead()) return;
+    const el = g.closest(".bk-slot"), box = el?.parentElement; if (!el || !box) return;
+    e.preventDefault();
+    let ox = e.clientX, oy = e.clientY, moved = false;
+    el.classList.add("drag");
+    const move = (ev) => {
+      const dx = ev.clientX - ox, dy = ev.clientY - oy;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      el.style.pointerEvents = "none";
+      const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".bk-slot[data-slot]");
+      el.style.pointerEvents = "";
+      if (!over || over === el || over.parentElement !== box) return;
+      const before = el.getBoundingClientRect();
+      const list = [...box.querySelectorAll(".bk-slot[data-slot]")];
+      box.insertBefore(el, list.indexOf(over) > list.indexOf(el) ? over.nextSibling : over);
+      const after = el.getBoundingClientRect();
+      ox += after.left - before.left; oy += after.top - before.top;
+      el.style.transform = `translate(${ev.clientX - ox}px, ${ev.clientY - oy}px)`;
+      [...box.querySelectorAll(".bk-slot[data-slot] .n")].forEach((n, i) => (n.textContent = i + 1));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      el.classList.remove("drag"); el.style.transform = "";
+      if (!moved) return;
+      const next = [...box.querySelectorAll(".bk-slot[data-slot]")].map((x) => +x.dataset.slot);
+      const cur = (B.live?.candidates || []).map(Number);
+      if (next.join() !== cur.join()) setCands(next); else drawHome();
+    };
+    // 칸을 옮기면(DOM 이동) 포인터 캡처가 풀려서 창 전체에서 들어요
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
   }
   // 027: 확정 · 수정 — 확정한 후보만 팀원에게 보여요 (기도회 중에는 지금 후보 그대로)
   const sameAsPub = () => { const a = (B.live?.candidates || []).map(Number), b = (B.live?.pub_candidates || []).map(Number); return a.length === b.length && a.every((x, i) => x === b[i]); };
@@ -231,6 +276,9 @@
   async function onHomeClick(e) {
     const k = e.target.closest("[data-bk-key]"); if (k) { const v = k.dataset.bkKey; B.keys.has(v) ? B.keys.delete(v) : B.keys.add(v); return drawHome(); }
     const t = e.target.closest("[data-bk-topic]"); if (t) { const v = t.dataset.bkTopic; if (!v) B.topics.clear(); else B.topics.has(v) ? B.topics.delete(v) : B.topics.add(v); return drawHome(); }
+    const rm = e.target.closest("[data-bk-rm]");
+    if (rm) { if (!canLead()) return; const id = +rm.dataset.bkRm; return setCands((B.live?.candidates || []).map(Number).filter((x) => x !== id)); }
+    if (e.target.closest("[data-bk-grip]")) return;
     const v = e.target.closest("[data-bk-view]"); if (v) return preview(+v.dataset.bkView);
     const s = e.target.closest("[data-bk-song]");
     if (s) {
@@ -238,12 +286,15 @@
       const id = +s.dataset.bkSong, cur = (B.live?.candidates || []).map(Number);
       const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
       if (next.length > 16) return toast("후보는 16곡까지예요");
-      B.live = { ...B.live, candidates: next }; drawHome();
-      clearTimeout(candT); candT = setTimeout(() => { candT = null; update({ candidates: B.live.candidates }); }, 250);
-      return;
+      return setCands(next);
     }
     const b = e.target.closest("[data-bk]"); if (!b) return;
     const a = b.dataset.bk;
+    if (a === "clear") {
+      const n = (B.live?.candidates || []).length; if (!n) return;
+      if (!confirm(`후보 ${n}곡을 모두 뺄까요?${B.live?.confirmed && !B.live?.active ? "\n확정한 후보는 '수정'을 눌러야 팀원 화면에서도 바뀌어요." : ""}`)) return;
+      return setCands([]);
+    }
     if (a === "save") { b.disabled = true; b.textContent = "받는 중…"; try { await L().sheetBytes(B.book.path); B.saved = true; toast("악보집을 이 기기에 저장했어요"); } catch (err) { toast(err.message, 4000); } return checkSaved(); }
     if (a === "join") return join();
     if (a === "confirm" || a === "edit") return doConfirm(b, a === "edit");

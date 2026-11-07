@@ -5,16 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=31" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=31" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=31" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=33" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=33" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=33" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=31">
-  <link rel="stylesheet" href="assets/app.css?v=31">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=33">
+  <link rel="stylesheet" href="assets/app.css?v=33">
+  <link rel="stylesheet" href="assets/v31.css?v=33">
 </head>
 <body>
 <div class="m-wrap">
@@ -58,13 +59,13 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=31"></script>
+<script src="assets/config.js?v=33"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/common.js?v=31"></script>
-<script src="assets/history.js?v=31"></script>
-<script src="assets/conti.js?v=31"></script>
-<script src="assets/ink.js?v=31"></script>
-<script src="assets/backup.js?v=31"></script>
+<script src="assets/common.js?v=33"></script>
+<script src="assets/history.js?v=33"></script>
+<script src="assets/conti.js?v=33"></script>
+<script src="assets/ink.js?v=33"></script>
+<script src="assets/backup.js?v=33"></script>
 <script>
   let ctx, me, app, extras = [], ST;
   // 021: 예배MC · 교역자 — 리더십 권한으로 보기만 (섬김 응답 없음)
@@ -227,7 +228,17 @@
     if (v === "home" && deep?.v === "home") deep = null;
     if (v === "home") refreshVoteBanners();
     window.scrollTo(0, 0);
+    stickTabs();
   }
+  // 031: 위쪽 탭 줄 — 아래 여백 · 스크롤해서 붙으면 옅은 그림자 · 기록의 두 번째 탭 줄은 그 바로 아래에
+  function stickTabs() {
+    const nav = $$(".m-subnav").find((n) => !n.classList.contains("hidden"));
+    const h = nav ? (parseFloat(getComputedStyle(nav).top) || 51) + nav.offsetHeight : $(".topbar")?.offsetHeight || 51;
+    document.documentElement.style.setProperty("--stick-top", h + "px");
+    document.body.classList.toggle("m-scrolled", window.scrollY > 2);
+  }
+  window.addEventListener("scroll", () => document.body.classList.toggle("m-scrolled", window.scrollY > 2), { passive: true });
+  window.addEventListener("resize", stickTabs);
   window.addEventListener("hashchange", () => {
     const d = takeDeep();   // 앱이 열려 있을 때 알림을 누른 경우
     if (d) { deep = d; history.replaceState({ lv: deepBase(d) === "home" ? 0 : 1 }, "", "#" + deepBase(d)); }

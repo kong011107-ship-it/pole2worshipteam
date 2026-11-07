@@ -32,7 +32,9 @@
   const HOLD_MS = 500;
   const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   const PREF_K = "pole2.ink.pref";
-  const pref = Object.assign({ tool: "pen", pc: 2, hc: 0, sz: 1, hsz: 1, tsz: 1, finger: false, hide: false, who: false }, ls.get(PREF_K) || {});
+  const pref = Object.assign({ tool: "pen", pc: 2, hc: 0, sz: 1, hsz: 1, tsz: 1, finger: false, hide: false, who: false, er: "stroke", esz: 1 }, ls.get(PREF_K) || {});
+  // 031: 지우개 — 획(닿은 획 통째로) / 부분(문지른 자리만, 획이 끊겨요) · 부분 지우개 굵기(화면 px 반지름)
+  const ER_SIZES = [[6, "작게"], [12, "보통"], [22, "크게"]];
   const savePref = () => ls.set(PREF_K, pref);
   const sizeOf = (tool) => (tool === "hl" ? (HI_SIZES[pref.hsz] || HI_SIZES[1])[0] : tool === "tape" ? (TAPE_SIZES[pref.tsz] || TAPE_SIZES[1])[0] : (SIZES[pref.sz] || SIZES[1])[0]);
   const cidOf = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).replace(/[^A-Za-z0-9]/g, "").slice(0, 32);
@@ -320,6 +322,29 @@
     return false;
   };
 
+  // 031: 부분 지우개 — 원(x, y, r) 안에 든 부분만 잘라 내고 남은 조각들을 돌려줘요 (안 닿으면 null)
+  //  선분을 잘게 나눠 보고, 원래 꼭짓점 + 잘린 끝점만 남겨요 (데이터가 불어나지 않게)
+  function cutStroke(st, x, y, r) {
+    if (!hits(st, x, y, r)) return null;
+    const p = st.p, rr = r + (st.w || 0) / 2, step = Math.max(1, r / 3);
+    if (p.length === 2) return [];
+    const pts = [];
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const ax = p[i], ay = p[i + 1], bx = p[i + 2], by = p[i + 3], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step));
+      for (let k = 0; k < n; k++) pts.push({ x: ax + ((bx - ax) * k) / n, y: ay + ((by - ay) * k) / n, v: k === 0 });
+    }
+    pts.push({ x: p[p.length - 2], y: p[p.length - 1], v: true });
+    const runs = []; let cur = [];
+    for (const q of pts) { if (Math.hypot(q.x - x, q.y - y) <= rr) { if (cur.length) runs.push(cur); cur = []; } else cur.push(q); }
+    if (cur.length) runs.push(cur);
+    const { p: _p, cid, author, author_name, ...props } = st;
+    return runs.map((run) => {
+      const keep = run.filter((q, i) => q.v || i === 0 || i === run.length - 1), out = [];
+      keep.forEach((q) => { const X = Math.round(q.x), Y = Math.round(q.y); if (out.length < 2 || out[out.length - 2] !== X || out[out.length - 1] !== Y) out.push(X, Y); });
+      return out;
+    }).filter((q) => q.length >= 4 || (q.length === 2 && (st.w || 0) >= 6)).map((q) => ({ ...props, p: q }));
+  }
+
   // 한 쪽(PDF 쪽 또는 그림)의 크기 · 그리기
   const MAXPX = 12e6;
   async function pageMeta(pg) {
@@ -474,7 +499,9 @@
       return `<div class="iv-bar ${sh ? "iv-shared" : ""}" role="toolbar" aria-label="${sh ? "악보 고치기 도구" : "메모 도구"}"><div class="iv-scroll">
         <span class="iv-on ${sh ? "sh" : ""}">${ICON_PEN}<span>${sh ? "악보 고치는 중" : "필기 중"}</span></span>
         <span class="iv-grp">${[["pen", "펜"], ["hl", "형광펜"], ["tape", "수정 테이프"], ["eraser", "지우개"]].map(([k, n]) => `<button type="button" data-iv-tool="${k}" aria-pressed="${tool === k}">${n}</button>`).join("")}</span>
-        ${tool === "eraser" ? `<span class="small iv-tip">${sh && !V.sh?.canEraseAll ? "내가 쓴 획만 지워요 · 남의 필기는 수정 테이프로" : "지울 획을 문질러요"}</span>`
+        ${tool === "eraser" ? `<span class="iv-grp iv-er" role="group" aria-label="지우개 방식"><button type="button" data-iv-er="stroke" aria-pressed="${pref.er !== "part"}">획</button><button type="button" data-iv-er="part" aria-pressed="${pref.er === "part"}">부분</button></span>
+            ${pref.er === "part" ? `<span class="iv-grp">${ER_SIZES.map(([w, n], i) => `<button type="button" class="iv-sz" data-iv-esz="${i}" aria-pressed="${pref.esz === i}" aria-label="지우개 ${n}"><i style="width:${4 + i * 5}px;height:${4 + i * 5}px;border-radius:50%;background:none;border:2px solid currentColor"></i></button>`).join("")}</span>` : ""}
+            <span class="small iv-tip">${sh && !V.sh?.canEraseAll ? `내가 쓴 획만 ${pref.er === "part" ? "부분 " : ""}지워요 · 남의 필기는 수정 테이프로` : pref.er === "part" ? "문지른 자리만 지워요" : "닿은 획을 통째로 지워요"}</span>`
           : tool === "tape" ? `<span class="small iv-tip">흰색으로 덮어요 · 그 위에 새로 써요</span>`
           : `<span class="iv-grp iv-sw">${cols.map((c, i) => `<button type="button" class="iv-c" data-iv-c="${i}" style="--c:${c}" aria-pressed="${ci === i}" aria-label="${names[i]}"></button>`).join("")}</span>`}
         ${tool !== "eraser" ? `<span class="iv-grp">${sizes.map(([w, n], i) => `<button type="button" class="iv-sz" data-iv-sz="${i}" aria-pressed="${si === i}" aria-label="${n}"><i style="width:${4 + i * 4}px;height:${4 + i * 4}px"></i></button>`).join("")}</span>` : ""}
@@ -661,7 +688,11 @@
     const clampPt = (x, y) => { const [x0, y0, x1, y1] = box(); return [Math.max(x0, Math.min(x1, x)), Math.max(y0, Math.min(y1, y))]; };
     function beginStroke(e) {
       const [x, y] = world(e);
-      if (pref.tool === "eraser") { V.cur = null; V.erasing = { removed: [], denied: 0 }; eraseAt(x, y); return; }
+      if (pref.tool === "eraser") {
+        V.cur = null;
+        V.erasing = { removed: [], denied: 0, part: pref.er === "part", before: V.layer === "memo" ? V.strokes.slice() : null, dels: new Set(), adds: new Map() };
+        eraseAt(x, y); return;
+      }
       if (!inBox(x, y)) return;
       const t = pref.tool === "hl" ? "h" : pref.tool === "tape" ? "t" : "p";
       V.cur = { t, c: t === "h" ? HIS[pref.hc] || HIS[0] : t === "t" ? TAPE : PENS[pref.pc] || PENS[0], w: sizeOf(pref.tool), p: [Math.round(x), Math.round(y)] };
@@ -699,6 +730,7 @@
       redraw();
     }
     function eraseAt(x, y) {
+      if (V.erasing.part) return erasePart(x, y);
       const r = (10 / V.k) * U;
       if (shared()) {
         for (let i = V.shared.length - 1; i >= 0; i--) {
@@ -714,8 +746,38 @@
       for (let i = V.strokes.length - 1; i >= 0; i--) if (hits(V.strokes[i], x, y, r)) { V.erasing.removed.push({ i, st: V.strokes[i] }); V.strokes.splice(i, 1); }
       redraw();
     }
+    // 031: 부분 지우개 — 문지르는 동안은 화면에서만 자르고, 손을 떼면 한 번에 저장 (되돌리기 한 번에 원래대로)
+    function erasePart(x, y) {
+      const er = V.erasing, r = ((ER_SIZES[pref.esz] || ER_SIZES[1])[0] / V.k) * U;
+      if (shared()) {
+        let hit = false;
+        for (let i = V.shared.length - 1; i >= 0; i--) {
+          const st = V.shared[i], pieces = cutStroke(st, x, y, r); if (!pieces) continue;
+          if (st.author !== S.uid && !V.sh.canEraseAll) { er.denied++; continue; }
+          if (er.adds.has(st.cid)) er.adds.delete(st.cid); else er.dels.add(st.cid);
+          const rows = pieces.map((pc) => { const cid = cidOf(); er.adds.set(cid, pc); return { ...pc, cid, author: S.uid, author_name: S.name || "나" }; });
+          V.shared.splice(i, 1, ...rows); hit = true;
+        }
+        if (hit) compose();
+        return;
+      }
+      let hit = false;
+      for (let i = V.strokes.length - 1; i >= 0; i--) { const pieces = cutStroke(V.strokes[i], x, y, r); if (!pieces) continue; V.strokes.splice(i, 1, ...pieces); hit = true; }
+      if (hit) { er.removed.push(1); redraw(); }
+    }
+    function endPart(er) {
+      if (shared()) {
+        const dels = [...er.dels], adds = [...er.adds];
+        dels.forEach((cid) => shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid, date: V.sh.date }));
+        adds.forEach(([cid, stroke]) => shOp({ op: "add", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, page: V.sh.page, cid, stroke, date: V.sh.date }));
+        if (dels.length || adds.length) { V.undo.push({ layer: "shared", t: "cut", dels, adds: adds.map(([cid]) => cid) }); V.shared = shVisible(V.sh.sheet, V.sh.page, V.sh.date, V.sh.ver); compose(); }
+      } else if (er.removed.length) { V.undo.push({ layer: "memo", t: "snap", before: er.before }); V.dirty = true; save(); }
+      if (er.denied && !er.dels.size && !er.removed.length && Date.now() - SH.warned > 3000) { SH.warned = Date.now(); toast("다른 사람 필기는 지울 수 없어요 · 수정 테이프로 덮어 주세요", 3500); }
+      renderBar(); redraw();
+    }
     function endStroke(cancel) {
       clearTimeout(V.holdT); V.hold = null;
+      if (V.erasing?.part) { const er = V.erasing; V.erasing = null; return endPart(er); }
       if (V.erasing) {
         const er = V.erasing; V.erasing = null;
         if (er.removed.length) { V.undo.push({ layer: V.layer, t: "erase", items: er.removed }); if (V.layer === "memo") { V.dirty = true; save(); } }
@@ -741,10 +803,15 @@
       if (u.layer === "shared") {
         if (u.t === "add") shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid: u.cid, date: V.sh.date });
         if (u.t === "erase") u.items.forEach(({ st }) => shOp({ op: "undel", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid: st.cid, date: V.sh.date }));
+        if (u.t === "cut") {
+          u.adds.forEach((cid) => shOp({ op: "del", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid, date: V.sh.date }));
+          u.dels.forEach((cid) => shOp({ op: "undel", svc: V.sh.svc, sheet: V.sh.sheet, ver: V.sh.ver, cid, date: V.sh.date }));
+        }
         refreshShared(); renderBar(); return;
       }
       if (u.t === "add") { const k = V.strokes.lastIndexOf(u.st); if (k >= 0) V.strokes.splice(k, 1); }
       if (u.t === "erase") u.items.slice().reverse().forEach(({ i: at, st }) => V.strokes.splice(Math.min(at, V.strokes.length), 0, st));
+      if (u.t === "snap") V.strokes = u.before.slice();
       V.dirty = true; save(); renderBar(); redraw();
     }
     function zoomAt(f, cx, cy) {
@@ -828,8 +895,10 @@
     stage.addEventListener("click", onClickCap, true);
     stage.addEventListener("dblclick", (e) => { if (!V.pen) fit(); });
     root.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-iv], [data-iv-tool], [data-iv-c], [data-iv-sz]"); if (!b || !root.contains(b)) return;
+      const b = e.target.closest("[data-iv], [data-iv-tool], [data-iv-c], [data-iv-sz], [data-iv-er], [data-iv-esz]"); if (!b || !root.contains(b)) return;
       if (b.dataset.ivTool) { pref.tool = b.dataset.ivTool; savePref(); return renderBar(); }
+      if (b.dataset.ivEr) { pref.er = b.dataset.ivEr; savePref(); return renderBar(); }
+      if (b.dataset.ivEsz) { pref.esz = +b.dataset.ivEsz; savePref(); return renderBar(); }
       if (b.dataset.ivC) { if (pref.tool === "hl") pref.hc = +b.dataset.ivC; else pref.pc = +b.dataset.ivC; savePref(); return renderBar(); }
       if (b.dataset.ivSz) { if (pref.tool === "hl") pref.hsz = +b.dataset.ivSz; else if (pref.tool === "tape") pref.tsz = +b.dataset.ivSz; else pref.sz = +b.dataset.ivSz; savePref(); return renderBar(); }
       const a = b.dataset.iv;
@@ -868,7 +937,7 @@
       tick++; if (!shared() && tick % 4) return;
       if (SH.busy || shPending().some((o) => o.sheet === V.sh.sheet)) return;
       const sheet = V.sh.sheet;
-      if (await shLoad([sheet], true).catch(() => false) && V.sh?.sheet === sheet && !V.cur) refreshShared();
+      if (await shLoad([sheet], true).catch(() => false) && V.sh?.sheet === sheet && !V.cur && !V.erasing) refreshShared();
     }, 4000);
     renderBar();
     // 029: 다음 · 이전 쪽을 지금 화면 크기로 미리 그려 둠 (넘길 때 바로)

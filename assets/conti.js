@@ -7,7 +7,7 @@
 // =====================================================================
 (function () {
   // 030: v30 화면 스타일 (악보 보기 두 쪽 · 세로 · 곡 칸 파일 추가 · 파트 악보 · 리더십 화면 태블릿) — 따로 한 파일
-  if (!document.querySelector('link[href*="v30.css"]')) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "assets/v30.css?v=32"; document.head.appendChild(l); }
+  if (!document.querySelector('link[href*="v30.css"]')) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "assets/v30.css?v=33"; document.head.appendChild(l); }
   // ------------------------------------------------------------------ 라이브러리 (필요할 때만)
   const LIB = {
     pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
@@ -54,6 +54,76 @@
   const svcShort = (s, all) => (s.ministry_id ? `${svcTitle(s, all)} · ${mdw(s.date)}` : `${md(s.date)} 주일`);
   const ytOf = (v) => { const m = String(v || "").match(/(?:youtu\.be\/|v=|\/shorts\/|\/live\/|\/embed\/)([A-Za-z0-9_-]{11})/) || String(v || "").match(/^([A-Za-z0-9_-]{11})$/); return m ? m[1] : null; };
   const ytLink = (id, t) => `https://youtu.be/${id}${t ? `?t=${t}` : ""}`;
+  // 031: 레퍼런스 영상 — 앱 안에서 바로 재생 (아래에서 올라오는 창 · 구간이 있으면 그 시작부터 끝에서 멈춤)
+  const ytThumb = (id) => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+  const playAttrs = (id, start, end, title) => `data-play="${esc(id)}" data-ps="${start || 0}"${end ? ` data-pe="${end}"` : ""}${title ? ` data-pt="${esc(title)}"` : ""}`;
+  function playRef(id, start, end, title) {
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id || "")) return;
+    document.querySelector(".ytp")?.remove();
+    const q = new URLSearchParams({ autoplay: "1", playsinline: "1", rel: "0", modestbranding: "1" });
+    if (start) q.set("start", String(Math.floor(start)));
+    if (end && end > (start || 0)) q.set("end", String(Math.floor(end)));
+    const w = document.createElement("div");
+    w.className = "ytp"; w.setAttribute("role", "dialog"); w.setAttribute("aria-label", "레퍼런스 영상");
+    w.innerHTML = `<div class="ytp-back" data-ytp="x"></div><div class="ytp-box">
+      <div class="ytp-hd"><b>${esc(title || "레퍼런스 영상")}</b>${start || end ? `<span class="ytp-rg">${mmss(start || 0)}~${end ? mmss(end) : "끝"}</span>` : ""}
+        <a class="ytp-ext" href="${ytLink(id, start)}" target="_blank" rel="noopener">유튜브에서 열기</a><button type="button" class="ytp-x" data-ytp="x" aria-label="닫기">${ICO.x}</button></div>
+      <div class="ytp-fr"><iframe src="https://www.youtube-nocookie.com/embed/${id}?${q}" title="${esc(title || "레퍼런스 영상")}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div></div>`;
+    const close = () => { w.remove(); document.removeEventListener("keydown", key); };
+    const key = (e) => { if (e.key === "Escape") close(); };
+    w.addEventListener("click", (e) => { if (e.target.closest("[data-ytp=x]")) close(); });
+    document.addEventListener("keydown", key);
+    document.body.appendChild(w);
+  }
+  // 031: 아이폰 · 아이패드 — 'PDF · 사진' 칸을 누르면 파일 앱만 열리는 경우가 있어서 먼저 고르게 해요
+  //  사진 보관함 → accept를 잠깐 image/*로 · 파일 → 원래대로. 고른 뒤 같은 change 흐름을 그대로 타요
+  const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  function pickFrom(inp) {
+    document.querySelector(".fpick")?.remove();
+    const w = document.createElement("div"); w.className = "fpick"; w.setAttribute("role", "dialog"); w.setAttribute("aria-label", "어디서 고를까요");
+    w.innerHTML = `<div class="fpick-back" data-fp="x"></div><div class="fpick-box"><b>어디서 고를까요?</b>
+      <button type="button" class="fpick-o" data-fp="photo"><span>사진 보관함</span><small>찍어 둔 악보 사진 · 여러 장이면 한 PDF로 합쳐요</small></button>
+      <button type="button" class="fpick-o" data-fp="file"><span>파일</span><small>PDF · 파일 앱에 저장한 사진</small></button>
+      <button type="button" class="fpick-x" data-fp="x">취소</button></div>`;
+    w.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-fp]"); if (!b) return;
+      w.remove(); if (b.dataset.fp === "x") return;
+      const orig = inp.accept;
+      if (b.dataset.fp === "photo") inp.accept = "image/*";
+      inp.dataset.fpGo = "1";
+      const back = () => { inp.accept = orig; delete inp.dataset.fpGo; };
+      inp.addEventListener("change", back, { once: true }); setTimeout(back, 60000);
+      inp.click();
+    });
+    document.body.appendChild(w);
+  }
+  if (IOS) document.addEventListener("click", (e) => {
+    const inp = e.target.closest?.("label")?.querySelector('input[type="file"]') || (e.target.matches?.('input[type="file"]') ? e.target : null);
+    if (!inp || inp.dataset.fpGo || inp.disabled) return;
+    const acc = inp.accept || "";
+    if (!/image/.test(acc) || !/pdf/.test(acc)) return;
+    e.preventDefault(); e.stopPropagation();
+    pickFrom(inp);
+  }, true);
+  // 031: 원본 악보 지우기 (곡 · 메들리 상세) — 리더십 · 올린 사람. 지난 콘티에 쓰인 악보는 남겨요
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-sheet-del]"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const id = +b.dataset.sheetDel, name = b.getAttribute("aria-label")?.replace(/ 지우기$/, "") || "이 악보";
+    if (!confirm(`'${name}'을(를) 지울까요?\n이 악보에 쓴 내 메모 · 공유 필기도 함께 지워져요. 되돌릴 수 없어요.`)) return;
+    b.disabled = true;
+    const { data, error } = await sb.rpc("edit_sheet", { p_id: id, p_name: null, p_delete: true });
+    if (error) { b.disabled = false; return toast(error.message || "지우지 못했어요", 4500); }
+    if (data?.path) { try { await sb.storage.from("sheets").remove([data.path]); } catch {} try { const c = await caches.open(CACHE); await c.delete(ckey(data.path)); } catch {} }
+    toast("원본 악보를 지웠어요");
+    b.closest(".cv-sheet")?.remove();
+  }, true);
+  // 어디서든 data-play를 누르면 앱 안 재생 (곡 줄 · 후보 영상 · 곡 찾기 · 팀원 콘티 화면)
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-play]"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    playRef(b.dataset.play, +b.dataset.ps || 0, +b.dataset.pe || null, b.dataset.pt || "");
+  }, true);
   const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }, del(k) { try { localStorage.removeItem(k); } catch {} } };
   const isAdminPage = () => /admin\.html/.test(location.pathname);
   async function meApi(path, payload) {
@@ -621,8 +691,8 @@
         <div class="cv-slist">${items.map((x, i) => { const gi = groupInfo(items, i); return `<div class="cv-srow ${gi.join ? "join" : ""}">
           <span class="cv-sn">${gi.join ? "+" : gi.n}</span>
           <button type="button" class="cv-st" data-cv-song="${x.song_id}"><b>${esc(x.title)}</b>
-            <small>${gi.join ? `앞 곡에 이어서${gi.medley ? "" : ""}` : `${x.sheet_pages ? `${x.sheet_pages}쪽` : "악보 없음"}${x.duration_sec ? ` · ${mmss(x.duration_sec)}` : ""}${gi.head ? ` · 메들리${x.medley_title ? ` '${esc(x.medley_title)}'` : ""}` : ""}`}</small></button>
-          ${refOf(items, i) ? `<a class="cv-yt" href="${ytLink(refOf(items, i)[0], refOf(items, i)[1])}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${ICO.play}레퍼런스</a>` : "<span></span>"}
+            <small>${gi.join ? `앞 곡에 이어서${gi.medley ? "" : ""}` : `${x.sheet_pages ? `${x.sheet_pages}쪽` : "악보 준비 중"}${x.duration_sec ? ` · ${mmss(x.duration_sec)}` : ""}${gi.head ? ` · 메들리${x.medley_title ? ` '${esc(x.medley_title)}'` : ""}` : ""}`}</small></button>
+          ${refOf(items, i) ? `<a class="cv-yt" href="${ytLink(refOf(items, i)[0], refOf(items, i)[1])}" ${playAttrs(refOf(items, i)[0], refOf(items, i)[1], refOf(items, i)[2] || null, x.title)} target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${ICO.play}레퍼런스</a>` : "<span></span>"}
           ${x.bpm || (pub && f.can_edit_sheets) ? `<button type="button" class="cv-bpm ${x.bpm ? "" : "none"}" data-cv-bpm="${x.ord}" ${pub && f.can_edit_sheets ? "" : "disabled"} aria-label="${esc(x.title)} BPM${x.bpm ? " " + x.bpm : " 입력"}">${x.bpm ? esc(bpmText(x.bpm, x.meter)) : "BPM"}</button>` : "<span></span>"}
           <span class="cv-key ${keySongs.has(x.song_id) ? "chg" : ""}" ${x.diff_key ? `title="음원과 키가 달라요"` : ""}>${esc(keyText(x))}</span>
           ${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`; }).join("") || `<p class="muted small" style="margin:0">곡이 아직 없어요.</p>`}</div>
@@ -1058,7 +1128,7 @@
       const cv = $("#cvvCanvas", el), blank = $("#cvvBlank", el), load = $("#cvvLoad", el);
       if (!pg.path && !pg.img) {
         V.ink?.clear(); cv.classList.add("hidden"); blank.classList.remove("hidden"); load.classList.add("hidden");
-        blank.innerHTML = x.kind === "backup" && !x.bt ? `<b>백업찬양</b><span>${esc(x.note || "")}</span>` : `<b>${esc(x.title)}</b><span>${x.key ? esc(x.key) + " · " : ""}${x.memo ? esc(x.memo) + " · " : ""}악보가 없어요</span>`;
+        blank.innerHTML = x.kind === "backup" && !x.bt ? `<b>백업찬양</b><span>${esc(x.note || "")}</span>` : `<b>${esc(x.title)}</b><span>${x.key ? esc(x.key) + " · " : ""}${x.memo ? esc(x.memo) + " · " : ""}${x.kind ? "악보가 없어요" : "악보 준비 중이에요 · 올라오면 알려 드려요"}</span>`;
         return;
       }
       blank.classList.add("hidden"); load.classList.remove("hidden");
@@ -1384,7 +1454,7 @@
         <span class="row" style="gap:6px;flex:none"><button type="button" class="btn btn-ghost btn-sm" data-sd-part="${q.id}">보기</button>${q.created_by === meId || isAdm ? `<button type="button" class="btn btn-ghost btn-sm" data-sd-pdel="${q.id}">지우기</button>` : ""}</span></div>`;
     const sheetRow = (x) => `<div class="cv-sheet"><span class="cv-thumb ${x.thumb ? "" : "none"}">${x.thumb ? `<img src="${x.thumb}" alt="">` : ""}</span>
         <span class="cv-st2"><b>${esc(x.name)}</b><small>${x.kind === "original" ? `${x.key ? esc(x.key) + " · " : ""}필기 없음 · ${x.pages}쪽${x.by ? ` · ${esc(x.by)} 올림` : ""}` : `${x.from_date ? md(x.from_date) + " · " : ""}${x.pages}쪽 · ${x.used}번 씀${x.ink ? ` · 필기 ${x.ink}` : ""}${x.base_id ? " · 필기본" : ""}`}</small></span>
-        <button type="button" class="btn btn-ghost btn-sm" data-sd-view="${x.id}">보기</button></div>`;
+        <button type="button" class="btn btn-ghost btn-sm" data-sd-view="${x.id}">보기</button>${up && x.kind === "original" ? `<button type="button" class="btn btn-ghost btn-sm cv-del" data-sheet-del="${x.id}" aria-label="${esc(x.name)} 지우기">지우기</button>` : ""}</div>`;
     const el = openLayer("cv-sheetpage", `<div class="cvs-top"><button type="button" class="cvv-back light" data-sd="close" aria-label="닫기">${ICO.back}</button><b>곡</b></div>
       <div class="cvs-body">
         <div class="cvs-head"><h2>${esc(song.title)}</h2><span class="small muted">${[song.main_key || st?.key_main ? `주로 부른 키 ${esc(song.main_key || st.key_main)}` : "", st?.keys ? esc(st.keys) : "", st?.leaders ? `인도 ${esc(st.leaders)}` : ""].filter(Boolean).join(" · ")}</span></div>
@@ -1392,7 +1462,7 @@
         ${inMd.length ? `<section class="card"><div class="card-title cv-ct">메들리 <small>이 곡이 든 메들리 · 합친 악보는 메들리에</small></div>${inMd.map((m) => `<button type="button" class="cv-prow" data-sd-md="${m.id}"><span class="cv-ptag">메들리</span><span class="cv-st2"><b>${esc(m.title)}</b><small>${m.used || 0}번 · 악보 ${m.sheets || 0}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}
         <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 깨끗한 악보 · 키별</small></div>
           ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
-          ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf" id="sdOrig" hidden></label>` : ""}</section>
+          ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf,image/*" multiple id="sdOrig" hidden></label>` : ""}</section>
         <section class="card"><div class="card-title cv-ct">저장된 악보 <small>콘티에서 이름을 붙여 저장한 것</small></div>
           ${saved.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요. 콘티에 이 곡을 넣고 파일로 더하거나 통합본을 올리면 쌓여요.</p>`}</section>
         ${myParts.length ? `<section class="card" id="sdParts"><div class="card-title cv-ct">파트 악보 <small>일렉 · 드럼처럼 포지션마다 · 같은 포지션 팀원끼리 봐요</small></div>
@@ -1400,7 +1470,7 @@
           <div class="row" style="gap:6px">${isAdm ? `<select class="select" id="sdPartSel" style="width:auto;min-height:36px" aria-label="올릴 파트">${myParts.map((p) => `<option value="${p}">${esc(partName(p))}</option>`).join("")}</select><label class="btn btn-soft btn-sm cv-upl" style="margin-top:0">+ 파트 악보 올리기<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="?" hidden></label>`
             : myParts.map((p) => `<label class="btn btn-soft btn-sm cv-upl">+ ${esc(partName(p))} 악보<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="${p}" hidden></label>`).join("")}</div></section>` : ""}
         ${st?.refs?.length ? `<section class="card"><div class="card-title cv-ct">레퍼런스 <small>${st.refs.length}개</small></div>
-          ${st.refs.slice(0, 6).map((r, i) => `<div class="cv-ref"><a class="hx-yt" href="${ytLink(r[0], r[3])}" target="_blank" rel="noopener">▶ 영상 ${i + 1}</a><span class="small muted">${r[1]}번 사용 · 마지막 ${r[4] ? r[4].slice(2).replace(/-/g, ".") : ""}${r[2] ? ` · ${esc(r[2])}` : ""}</span></div>`).join("")}</section>` : ""}
+          ${st.refs.slice(0, 6).map((r, i) => `<div class="cv-ref"><a class="hx-yt" href="${ytLink(r[0], r[3])}" ${playAttrs(r[0], r[3], null, song.title + ` · 영상 ${i + 1}`)} target="_blank" rel="noopener">▶ 영상 ${i + 1}</a><span class="small muted">${r[1]}번 사용 · 마지막 ${r[4] ? r[4].slice(2).replace(/-/g, ".") : ""}${r[2] ? ` · ${esc(r[2])}` : ""}</span></div>`).join("")}</section>` : ""}
         ${log.length ? `<section class="card"><div class="card-title cv-ct">부른 기록 <small>${st?.count || log.length}번</small></div>
           ${log.slice(0, 12).map((p) => `<div class="cv-ref"><b class="small">${p[0].replace(/-/g, ".")}</b><span class="small muted">${esc((H.svc[p[0]]?.[0] || []).join(" · "))}</span>${p[7] ? `<span class="cv-bpm sm">♩=${p[7]}</span>` : ""}${p[4] ? `<span class="cv-key">${esc(p[4])}</span>` : ""}</div>`).join("")}</section>` : ""}
       </div>`);
@@ -1424,16 +1494,16 @@
       } catch (err) { toast(err.message || "올리지 못했어요", 4500); }
     });
     $("#sdOrig", el)?.addEventListener("change", async (e) => {
-      const file = e.target.files?.[0]; if (!file) return;
+      const files = [...(e.target.files || [])]; e.target.value = ""; if (!files.length) return;
       const key = (prompt("이 원본 악보의 키를 적어 주세요 (예: G)", song.main_key || "") || "").trim();
       try {
         toast("올리는 중…", 8000);
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const doc = await (await pdfjs()).getDocument({ data: bytes.slice() }).promise;
+        // 031: PDF 1개 또는 사진 여러 장(한 PDF로 합쳐요)
+        const { bytes, doc, pages, thumb } = await filesToPdf(files);
         const path = `originals/${songId}/${uuid()}.pdf`;
         const { error } = await sb.storage.from("sheets").upload(path, bytes, { contentType: "application/pdf", upsert: false });
         if (error) throw new Error("파일을 올리지 못했어요");
-        const { error: e2 } = await sb.rpc("add_original_sheet", { p_song: songId, p_key: key || null, p_name: `원본${key ? " " + key : ""}`, p_path: path, p_pages: doc.numPages, p_size: bytes.length, p_thumb: await thumbOf(doc) });
+        const { error: e2 } = await sb.rpc("add_original_sheet", { p_song: songId, p_key: key || null, p_name: `원본${key ? " " + key : ""}`, p_path: path, p_pages: pages || doc.numPages, p_size: bytes.length, p_thumb: thumb });
         if (e2) throw new Error(e2.message);
         toast("원본 악보를 올렸어요"); songDetail(songId);
       } catch (err) { toast(err.message || "올리지 못했어요", 4000); }
@@ -1447,17 +1517,17 @@
     const orig = (sheets || []).filter((x) => x.kind === "original"), saved = (sheets || []).filter((x) => x.kind === "sheet");
     const sheetRow = (x) => `<div class="cv-sheet"><span class="cv-thumb ${x.thumb ? "" : "none"}">${x.thumb ? `<img src="${x.thumb}" alt="">` : ""}</span>
         <span class="cv-st2"><b>${esc(x.name)}</b><small>${x.kind === "original" ? `${x.key ? esc(x.key) + " · " : ""}필기 없음 · ${x.pages}쪽` : `${x.from_date ? md(x.from_date) + " · " : ""}${x.pages}쪽 · ${x.used}번 씀${x.ink ? ` · 필기 ${x.ink}` : ""}`}</small></span>
-        <button type="button" class="btn btn-ghost btn-sm" data-md-view="${x.id}">보기</button></div>`;
+        <button type="button" class="btn btn-ghost btn-sm" data-md-view="${x.id}">보기</button>${up && x.kind === "original" ? `<button type="button" class="btn btn-ghost btn-sm cv-del" data-sheet-del="${x.id}" aria-label="${esc(x.name)} 지우기">지우기</button>` : ""}</div>`;
     const el = openLayer("cv-sheetpage", `<div class="cvs-top"><button type="button" class="cvv-back light" data-md="close" aria-label="닫기">${ICO.back}</button><b>메들리</b></div>
       <div class="cvs-body">
         <div class="cvs-head"><h2>${esc(m.title)}</h2><span class="small muted">${m.songs.map((x) => `${esc(x.title)}${x.key ? " " + esc(x.key) : ""}`).join(" + ")}</span></div>
         <div class="cvs-kpis"><div><span>부른 횟수</span><b>${m.used || 0}</b></div><div><span>마지막</span><b>${m.last ? md(m.last) : "–"}</b></div><div><span>메들리 시간</span><b>${m.team_sec ? mmss(m.team_sec) : "–"}</b><small>${m.team_sec ? "예상 RT에 이 시간 하나로" : ""}</small></div></div>
         <section class="card"><div class="card-title cv-ct">곡 <small>통계 · 부른 기록은 곡마다 따로 쌓여요</small></div>
           ${m.songs.map((x) => `<button type="button" class="cv-prow" data-md-song="${x.song_id}"><span class="cv-ptag">${x.key ? esc(x.key) : "곡"}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${x.team_bpm ? esc(bpmText(x.team_bpm, x.team_meter)) : ""}</small></span><span class="cv-go">곡 보기</span></button>`).join("")}</section>
-        ${m.ref_yt ? `<section class="card"><div class="card-title cv-ct">레퍼런스</div><div class="cv-ref"><a class="hx-yt" href="${ytLink(m.ref_yt, m.ref_start)}" target="_blank" rel="noopener">▶ 영상</a></div></section>` : ""}
+        ${m.ref_yt ? `<section class="card"><div class="card-title cv-ct">레퍼런스</div><div class="cv-ref"><a class="hx-yt" href="${ytLink(m.ref_yt, m.ref_start)}" ${playAttrs(m.ref_yt, m.ref_start, m.ref_end, m.title)} target="_blank" rel="noopener">▶ 영상</a></div></section>` : ""}
         <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 합친 악보</small></div>
           ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
-          ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf" id="mdOrig" hidden></label>` : ""}</section>
+          ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf,image/*" multiple id="mdOrig" hidden></label>` : ""}</section>
         <section class="card"><div class="card-title cv-ct">저장된 악보 <small>콘티에서 메들리로 저장한 것</small></div>
           ${saved.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요. 콘티에 이 메들리를 넣고 통합본을 올리면 쌓여요.</p>`}</section>
       </div>`);
@@ -1468,16 +1538,15 @@
       if (v) { const x = (sheets || []).find((q) => q.id === +v.dataset.mdView); if (x) openViewer(null, { single: { title: `${m.title} · ${x.name}`, key: x.key, path: x.path, pages: x.pages, ink: x.kind === "sheet" ? { key: `s:${x.base_id || x.id}` } : null, shared: x.kind === "sheet" ? { sheet: x.id, date: todayISO(), canEdit: false } : null } }); }
     });
     $("#mdOrig", el)?.addEventListener("change", async (e) => {
-      const file = e.target.files?.[0]; if (!file) return;
+      const files = [...(e.target.files || [])]; e.target.value = ""; if (!files.length) return;
       const key = (prompt("이 원본 악보의 키를 적어 주세요 (예: G-A)", m.songs.map((x) => x.key).filter(Boolean).join("-")) || "").trim();
       try {
         toast("올리는 중…", 8000);
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const doc = await (await pdfjs()).getDocument({ data: bytes.slice() }).promise;
+        const { bytes, doc, pages, thumb } = await filesToPdf(files);
         const path = `originals/${m.songs[0].song_id}/${uuid()}.pdf`;
         const { error } = await sb.storage.from("sheets").upload(path, bytes, { contentType: "application/pdf", upsert: false });
         if (error) throw new Error("파일을 올리지 못했어요");
-        const { error: e2 } = await sb.rpc("add_medley_original", { p_medley: mid, p_key: key || null, p_name: `원본${key ? " " + key : ""}`, p_path: path, p_pages: doc.numPages, p_size: bytes.length, p_thumb: await thumbOf(doc) });
+        const { error: e2 } = await sb.rpc("add_medley_original", { p_medley: mid, p_key: key || null, p_name: `원본${key ? " " + key : ""}`, p_path: path, p_pages: pages || doc.numPages, p_size: bytes.length, p_thumb: thumb });
         if (e2) throw new Error(e2.message);
         toast("원본 악보를 올렸어요"); medleyDetail(mid);
       } catch (err) { toast(err.message || "올리지 못했어요", 4000); }
@@ -1562,7 +1631,7 @@
       const open = E.open === i;
       return `<div class="ce-row ${x.join ? "join" : ""}" data-i="${i}">
         <span class="ce-grip" data-grip aria-label="끌어서 순서 바꾸기" role="button" tabindex="0">${ICO.grip}</span><span class="cv-sn">${x.join ? "+" : gnum(i)}</span>
-        <span class="ce-t"><b>${esc(x.title)}</b><small>${x.join ? `<span class="ce-join">앞 곡에 이어서</span> · ` : grpHead ? `<span class="ce-join">메들리${x.medley_id ? ` '${esc(x.medley_title || "")}'` : ""}</span> · ` : ""}${x.diff ? "음원과 키 다름 · " : ""}${ref ? `<a href="${ytLink(ref[0], rng?.start_sec ?? ref[1])}" target="_blank" rel="noopener">▶ 영상</a>${rng ? ` · 구간 ${mmss(rng.start_sec)}~${rng.end_sec ? mmss(rng.end_sec) : "끝"}` : ""}` : "레퍼런스 없음"}${st?.count ? ` · ${st.count}번` : ""}${st?.last ? ` · 마지막 ${md(st.last)}` : ""}</small></span>
+        <span class="ce-t"><b>${esc(x.title)}</b><small>${x.join ? `<span class="ce-join">앞 곡에 이어서</span> · ` : grpHead ? `<span class="ce-join">메들리${x.medley_id ? ` '${esc(x.medley_title || "")}'` : ""}</span> · ` : ""}${x.diff ? "음원과 키 다름 · " : ""}${ref ? refChip(ref, rng, x.title) : "레퍼런스 없음"}${st?.count ? ` · ${st.count}번` : ""}${st?.last ? ` · 마지막 ${md(st.last)}` : ""}</small></span>
         <input class="ce-key" list="ceKeys" value="${esc(x.key)}" data-f="key" aria-label="${esc(x.title)} 키" maxlength="12" placeholder="키">
         ${x.join ? `<span class="ce-tm"><em class="ce-src team">앞 곡 시간에 포함</em></span>` : `<span class="ce-tm"><input value="${x.dur ? mmss(x.dur) : ""}" data-f="dur" inputmode="numeric" aria-label="${esc(x.title)} ${grpHead ? "메들리 전체 시간" : "곡 시간"}" placeholder="0:00"><em class="ce-src ${srcTag[0]}">${srcTag[1]}</em></span>`}
         ${bpmCell(x)}
@@ -1578,12 +1647,26 @@
             ${i > 0 ? `<label class="checkrow"><input type="checkbox" data-f="join" ${x.join ? "checked" : ""}><span><b>앞 곡에 이어서 (메들리)</b><small>앞 곡 번호 아래로 · 예상 RT는 묶음 전체 시간 하나로</small></span></label>` : ""}
             ${grpHead ? (x.medley_id ? `<div class="ce-mdl"><span>메들리 <b>'${esc(x.medley_title || "")}'</b>로 넣었어요 · 악보 · 레퍼런스 · 시간은 메들리 기준</span></div>`
               : `<div class="ce-mdl"><span>이 묶음을 <b>메들리로 저장</b>하면 다음에 한 번에 넣고, 합친 악보 · 레퍼런스 · 시간을 같이 써요</span><button type="button" class="btn btn-soft btn-sm" data-ce="save-medley">메들리로 저장</button></div>`) : ""}
-            <div class="field">레퍼런스 영상<div class="ce-refs">${(st?.refs || []).slice(0, 4).map((r) => `<button type="button" class="pillbtn" data-ref="${esc(r[0])}" data-t="${r[3] || 0}" aria-pressed="${ref?.[0] === r[0]}">${esc(r[0].slice(0, 5))}… ${r[1]}번</button>`).join("")}</div>
+            <div class="field">레퍼런스 영상${refCands(x, st, ref)}
               <input class="input" data-f="refurl" placeholder="유튜브 주소 붙여 넣기" value="${ref ? ytLink(ref[0], ref[1] || 0) : ""}"></div>
             ${ref ? `<div class="row ce-range"><span class="small" style="font-weight:700">구간</span><input class="input" data-f="rs" value="${mmss(rng?.start_sec ?? ref[1] ?? 0)}" aria-label="시작"> ~ <input class="input" data-f="re" value="${rng?.end_sec ? mmss(rng.end_sec) : ""}" placeholder="끝" aria-label="끝">
               <span class="small muted">${E.yt[ref[0]]?.duration_sec ? `영상 길이 ${mmss(E.yt[ref[0]].duration_sec)}` : E.ytConfigured ? "" : "영상 길이를 아직 몰라요"}</span></div>` : ""}
           </div>` : ""}</div>
       </div>`;
+    }
+    // 031: 곡 줄의 레퍼런스 = 썸네일 + 제목 칩 (누르면 앱 안에서 재생)
+    function refChip(ref, rng, songTitle) {
+      const s0 = rng?.start_sec ?? ref[1] ?? 0, e0 = rng?.end_sec || null, t = E.yt[ref[0]]?.title || "";
+      return `<button type="button" class="ce-refchip" ${playAttrs(ref[0], s0, e0, t || songTitle)} aria-label="${esc(songTitle)} 레퍼런스 영상 보기"><img src="${ytThumb(ref[0])}" alt="" loading="lazy"><span class="pl">${ICO.play}</span><span class="tt">${esc(t || "레퍼런스 영상")}</span>${rng ? `<span class="rg">${mmss(s0)}~${e0 ? mmss(e0) : "끝"}</span>` : ""}</button>`;
+    }
+    // 031: 지난 레퍼런스 후보 — 썸네일 · 제목 · 쓴 횟수 · 마지막 · ▶ 미리 보기 · '이 영상으로'
+    function refCands(x, st, ref) {
+      const list = (st?.refs || []).slice(0, 4);
+      if (!list.length) return "";
+      return `<div class="ce-refc">${list.map((r) => { const on = ref?.[0] === r[0], t = E.yt[r[0]]?.title || "";
+        return `<div class="ce-rc ${on ? "on" : ""}"><button type="button" class="ce-rc-th" ${playAttrs(r[0], r[3] || 0, null, t || x.title)} aria-label="미리 보기"><img src="${ytThumb(r[0])}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>
+          <span class="ce-rc-t"><b>${esc(t || "영상 " + r[0].slice(0, 5) + "…")}</b><small>${r[1]}번${r[4] ? ` · 마지막 ${r[4].slice(2).replace(/-/g, ".")}` : ""}</small></span>
+          ${on ? `<span class="ce-rc-now">지금 영상</span>` : `<button type="button" class="btn btn-soft btn-sm" data-ce="ref-use" data-yt="${esc(r[0])}" data-t="${r[3] || 0}">이 영상으로</button>`}</div>`; }).join("")}</div>`;
     }
     // 025: BPM · 박자 칸 (적으면 팀 기준으로 저장 · 다음에 자동으로 채워짐)
     function bpmCell(x) {
@@ -1621,11 +1704,12 @@
       const mh = q ? (E.medleys || []).filter((m) => KO.match(m.title, E.q) || m.songs.some((x) => KO.match(x.title, E.q))).slice(0, 4) : [];
       const mHTML = mh.map((m) => { const d = m.team_sec, after = total + (d || 0);
         const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-warn">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
-        return `<button type="button" class="ce-o" data-addm="${m.id}"><b><span class="tag-m">메들리</span>${esc(m.title)}</b><small>${m.songs.map((x) => esc(x.title) + (x.key ? " " + esc(x.key) : "")).join(" + ")}${m.used ? ` · ${m.used}번` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>`; }).join("");
+        return `<div class="ce-orow"><button type="button" class="ce-o" data-addm="${m.id}"><b><span class="tag-m">메들리</span>${esc(m.title)}</b><small>${m.songs.map((x) => esc(x.title) + (x.key ? " " + esc(x.key) : "")).join(" + ")}${m.used ? ` · ${m.used}번` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>${m.ref_yt ? `<button type="button" class="ce-oplay" ${playAttrs(m.ref_yt, m.ref_start || 0, m.ref_end || null, m.title)} aria-label="${esc(m.title)} 레퍼런스 미리 보기"><img src="${ytThumb(m.ref_yt)}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}</div>`; }).join("");
       return q ? `<div class="ce-drop" id="ceDrop">${mHTML}${hits.map((s) => {
           const d = guessDur(E, s, null), after = total + (d || 0);
           const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-warn">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
-          return `<button type="button" class="ce-o" data-add="${s.id}"><b>${esc(s.title)}</b><small>${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>`;
+          const r0 = s.st?.refs?.[0], rg = r0 ? E.ranges[`${s.id}:${r0[0]}`] : null;
+          return `<div class="ce-orow"><button type="button" class="ce-o" data-add="${s.id}"><b>${esc(s.title)}</b><small>${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>${r0 ? `<button type="button" class="ce-oplay" ${playAttrs(r0[0], rg?.start_sec ?? r0[3] ?? 0, rg?.end_sec || null, s.title)} aria-label="${esc(s.title)} 레퍼런스 미리 보기"><img src="${ytThumb(r0[0])}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}</div>`;
         }).join("")}${!exact ? `<button type="button" class="ce-o add" data-ce="newsong">+ '${esc(E.q.trim())}'으로 새 곡 추가</button>` : ""}</div>` : "";
     }
     function pdfHTML() {
@@ -1672,6 +1756,11 @@
         ${pdfHTML()}`;
       drawBar();
     }
+    // 031: 이번에 악보 없이 나갈 곡 수 (메들리 뒷곡은 앞 곡 악보에 함께라 빼요)
+    function sheetlessCount() {
+      const plan = E.up ? planSheets(E) : [];
+      return E.items.filter((x, i) => !x.join && x.sheet.mode !== "saved" && !(x.sheet.mode === "new" && plan.find((p) => p.i === i)?.state === "new")).length;
+    }
     function drawBar() {
       const ppl = new Set((svc.lineup || []).map((x) => x.member_id).filter(Boolean)).size;
       if (sheetsOnly) {
@@ -1683,7 +1772,8 @@
           <button type="button" class="btn btn-primary ce-go" data-ce="publish">${E.pub ? "고친 콘티 저장" : "콘티 기록 남기기"} · 알림 없음</button>`;
         return;
       }
-      $("#ceBar", el).innerHTML = `<span class="ce-who small muted">${E.pub ? `${sl?.changes ? "수정한 적 있음 · " : ""}올라온 콘티예요 · 고치면 '수정됨'으로 알려요` : sl ? `마지막 저장 ${fmtDateTime(sl.updated_at)} · 임시 저장은 팀원에게 안 보여요` : "임시 저장은 팀원에게 안 보여요"}</span>
+      const bare = sheetlessCount();
+      $("#ceBar", el).innerHTML = `<span class="ce-who small muted">${bare ? `<b class="ce-bare">악보 없는 곡 ${bare}곡</b> · 나중에 더해도 돼요${E.pub ? "" : " · 처음 채우면 알림"}<br>` : ""}${E.pub ? `${sl?.changes ? "수정한 적 있음 · " : ""}올라온 콘티예요 · 고치면 '수정됨'으로 알려요` : sl ? `마지막 저장 ${fmtDateTime(sl.updated_at)} · 임시 저장은 팀원에게 안 보여요` : "임시 저장은 팀원에게 안 보여요"}</span>
         ${E.pub ? "" : `<button type="button" class="btn btn-ghost" data-ce="save">임시 저장</button>`}
         <button type="button" class="btn btn-primary ce-go" data-ce="publish">${E.pub ? "수정 올리기" : "올리기"} · ${ppl}명에게 알림</button>`;
     }
@@ -1766,7 +1856,16 @@
         return addSong(data);
       }
       if (a === "rm") { if (!x.join && E.items[i + 1]?.join) { E.items[i + 1].join = false; E.items[i + 1].medley_id = null; } E.items.splice(i, 1); regroup(); if (E.up) E.up.tags = E.up.tags.map((t) => (t == null ? null : t === i ? null : t > i ? t - 1 : t)); E.open = E.more = null; persist(); return redrawList(); }
-      if (a === "more") { E.more = E.more === i ? null : i; return redrawList(); }
+      if (a === "more") {
+        E.more = E.more === i ? null : i; redrawList();
+        // 031: 후보 영상 제목 (한 번 가져오면 저장돼요)
+        if (E.more === i) { const ids = (songById(x.song_id)?.st?.refs || []).slice(0, 4).map((r) => r[0]).filter((id) => !E.yt[id]); if (ids.length) { await loadYt(E, ids); if (E.more === i) redrawList(); } }
+        return;
+      }
+      if (a === "ref-use") {
+        const id = b.dataset.yt; x.refs = [[id, +b.dataset.t || 0, ""]]; delete x.ref_range;
+        await loadYt(E, [id]); if (x.src !== "manual") Object.assign(x, recompute(E, x)); persist(); return redrawList();
+      }
       if (a === "sheet-open") { E.open = E.open === i ? null : i; E.preview = null; return redrawList(); }
       if (a === "sheet-pv") { E.preview = { song: x.song_id, id: +b.dataset.id }; return redrawList(); }
       if (a === "sheet-use") { x.sheet = { mode: "saved", id: +b.dataset.id }; x.cmp = null; E.open = null; E.preview = null; await checkSame(E); persist(); return redrawList(); }
@@ -1918,10 +2017,8 @@
       if (!E.items.length && publish) return toast("곡을 하나 이상 넣어 주세요");
       const plan = E.up ? planSheets(E) : [];
       if (publish && plan.some((p) => p.state === "ask")) { $("#ceSum", el)?.scrollIntoView({ block: "center" }); return toast("달라 보이는 악보를 새로 저장할지 먼저 골라 주세요", 4000); }
-      if (E.items.some((x) => x.sheet.mode === "new" && !String(x.sheet.name || "").trim())) return toast("새로 저장할 악보 이름을 적어 주세요");
-      if (publish && !E.up && E.items.some((x) => x.sheet.mode === "new")) {
-        if (!confirm("새로 저장할 악보가 있는데 통합본을 아직 안 올렸어요. 그 곡은 악보 없이 올릴까요?")) return;
-      }
+      // 031: 악보 없이도 올려요 — 통합본을 안 올렸으면 '새로 저장' 곡은 그냥 악보 없이 (이름도 묻지 않음)
+      if (E.up && plan.some((p) => p.state === "new" && !String(E.items[p.i].sheet.name || "").trim())) return toast("새로 저장할 악보 이름을 적어 주세요");
       btn.disabled = true; const label = btn.textContent;
       try {
         let src = E.up?.bytes, srcDoc = E.up?.doc;
@@ -1963,7 +2060,11 @@
           if (error) { if (error.code === "PT409") { toast(error.message, 6000); btn.disabled = false; btn.textContent = label; return; } throw new Error(error.message || "저장하지 못했어요"); }
           // 025: 밴드도 BPM은 고쳐요 (알림 없음)
           for (let i = 0; i < E.items.length; i++) { const x = E.items[i]; if ((x.bpm || null) !== (x.bpm0 || null) || (x.bpm && (x.meter || "4/4") !== (x.meter0 || "4/4"))) await saveBpm(svc, i + 1, x.bpm || null, x.bpm ? x.meter || "4/4" : null); }
-          ls.del(DKEY); E.dirty = false; toast("악보를 저장했어요 · 콘티에 '악보 바뀜'으로 보여요", 4000); closeLayer(); return;
+          ls.del(DKEY); E.dirty = false;
+          // 031: 악보 없던 곡이 처음 채워지면 라인업에 한 번 알림 (그 뒤로 바꾸는 건 알림 없음)
+          let m2 = "악보를 저장했어요 · 콘티에 '악보 바뀜'으로 보여요";
+          try { const r = await meApi("/api/conti", { action: "sheet-notify", service_id: sid }); if (r.filled?.length && !r.skipped) m2 = `악보를 저장했어요 · 처음 올라온 악보(${r.filled.join(" · ")})를 ${r.recipients}명에게 알렸어요`; } catch {}
+          toast(m2, 4500); closeLayer(); return;
         }
         const { data, error } = await sb.rpc("save_setlist", { p_service: sid, p_data: payload, p_publish: publish, p_base: E.base });
         if (error) {
@@ -1974,7 +2075,7 @@
         let msg = publish ? (data.republished ? "수정한 콘티를 올렸어요" : "콘티를 올렸어요") : "임시 저장했어요";
         if (publish && (E.past || data.past)) msg = "지난 예배 콘티를 고쳤어요 · 알림은 보내지 않았어요 · 기록에 바로 반영돼요";
         else if (publish) {
-          try { const r = await meApi("/api/conti", { action: "notify", service_id: sid }); if (r.sheetOnly) msg += " · 악보만 바뀌어서 알림은 보내지 않았어요"; else if (r.bpmOnly) msg += " · BPM만 바뀌어서 알림은 보내지 않았어요"; else if (!r.skipped) msg += ` · ${r.recipients}명에게 알렸어요`; }
+          try { const r = await meApi("/api/conti", { action: "notify", service_id: sid }); if (r.filled?.length && !r.skipped) msg += ` · 처음 올라온 악보(${r.filled.join(" · ")})를 ${r.recipients}명에게 알렸어요`; else if (r.sheetOnly) msg += " · 악보만 바뀌어서 알림은 보내지 않았어요"; else if (r.bpmOnly) msg += " · BPM만 바뀌어서 알림은 보내지 않았어요"; else if (!r.skipped) msg += ` · ${r.recipients}명에게 알렸어요`; }
           catch (err) { msg += ` · 알림을 보내지 못했어요 (${err.message})`; }
         }
         if (window.HISTORY) HISTORY.reset();
@@ -2016,7 +2117,7 @@
   async function loadYt(E, ids) {
     ids = [...new Set(ids)].filter((id) => id && !E.yt[id]);
     if (!ids.length) return;
-    const { data } = await sb.from("yt_videos").select("id, duration_sec").in("id", ids);
+    const { data } = await sb.from("yt_videos").select("id, duration_sec, title").in("id", ids);
     (data || []).forEach((v) => (E.yt[v.id] = v));
     const miss = ids.filter((id) => !E.yt[id]);
     if (miss.length) {

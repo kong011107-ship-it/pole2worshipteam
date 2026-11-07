@@ -1,0 +1,77 @@
+/* ===================================================================== v31 */
+
+/* ---------- 레퍼런스 영상: 앱 안에서 재생 (아래에서 올라오는 창) ---------- */
+.ytp { position: fixed; inset: 0; z-index: 400; display: flex; align-items: flex-end; justify-content: center; }
+.ytp-back { position: absolute; inset: 0; background: rgba(17, 8, 33, .55); animation: ytpFade .18s ease-out; }
+.ytp-box { position: relative; width: min(760px, 100%); background: #fff; border-radius: 18px 18px 0 0; padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 40px rgba(17, 8, 33, .25); animation: ytpUp .22s ease-out; }
+@media (min-width: 761px) { .ytp { align-items: center; } .ytp-box { border-radius: 18px; padding-bottom: 12px; } }
+.ytp-hd { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 2px 8px; }
+.ytp-hd b { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ytp-rg { flex: none; font-size: 12px; font-weight: 700; color: var(--violet); background: var(--tint-2, #F1EAFB); border-radius: 999px; padding: 3px 8px; font-variant-numeric: tabular-nums; }
+.ytp-ext { flex: none; font-size: 12.5px; font-weight: 700; color: var(--muted); text-decoration: none; padding: 6px 4px; }
+.ytp-x { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; background: var(--bg); color: var(--ink); cursor: pointer; }
+.ytp-fr { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; }
+.ytp-fr iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+@keyframes ytpUp { from { transform: translateY(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes ytpFade { from { opacity: 0; } to { opacity: 1; } }
+
+/* 콘티 쓰기 · 곡 줄의 레퍼런스 칩 (썸네일 + 제목) */
+.ce-refchip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; vertical-align: middle; margin: 2px 0; padding: 2px 8px 2px 2px;
+  border: 1px solid var(--line-2); border-radius: 8px; background: #fff; font: inherit; font-size: 12px; color: var(--ink-2); cursor: pointer; position: relative; }
+.ce-refchip:hover { border-color: var(--violet-soft); background: var(--tint); }
+.ce-refchip img { width: 40px; height: 23px; object-fit: cover; border-radius: 5px; flex: none; background: #ddd; }
+.ce-refchip .pl { position: absolute; left: 2px; top: 2px; width: 40px; height: 23px; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 0 2px rgba(0,0,0,.6)); }
+.ce-refchip .tt { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.ce-refchip .rg { flex: none; color: var(--violet); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* 메모 · 레퍼런스 펼침의 후보 영상 */
+.ce-refc { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 8px; }
+.ce-rc { display: flex; align-items: center; gap: 10px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.ce-rc.on { border-color: var(--violet-soft); background: var(--tint); }
+.ce-rc-th { position: relative; flex: none; width: 96px; height: 54px; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: #ddd; cursor: pointer; }
+.ce-rc-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ce-rc-th .pl, .ce-oplay .pl { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.18); }
+.ce-rc-th .pl svg { width: 20px; height: 20px; } .ce-oplay .pl svg { width: 16px; height: 16px; }
+.ce-rc-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ce-rc-t b { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.ce-rc-t small { font-size: 12px; color: var(--muted); }
+.ce-rc-now { flex: none; font-size: 12px; font-weight: 800; color: var(--violet); padding: 0 6px; }
+
+/* 곡 찾기 결과 옆 ▶ 미리 보기 */
+.ce-orow { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
+.ce-orow:first-child { border-top: 0; }
+.ce-orow > .ce-o { flex: 1; min-width: 0; border-top: 0; }
+.ce-oplay { position: relative; flex: none; width: 72px; margin: 8px 10px 8px 0; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: #ddd; cursor: pointer; align-self: center; height: 41px; }
+.ce-oplay img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ---------- 팀원 화면 위쪽 탭 줄 (섬김 · 찬양): 아래 여백 + 붙으면 그림자 ---------- */
+.m-subnav { padding-bottom: 10px; transition: box-shadow .2s ease; }
+.m-subnav:not(.hidden) + .m-main, .m-subnav:not(.hidden) ~ .m-main { padding-top: 6px; }
+body.m-scrolled .m-subnav:not(.hidden) { box-shadow: 0 12px 14px -14px rgba(23, 9, 46, .45); }
+#wsHist .hx-tabs { top: var(--stick-top, 113px); padding-bottom: 8px; }
+.m-main .hx-tabs { padding-bottom: 8px; }
+@media (min-width: 640px) { .m-subnav { padding-bottom: 12px; } }
+
+/* ---------- 백업찬양 후보 칸: ✕ 빼기 · ☰ 끌어서 순서 · 모두 비우기 ---------- */
+.bk-slotbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: -4px; }
+.bk-slots.edit .bk-slot { position: relative; padding: 0; }
+.bk-slot-v { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 88px; padding: 12px 12px 30px; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; border-radius: inherit; }
+.bk-slot-v b { font-size: 14.5px; line-height: 1.3; }
+.bk-slot-tools { position: absolute; right: 6px; bottom: 6px; display: flex; gap: 4px; }
+.bk-grip, .bk-slot-x { width: 32px; height: 28px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--muted); font-size: 14px; font-weight: 800; cursor: pointer; padding: 0; }
+.bk-grip { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.bk-slot-x:hover { color: var(--bad); border-color: #EBC3BF; background: var(--bad-bg, #FDF1F0); }
+.bk-slot.drag { z-index: 5; box-shadow: 0 14px 30px -10px rgba(23, 9, 46, .4); border-color: var(--violet); opacity: .95; }
+.bk-slot.drag .bk-grip { cursor: grabbing; }
+
+/* ---------- 아이폰 · 아이패드: 사진 보관함 / 파일 고르기 ---------- */
+.fpick { position: fixed; inset: 0; z-index: 2100; display: flex; align-items: flex-end; justify-content: center; }
+.fpick-back { position: absolute; inset: 0; background: rgba(17, 8, 33, .45); }
+.fpick-box { position: relative; width: min(440px, 100%); margin: 0 10px calc(10px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 18px; background: #fff; box-shadow: 0 -10px 30px rgba(17, 8, 33, .2); animation: ytpUp .2s ease-out; }
+.fpick-box > b { font-size: 15px; font-weight: 800; padding: 0 2px 4px; }
+.fpick-o { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 56px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font: inherit; text-align: left; color: var(--ink); cursor: pointer; }
+.fpick-o span { font-size: 15px; font-weight: 800; color: var(--violet); }
+.fpick-o small { font-size: 12.5px; color: var(--muted); }
+.fpick-x { min-height: 46px; border: 0; border-radius: 12px; background: var(--bg); font: inherit; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+.cv-del { color: var(--bad); }
