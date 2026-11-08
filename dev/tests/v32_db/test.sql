@@ -74,3 +74,5 @@ reset role;
 insert into worship_videos (id, status, skip_why) values ('VID0000000S', 'skipped', 'sermon');
 select '설교 skip_why 저장: ' || count(*) from worship_videos where skip_why = 'sermon';
 select '이상한 skip_why(막힘)'; insert into worship_videos (id, status, skip_why) values ('VID0000000T', 'skipped', 'weird');
+insert into worship_videos (id, status, skip_why, dismissed) values ('VID0000000U', 'skipped', 'other', true);
+select '시그널 other · dismissed 저장: ' || count(*) from worship_videos where skip_why = 'other' and dismissed;

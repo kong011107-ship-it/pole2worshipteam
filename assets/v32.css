@@ -66,3 +66,5 @@
 .ce-orow > .ce-oprev { align-self: center; margin: 0 8px; }
 .ce-pvbox { padding: 8px 12px 12px; background: #F6FBF8; border-top: 1px dashed var(--line-2); }
 .ce-prevf { gap: 4px; }
+.hx-vt .hx-vpass { margin-left: auto; flex: none; }
+.hx-vi[hidden] { display: none; }

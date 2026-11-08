@@ -249,7 +249,9 @@ async function videoAction(db, body, user) {
     if (!v) throw new HttpError(404, "영상을 찾을 수 없어요. 새로고침해 주세요.");
     if (a === "video-set") {
       let patch;
-      if (body.reset) patch = { pinned: false };
+      // 넘기기: 연결된 영상은 연결은 두고 곡 이름만 다시 묻지 않음 · 나머지는 빼기 (확인 창 없이)
+      if (body.pass) patch = v.status === "linked" ? { dismissed: true } : { pinned: true, status: "skipped", skip_why: "manual" };
+      else if (body.reset) patch = { pinned: false, dismissed: false };
       else if (body.skip) patch = { pinned: true, status: "skipped", skip_why: "manual" };
       else if (ISO.test(body.date || "")) patch = { pinned: true, status: "review", skip_why: null, service_date: body.date };
       else throw new HttpError(400, "날짜를 2026-08-30처럼 골라 주세요.");

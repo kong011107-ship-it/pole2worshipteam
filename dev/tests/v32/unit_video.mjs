@@ -1,5 +1,5 @@
 // v32 단위: 예배 영상 날짜 · 마커 읽기 · 콘티 맞추기 (api/_video.js 순수 함수)
-import { kindOf, parseTitleDate, titleSongs, parseDesc, matchVideo, normCore, normFull, sundayOnOrBefore, median, playSec } from "../../../api/_video.js";
+import { hasBibleRef, kindOf, parseTitleDate, titleSongs, parseDesc, matchVideo, normCore, normFull, sundayOnOrBefore, median, playSec } from "../../../api/_video.js";
 let ok = 0, bad = 0;
 const eq = (a, b, m) => { const s = JSON.stringify(a) === JSON.stringify(b); s ? ok++ : bad++; console.log(s ? "  ok " : "  BAD", m, s ? "" : `→ ${JSON.stringify(a)} (기대 ${JSON.stringify(b)})`); };
 
@@ -78,6 +78,20 @@ r = matchVideo(V({ title: "아무거나", pinned: true, service_date: "2025-11-0
 eq([r.status, r.service_date, r.date_src, r.rows.find((x) => x.song_id === 8)?.start_sec], ["linked", "2025-11-02", "manual", 10], "리더십이 정한 날짜는 그대로");
 r = matchVideo(V({ title: "2026년 8월 30일", pinned: true, status: "skipped", skip_why: "manual" }), ctx);
 eq(r.status, "skipped", "리더십이 뺀 영상은 계속 빠짐");
+// 성경 구절 → 설교
+const SERMON = ["2026년 8월 30일 온누리교회 Pole2 대학부 | 요한복음 3:16-18", "25. 10.26 Pole2 대학부(온누리교회)_롬 8:28", "믿음의 길 (마태복음 5장 1-12절)", "시편 23편 · 김철수 목사", "2026.08.30 히브리서 11:1", "(사 9:6) 평강의 왕", "고전13:4 사랑은"];
+const PRAISE = ["2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 찬양", "25. 10.26 Pole2 대학부(온누리교회)_주일예배 찬양_주 품에_놀라우신 은혜", "Pole2 대학부 주일예배 찬양 8/30", "2026.08.30 예배 찬양 (Live)"];
+eq(SERMON.map(hasBibleRef), SERMON.map(() => true), "성경 구절 있는 제목 → 설교");
+eq(PRAISE.map(hasBibleRef), PRAISE.map(() => false), "찬양 제목은 성경 구절로 잘못 보지 않음");
+eq(kindOf("2026년 8월 30일 주일예배 찬양 | 요한복음 3:16"), "sermon", "성경 구절이 있으면 '찬양'이 있어도 설교로");
+// 시그널 · 특순 등 → 건너뜀 (확인 목록에 안 올림)
+eq(["2026년 8월 30일 찬양 시그널", "Pole2 특순 - 청년부", "8/30 주일예배 특송", "Pole2 대학부 광고", "수련회 하이라이트", "#shorts 찬양"].map(kindOf), ["other", "other", "other", "other", "other", "other"], "시그널 · 특순 · 특송 · 광고 · 하이라이트 · shorts");
+r = matchVideo(V({ title: "2026년 8월 30일 찬양 시그널" }), ctx);
+eq([r.status, r.skip_why], ["skipped", "other"], "찬양 시그널 영상 → 확인 없이 건너뜀");
+r = matchVideo(V({ title: "2026년 8월 30일 주일예배 찬양", description: "00:00 : 찬양 시그널\n00:40 : 특순\n03:51 : 놀라우신 은혜" }), ctx);
+eq([r.status, r.reasons, r.marks.filter((m) => m.skip).length], ["linked", [], 2], "설명란 '찬양 시그널' · '특순' 줄은 곡이 아닌 줄로");
+r = matchVideo(V({ title: "2026년 8월 30일 주일예배 찬양", description: "03:00 : 처음 듣는 곡", dismissed: true }), ctx);
+eq([r.status, r.reasons], ["linked", []], "넘긴 연결 영상은 곡 이름을 다시 묻지 않음");
 // 설교 영상 (같은 재생목록)
 eq([kindOf("2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 설교"), kindOf("25. 10.26 Pole2 대학부_주일예배 말씀"), kindOf("2026년 8월 30일 … 주일예배 찬양"), kindOf("Pole2 대학부 8/30")], ["sermon", "sermon", "praise", null], "제목으로 찬양 · 설교 구분");
 r = matchVideo(V({ title: "2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 설교", description: D }), ctx);

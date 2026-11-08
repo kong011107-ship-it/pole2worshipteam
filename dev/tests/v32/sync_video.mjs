@@ -11,7 +11,7 @@ function fakeDb(T) {
     const api = {
       select() { return api; }, order() { return api; },
       eq(k, v) { st.f.push((r) => r[k] === v); return api; }, in(k, vs) { st.f.push((r) => vs.includes(r[k])); return api; },
-      lte(k, v) { st.f.push((r) => r[k] <= v); return api; }, range(a, b) { st.rg = [a, b]; return api; }, maybeSingle() { st.maybe = true; return api; },
+      lte(k, v) { st.f.push((r) => r[k] <= v); return api; }, not(k, op, v) { st.f.push((r) => !((r[k] ?? null) === v)); return api; }, range(a, b) { st.rg = [a, b]; return api; }, maybeSingle() { st.maybe = true; return api; },
       upsert(p) { st.op = "upsert"; st.p = [].concat(p); return api; }, insert(p) { st.op = "insert"; st.p = [].concat(p); return api; },
       update(p) { st.op = "update"; st.p = p; return api; }, delete() { st.op = "delete"; return api; },
       then(res) {
@@ -67,9 +67,14 @@ const T = {
                   { setlist_id: 4, ord: 1, song_id: 3 }, { setlist_id: 4, ord: 2, song_id: 1 }],
   song_aliases: [], worship_videos: [], video_songs: [], video_sync: [{ id: 1, playlist: "PL", page_token: null, pending: true, full_done: false }],
 };
+// 1000행이 넘는 콘티 곡 (Supabase 한 번에 1000행) — 오래된 콘티 1200곡 뒤에 실제 콘티 곡이 와도 읽혀야
+T.setlists.unshift({ id: 99, service_date: "2025-01-05", leaders: [], service_id: null, status: "published" });
+T.setlist_items = [...Array.from({ length: 1200 }, (_, i) => ({ id: i + 1, setlist_id: 99, ord: 1, song_id: 1 })), ...T.setlist_items.map((x, i) => ({ id: 2000 + i, ...x }))];
+T.setlists.forEach((x) => (x.id = x.id)); T.songs.forEach((x) => (x.id = x.id));
 const db = fakeDb(T);
 const ctx = await loadCtx(db);
-eq(ctx.dates, ["2025-10-26", "2026-08-30", "2026-09-06"], "콘티 날짜 (사역 예배 콘티는 빼고)");
+eq(ctx.dates, ["2025-01-05", "2025-10-26", "2026-08-30", "2026-09-06"], "콘티 날짜 (사역 예배 콘티는 빼고)");
+eq(ctx.setlists.get("2026-08-30").items.map((x) => x.song_id), [1, 2], "1000행 넘어도 끝까지 읽음 (뒤쪽 콘티 곡)");
 eq(ctx.setlists.get("2026-09-06").items.map((x) => x.song_id), [3, 1], "같은 날 주일 콘티를 씀");
 
 // 시간 제한 0 → 한 쪽만 읽고 멈춤

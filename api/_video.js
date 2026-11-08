@@ -24,7 +24,7 @@ export const normFull = (s) => String(s || "").toLowerCase().normalize("NFC").re
 // 괄호 안(영어 제목 · 편곡 메모 등)까지 빼고
 export const normCore = (s) => normFull(String(s || "").replace(/\([^)]*\)|\[[^\]]*\]|（[^）]*）|【[^】]*】/g, " "));
 const untitle = (n) => String(n || "").replace(/\s*(목사님|전도사님|간사님|목사|전도사|간사|형제|자매)$/, "").trim();
-const SKIP = /^(찬양)?(list|리스트|목록|순서|콘티)$|^(intro|outro|opening|ending|인트로|아웃트로|오프닝|엔딩|시작|끝|end|기도|대표기도|합심기도|광고|말씀|설교|축도|멘트|환영|광고및환영|예배시작|예배의부름|입례|입례송|찬양시작)$/i;
+const SKIP = /시그널|signal|특순|특송|특별찬양|광고|^(찬양)?(list|리스트|목록|순서|콘티)$|^(intro|outro|opening|ending|인트로|아웃트로|오프닝|엔딩|시작|끝|end|기도|대표기도|합심기도|광고|말씀|설교|축도|멘트|환영|광고및환영|예배시작|예배의부름|입례|입례송|찬양시작)$/i;
 
 // ------------------------------------------------------------------ 날짜
 const pad = (n) => String(n).padStart(2, "0");
@@ -122,11 +122,12 @@ const ABBR = "창|출|레|민|신|수|삿|룻|삼상|삼하|왕상|왕하|대상
 const BIBLE_FULL = new RegExp(`(?:${BOOKS})\\s*\\d{1,3}\\s*(?:장|편|:)`);
 const BIBLE_ABBR = new RegExp(`(?:^|[^가-힣])(?:${ABBR})\\s*\\d{1,3}\\s*:\\s*\\d{1,3}`);
 export const hasBibleRef = (title) => { const t = String(title || ""); return BIBLE_FULL.test(t) || BIBLE_ABBR.test(t); };
-// 찬양 영상인지: 'praise' | 'sermon' | null(제목만으로는 모름)
+// 찬양 영상인지: 'praise' | 'sermon' | 'other'(시그널 · 특순 · 광고 등) | null(제목만으로는 모름)
 export function kindOf(title) {
   const t = String(title || "").toLowerCase();
   if (hasBibleRef(title)) return "sermon";
   if (/설교|말씀|sermon|메시지|message/.test(t)) return "sermon";
+  if (/시그널|signal|특순|특송|특별\s*찬양|광고|티저|teaser|trailer|트레일러|예고|하이라이트|highlight|shorts|쇼츠|v-?log|브이로그|비하인드|behind/.test(t)) return "other";
   if (/찬양|워십|worship|praise/.test(t)) return "praise";
   return null;
 }
@@ -142,7 +143,8 @@ export function matchVideo(v, ctx) {
     if (v.status === "skipped") return { ...out, status: "skipped", skip_why: v.skip_why || "manual", service_date: v.service_date };
     date = v.service_date; sure = !!date;
   } else {
-    if (kindOf(v.title) === "sermon") return { ...out, status: "skipped", skip_why: "sermon" };
+    const kind = kindOf(v.title);
+    if (kind === "sermon" || kind === "other") return { ...out, status: "skipped", skip_why: kind };
     const t = parseTitleDate(v.title, v.published_at);
     if (t) {
       date = t.date; out.date_src = t.src;
@@ -200,7 +202,8 @@ export function matchVideo(v, ctx) {
       rows.set(id, { song_id: id, start_sec: mk.t, end_sec: end && end > mk.t ? end : null, medley, located: true });
     });
   });
-  if (unmatched) out.reasons.push("songs");
+  // 리더십이 '넘기기'를 누른 연결 영상은 못 맞춘 곡 이름을 다시 묻지 않아요
+  if (unmatched && !v.dismissed) out.reasons.push("songs");
   // 제목에 찬양 · 설교 표시가 없고 곡 마커도 하나도 안 맞으면 찬양 영상인지 확인
   if (!v.pinned && !kindOf(v.title) && !out.marks.some((m) => m.songs)) out.reasons.unshift("kind");
   // 위치를 모르는 콘티 곡 (마커가 없거나 못 맞춘 곡) → 영상 처음부터
@@ -271,7 +274,7 @@ export async function saveMatched(db, videos, ctx) {
     cnt[r.status]++;
     rows.push({ id: v.id, title: v.title || "", description: (v.description || "").slice(0, 8000), published_at: v.published_at || null, duration_sec: v.duration_sec ?? null,
       service_date: r.service_date, date_src: r.date_src, status: r.status, reasons: r.reasons, skip_why: r.skip_why, marks: r.marks, leaders_said: r.leaders_said,
-      pinned: !!v.pinned, linked_at: r.status === "linked" ? v.linked_at || now : v.linked_at || null, checked_at: now });
+      pinned: !!v.pinned, dismissed: !!v.dismissed, linked_at: r.status === "linked" ? v.linked_at || now : v.linked_at || null, checked_at: now });
     if (r.status === "linked") r.rows.forEach((x) => songRows.push({ video_id: v.id, ...x }));
   }
   for (let i = 0; i < rows.length; i += 200) {

@@ -20,8 +20,12 @@
 ### 예배 영상 (api/_video.js)
 - **순수 함수**: `parseTitleDate` · `titleSongs` · `parseDesc` · `songMatcher` · `matchVideo` · `median`. 단위 시험은 `unit_video.mjs`에 있어요.
   - 날짜 src: `title`(확실) · `title-short`(`25. 10.26`, 제목 곡으로 ±21일 확인) · `title-md`(`8월 30일` + 올린 해) · `upload`(직전 주일, 확인) · `manual`
-  - 설교 영상(11/8 추가): `kindOf(title)`는 sermon(설교 · 말씀 · sermon · 메시지) → `skip_why = 'sermon'`, praise(찬양 · worship · praise), null이면 곡 마커가 하나도 안 맞을 때 `reasons`에 `kind`(확인)
-  - 같은 영상이 두 번 오면 saveMatched가 id로 하나만 남겨요(실제 오류: ON CONFLICT … second time). rematch는 id 순으로 나눠 읽어요
+  - 설교 영상(11/8 추가): `hasBibleRef`(성경 책 이름 + 장/편/: · 약어 + 장:절)가 맞으면 설교. `kindOf(title)`는 sermon(성경 구절 · 설교 · 말씀 · sermon · 메시지) → `skip_why = 'sermon'`, praise(찬양 · worship · praise), null이면 곡 마커가 하나도 안 맞을 때 `reasons`에 `kind`(확인)
+  - `kindOf` 'other'(시그널 · 특순 · 특송 · 광고 · 티저 · 예고 · 하이라이트 · shorts 등) → `skip_why = 'other'`. 설명란 SKIP에도 시그널 · 특순 · 특송
+  - 넘기기: `video-set { pass }` → linked면 `dismissed = true`('songs' 이유를 다시 안 붙임), 아니면 pinned + skipped manual. 화면은 확인 창 없이 항목을 숨기고 뒤에서 저장해요(실패하면 되돌림)
+  - 같은 영상이 두 번 오면 saveMatched가 id로 하나만 남겨요(실제 오류: ON CONFLICT … second time)
+  - `readAll()`: Supabase 1000행 제한 때문에 setlists · services · songs · song_aliases · setlist_items · worship_videos를 id 순으로 끝까지 나눠 읽어요
+  - api `video-sync`는 읽기만 해요(budget 5초). 다 읽으면 화면이 `video-rematch`를 따로 불러요. 예배 영상 action의 오류는 모두 HttpError(502, 실제 이유)로 바꿔요(실제 신고: '서버 오류가 발생했습니다.')
   - 상태 `linked | review | skipped`. `reasons`: date · songs · noconti · leader(참고). `skip_why`: outside · noconti · manual
   - 곡 이름 맞추기: normFull / normCore(괄호 안 빼고) 일치 → 별칭(song_aliases) → 한쪽이 다른 쪽을 품고 하나뿐일 때
   - 마커 → `video_songs(start, end = 다음 마커 · 마지막은 영상 길이, medley, located)`. 한 마커에 여러 곡이 있거나 join_prev면 medley. 마커 없는 콘티 곡은 located=false, 0초부터

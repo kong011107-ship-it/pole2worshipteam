@@ -731,8 +731,8 @@
     const all = vs.data || [], S = st.data || {};
     const n = (f) => all.filter(f).length;
     const todo = all.filter((v) => v.status === "review" || (v.status === "linked" && (v.reasons || []).includes("songs")));
-    const skipped = all.filter((v) => v.status === "skipped" && v.skip_why !== "outside" && v.skip_why !== "sermon");
-    const sermons = n((v) => v.skip_why === "sermon");
+    const skipped = all.filter((v) => v.status === "skipped" && (v.skip_why === "noconti" || v.skip_why === "manual"));
+    const sermons = n((v) => v.skip_why === "sermon"), others = n((v) => v.skip_why === "other");
     const songsOn = (d) => [...new Map(D.plays.filter((p) => p[0] === d).map((p) => [p[2], p[3] || D.st[p[2]]])).entries()];
     const allSongs = Object.entries(D.st).sort((a, b) => a[1].localeCompare(b[1], "ko"));
     const res = S.last_result || {};
@@ -741,12 +741,13 @@
       const marks = (v.marks || []).filter((m) => !m.songs && !m.skip);
       const leads = v.service_date && D.svc[v.service_date] ? D.svc[v.service_date][0] : [];
       return `<div class="hx-vi" data-vid="${esc(v.id)}">
-        <div class="hx-vt"><button type="button" class="hx-wv" data-play="${esc(v.id)}" data-ps="0" data-pt="${esc(v.title)}">▶</button><b>${esc(v.title || v.id)}</b></div>
+        <div class="hx-vt"><button type="button" class="hx-wv" data-play="${esc(v.id)}" data-ps="0" data-pt="${esc(v.title)}">▶</button><b>${esc(v.title || v.id)}</b>
+          <button type="button" class="btn btn-ghost btn-sm hx-vpass" data-va="pass" title="${v.status === "linked" ? "연결은 두고 곡 이름은 다시 묻지 않아요" : "이 영상은 콘티에 붙이지 않아요 (건너뛴 영상에서 되살릴 수 있어요)"}">넘기기</button></div>
         <div class="hx-vr">${(v.reasons || []).map((r) => `<span class="chip ${r === "leader" ? "chip-gray" : "chip-warn"}">${REASON[r] || r}</span>`).join("")}
           ${v.status === "linked" ? `<span class="chip chip-ok">연결됨 ${dot(v.service_date)}</span>` : ""}${v.date_src === "upload" ? `<span class="small muted">제목에 날짜가 없어 올린 날로 짐작했어요</span>` : ""}
           ${(v.reasons || []).includes("leader") ? `<span class="small muted">설명란 ${esc((v.leaders_said || []).join(", "))} · 콘티 ${esc(leads.join(", ") || "–")}</span>` : ""}</div>
         ${v.status !== "linked" || (v.reasons || []).includes("date") ? `<div class="hx-vrow"><input type="date" class="input hx-vdate" value="${esc(v.service_date || "")}" aria-label="예배 날짜">
-          <button type="button" class="btn btn-soft btn-sm" data-va="date">이 날로 연결</button><button type="button" class="btn btn-ghost btn-sm" data-va="skip">빼기</button>
+          <button type="button" class="btn btn-soft btn-sm" data-va="date">이 날로 연결</button>
           ${v.service_date && D.svc[v.service_date] ? `<span class="small muted">그날 콘티: ${esc(songs.map((x) => x[1]).join(" · ") || "곡 없음")}</span>` : v.service_date ? `<span class="small muted">그날 콘티가 없어요</span>` : ""}</div>` : ""}
         ${marks.length ? `<div class="hx-vmarks">${marks.map((m) => `<div class="hx-vrow" data-label="${esc(m.label)}"><span class="hx-vm">${mmss(m.t)} · ${esc(m.label)}</span>
             <select class="select hx-vsel" aria-label="${esc(m.label)} 곡"><option value="">곡 고르기</option>${songs.map(([id, t]) => `<option value="${id}">${esc(t)}</option>`).join("")}<option value="?">다른 곡…</option></select>
@@ -756,12 +757,12 @@
     const draw = (msg) => {
       box.innerHTML = `<div class="hx-ch"><h2>예배 영상 연결</h2><span class="hx-acts"><button type="button" class="btn btn-primary btn-sm" data-va="sync">${S.full_done ? "지금 확인" : "처음 전체 맞추기"}</button><button type="button" class="btn btn-ghost btn-sm" data-va="rematch">다시 맞추기</button></span></div>
         <p class="hx-note">YouTube 재생목록(Pole2대학부)을 매일 새벽 5시에 확인해서 새 영상을 그 주일 콘티에 붙여요. 설명란의 '03:51 : 곡 이름'으로 곡마다 시작 지점을 맞춰요.</p>
-        <div class="hx-vsum"><span>연결 <b>${n((v) => v.status === "linked")}</b></span><span>확인 <b>${todo.length}</b></span><span>건너뜀 ${n((v) => v.status === "skipped")}${sermons ? ` (설교 영상 ${sermons})` : ""}</span>
+        <div class="hx-vsum"><span>연결 <b>${n((v) => v.status === "linked")}</b></span><span>확인 <b data-vcnt>${todo.length}</b></span><span>건너뜀 ${n((v) => v.status === "skipped")}${sermons || others ? ` (${[sermons && `설교 영상 ${sermons}`, others && `시그널 · 특순 등 ${others}`].filter(Boolean).join(" · ")})` : ""}</span>
           <span class="muted">${S.last_run ? `마지막 확인 ${esc(fmtDateTime(S.last_run))}` : "아직 확인 전"}${S.pending && S.last_run ? " · 이어서 읽는 중" : ""}${res.added != null ? ` · 새 영상 ${res.added}` : ""}</span></div>
         ${msg ? `<p class="hx-vmsg">${esc(msg)}</p>` : ""}
         ${todo.length ? `<div class="hx-vlist">${todo.slice(0, 40).map(itemHTML).join("")}</div>${todo.length > 40 ? `<p class="small muted">${todo.length - 40}개 더 있어요 · 위에서부터 정리하면 이어서 보여요</p>` : ""}` : `<p class="small muted">확인할 영상이 없어요.</p>`}
-        ${skipped.length ? `<details class="hx-vskip"><summary>건너뛴 영상 ${skipped.length}개 (그날 콘티 없음 · 직접 뺀 것)</summary><div class="hx-vlist">${skipped.slice(0, 60).map((v) => `<div class="hx-vi" data-vid="${esc(v.id)}"><div class="hx-vt"><button type="button" class="hx-wv" data-play="${esc(v.id)}" data-ps="0" data-pt="${esc(v.title)}">▶</button><b>${esc(v.title)}</b></div>
-          <div class="hx-vrow"><input type="date" class="input hx-vdate" value="${esc(v.service_date || "")}" aria-label="예배 날짜"><button type="button" class="btn btn-soft btn-sm" data-va="date">이 날로 연결</button>${v.pinned ? `<button type="button" class="btn btn-ghost btn-sm" data-va="reset">자동으로 되돌리기</button>` : ""}<span class="small muted">${v.skip_why === "manual" ? "직접 뺌" : "그날 콘티 없음"}</span></div></div>`).join("")}</div></details>` : ""}
+        ${skipped.length ? `<details class="hx-vskip"><summary>건너뛴 영상 ${skipped.length}개 (그날 콘티 없음 · 넘긴 것)</summary><div class="hx-vlist">${skipped.slice(0, 60).map((v) => `<div class="hx-vi" data-vid="${esc(v.id)}"><div class="hx-vt"><button type="button" class="hx-wv" data-play="${esc(v.id)}" data-ps="0" data-pt="${esc(v.title)}">▶</button><b>${esc(v.title)}</b></div>
+          <div class="hx-vrow"><input type="date" class="input hx-vdate" value="${esc(v.service_date || "")}" aria-label="예배 날짜"><button type="button" class="btn btn-soft btn-sm" data-va="date">이 날로 연결</button>${v.pinned ? `<button type="button" class="btn btn-ghost btn-sm" data-va="reset">자동으로 되돌리기</button>` : ""}<span class="small muted">${v.skip_why === "manual" ? "넘김" : "그날 콘티 없음"}</span></div></div>`).join("")}</div></details>` : ""}
         <datalist id="hxAllSongs">${allSongs.map(([id, t]) => `<option value="${esc(t)}" data-id="${id}"></option>`).join("")}</datalist>`;
     };
     draw();
@@ -783,7 +784,14 @@
         }
         if (a === "rematch") { busy("맞추는 중…"); const r = await call({ action: "video-rematch" }); toast(`${r.checked}개 다시 맞췄어요 · 연결 ${r.linked} · 확인 ${r.review}`, 3500); return state.remount(); }
         if (a === "date") { const d = vi.querySelector(".hx-vdate").value; if (!d) return toast("날짜를 골라 주세요"); busy("연결 중…"); await call({ action: "video-set", id, date: d }); toast(`${dot(d)} 콘티에 연결했어요`); return state.remount(); }
-        if (a === "skip") { if (!confirm("이 영상을 빼 둘까요? (나중에 '건너뛴 영상'에서 다시 연결할 수 있어요)")) return; busy("빼는 중…"); await call({ action: "video-set", id, skip: true }); return state.remount(); }
+        // 넘기기: 확인 창 없이 바로 목록에서 빼고 뒤에서 저장 (여러 개를 빠르게)
+        if (a === "pass") {
+          vi.hidden = true;
+          const cnt = box.querySelector("[data-vcnt]"); if (cnt) cnt.textContent = String(Math.max(0, +cnt.textContent - 1));
+          try { await call({ action: "video-set", id, pass: true }); state.dirty = true; }
+          catch (err) { vi.hidden = false; if (cnt) cnt.textContent = String(+cnt.textContent + 1); toast(err.message || "넘기지 못했어요", 4000); }
+          return;
+        }
         if (a === "reset") { busy("되돌리는 중…"); await call({ action: "video-set", id, reset: true }); return state.remount(); }
         if (a === "alias") {
           const r = b.closest("[data-label]"), sel = r.querySelector(".hx-vsel");
