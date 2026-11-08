@@ -31,8 +31,8 @@ create table if not exists public.worship_videos (
   service_date  date,                             -- 맞춘 주일 (linked) · 추정 날짜 (review)
   date_src      text check (date_src in ('title', 'title-short', 'title-md', 'upload', 'manual')),
   status        text not null default 'review' check (status in ('linked', 'review', 'skipped')),
-  reasons       text[] not null default '{}',     -- 확인할 것: date(날짜 애매) · songs(곡 이름 못 맞춤) · noconti(그날 콘티 없음) · leader(인도자 다름, 참고용)
-  skip_why      text check (skip_why in ('outside', 'manual', 'noconti')),
+  reasons       text[] not null default '{}',     -- 확인할 것: date(날짜 애매) · songs(곡 이름 못 맞춤) · noconti(그날 콘티 없음) · kind(찬양 영상인지) · leader(인도자 다름, 참고용)
+  skip_why      text,                             -- outside(콘티 기록 기간 밖) · noconti · manual(리더십이 뺌) · sermon(설교 영상)
   marks         jsonb not null default '[]'::jsonb check (jsonb_typeof(marks) = 'array'),   -- [{t, label, songs:[id], skip}] 설명란에서 읽은 마커 + 맞춘 결과
   leaders_said  text[] not null default '{}',     -- 설명란 '찬양 인도자 : 이름 & 이름'
   pinned        boolean not null default false,   -- 리더십이 직접 날짜 · 상태를 정함 → 다시 맞출 때 날짜는 그대로
@@ -40,6 +40,9 @@ create table if not exists public.worship_videos (
   checked_at    timestamptz not null default now(),
   created_at    timestamptz not null default now()
 );
+-- 다시 실행해도 최신 규칙으로 (설교 영상 'sermon'을 더함)
+alter table public.worship_videos drop constraint if exists worship_videos_skip_why_check;
+alter table public.worship_videos add constraint worship_videos_skip_why_check check (skip_why in ('outside', 'manual', 'noconti', 'sermon'));
 create index if not exists worship_videos_date_idx on public.worship_videos (service_date) where status = 'linked';
 create index if not exists worship_videos_status_idx on public.worship_videos (status);
 

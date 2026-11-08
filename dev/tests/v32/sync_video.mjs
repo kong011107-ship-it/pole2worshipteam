@@ -16,6 +16,8 @@ function fakeDb(T) {
       update(p) { st.op = "update"; st.p = p; return api; }, delete() { st.op = "delete"; return api; },
       then(res) {
         T[t] = T[t] || [];
+        // 실제 Postgres처럼: 한 번의 upsert에 같은 키가 두 번이면 오류
+        if (st.op === "upsert") { const k = pk[t] || ["id"], seen = new Set(st.p.map((x) => k.map((c) => x[c]).join("|"))); if (seen.size !== st.p.length) return Promise.resolve({ data: null, error: { message: "ON CONFLICT DO UPDATE command cannot affect row a second time" } }).then(res); }
         const hit = (r) => st.f.every((f) => f(r));
         if (st.op === "upsert") st.p.forEach((x) => { const k = pk[t] || ["id"]; const i = T[t].findIndex((r) => k.every((c) => r[c] === x[c])); if (i >= 0) T[t][i] = { ...T[t][i], ...x }; else T[t].push({ ...x }); });
         if (st.op === "insert") st.p.forEach((x) => T[t].push({ ...x }));
@@ -31,11 +33,13 @@ function fakeDb(T) {
 // ---- 가짜 YouTube: 재생목록 3쪽(쪽마다 2개)
 const VIDS = [
   ["V0000000001", "2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 찬양", "00:00 : 찬양 List\n03:00 : 놀라우신 은혜\n08:30 : 주 품에\n찬양 인도자 : 김철수", "PT20M"],
+  ["V0000000001", "2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 찬양", "00:00 : 찬양 List\n03:00 : 놀라우신 은혜\n08:30 : 주 품에\n찬양 인도자 : 김철수", "PT20M"],
   ["V0000000002", "25. 10.26 Pole2 대학부(온누리교회)_주일예배 찬양_놀라우신 은혜", "", "PT25M"],
   ["V0000000003", "Pole2 대학부 주일예배 찬양", "", "PT15M"],
   ["V0000000004", "2023년 1월 1일 주일예배", "", "PT10M"],
   ["V0000000005", "2026년 9월 6일 주일예배", "02:00 : 처음 듣는 곡\n06:00 : 놀라우신 은혜", "PT12M"],
   ["V0000000006", "Private video", "", ""],
+  ["V0000000007", "2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 설교", "", "PT40M"],
 ];
 let calls = [];
 globalThis.fetch = async (url) => {
@@ -43,7 +47,7 @@ globalThis.fetch = async (url) => {
   const u = new URL(url);
   if (u.pathname.endsWith("/playlistItems")) {
     const page = +(u.searchParams.get("pageToken") || 0), part = VIDS.slice(page * 2, page * 2 + 2);
-    return { ok: true, json: async () => ({ items: part.map(([id, title, d]) => ({ snippet: { title, description: d, resourceId: { videoId: id } }, contentDetails: { videoId: id, videoPublishedAt: "2026-09-01T03:00:00Z" } })), nextPageToken: page < 2 ? String(page + 1) : undefined }) };
+    return { ok: true, json: async () => ({ items: part.map(([id, title, d]) => ({ snippet: { title, description: d, resourceId: { videoId: id } }, contentDetails: { videoId: id, videoPublishedAt: "2026-09-01T03:00:00Z" } })), nextPageToken: (page + 1) * 2 < VIDS.length ? String(page + 1) : undefined }) };
   }
   if (u.pathname.endsWith("/videos")) {
     const ids = u.searchParams.get("id").split(",");
@@ -70,10 +74,11 @@ eq(ctx.setlists.get("2026-09-06").items.map((x) => x.song_id), [3, 1], "같은 �
 
 // 시간 제한 0 → 한 쪽만 읽고 멈춤
 let r = await syncPlaylist(db, { budgetMs: -1 });
-eq([r.pages, r.added, r.done, T.video_sync[0].pending, T.video_sync[0].page_token], [1, 2, false, true, "1"], "나눠서: 한 쪽 읽고 다음 자리 남김");
+eq([r.pages, r.added, r.done, T.video_sync[0].pending, T.video_sync[0].page_token], [1, 1, false, true, "1"], "나눠서: 한 쪽 읽고 다음 자리 남김 · 같은 영상이 두 번 있어도 한 번만 (오류 없음)");
 r = await syncPlaylist(db, { budgetMs: 60000 });
-eq([r.pages, r.added, r.done, T.video_sync[0].pending, T.video_sync[0].full_done], [2, 3, true, false, true], "이어서 끝까지 (Private video 빼고)");
+eq([r.pages, r.added, r.done, T.video_sync[0].pending, T.video_sync[0].full_done], [3, 5, true, false, true], "이어서 끝까지 (Private video 빼고)");
 const V = (id) => T.worship_videos.find((x) => x.id === id);
+eq([V("V0000000007")?.status, V("V0000000007")?.skip_why, T.video_songs.some((x) => x.video_id === "V0000000007")], ["skipped", "sermon", false], "같은 주일 설교 영상 → 건너뜀");
 eq([V("V0000000001").status, V("V0000000001").duration_sec], ["linked", 1200], "제목 날짜 → 연결 · 길이");
 eq(T.video_songs.filter((x) => x.video_id === "V0000000001").map((x) => [x.song_id, x.start_sec, x.end_sec]).sort(), [[1, 180, 510], [2, 510, 1200]], "곡 위치 저장");
 eq([V("V0000000002").status, V("V0000000003").status, V("V0000000004").status], ["linked", "review", "skipped"], "제목 곡 확인 · 날짜 없음 → 확인 · 기간 밖 → 건너뜀");

@@ -70,3 +70,7 @@ select 'anon bundle null: ' || coalesce(video_bundle()::text, 'null');
 reset role;
 delete from songs where id = 2;
 select '곡 지우면 위치도(1): ' || count(*) from video_songs where video_id = 'VID00000001';
+reset role;
+insert into worship_videos (id, status, skip_why) values ('VID0000000S', 'skipped', 'sermon');
+select '설교 skip_why 저장: ' || count(*) from worship_videos where skip_why = 'sermon';
+select '이상한 skip_why(막힘)'; insert into worship_videos (id, status, skip_why) values ('VID0000000T', 'skipped', 'weird');

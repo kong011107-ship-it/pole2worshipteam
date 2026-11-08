@@ -6,6 +6,8 @@
 //      2) '25. 10.26 Pole2 대학부…_곡1_곡2'           → 제목 곡 이름을 그날 콘티와 비교해서 한 번 더 확인
 //         (그날 콘티와 하나도 안 맞고 가까운 다른 주일과 맞으면 그 날로 두고 리더십이 확인)
 //      3) 날짜가 없으면 올린 날의 직전 주일 (그날이 주일이면 그날) → 확신 낮음, 리더십이 확인
+//  · 같은 재생목록에 설교 영상도 있어요: 제목에 설교 · 말씀 · sermon → 건너뜀, 찬양 · worship · praise → 찬양 영상,
+//    둘 다 없으면 설명란 곡 마커가 그날 콘티와 맞을 때만 찬양으로 보고 아니면 리더십 확인(kind)
 //  · 콘티 기록이 있는 기간(첫 콘티 ~ 오늘) 밖의 영상은 건너뛰어요
 //  · 곡 이름 맞추기: 띄어쓰기 · 대소문자 · 괄호 무시 → 별칭(리더십이 직접 연결한 것) → 한쪽이 다른 쪽을 품으면(하나뿐일 때)
 //      '00:00 : 찬양 List'처럼 곡이 아닌 줄은 건너뛰고, '찬양 인도자 : 이름 & 이름'은 그날 인도자와 비교만 해요
@@ -114,6 +116,13 @@ const scoreDate = (ctx, date, songs) => {
   return songs.filter((x) => m(x)).length;
 };
 
+// 찬양 영상인지: 'praise' | 'sermon' | null(제목만으로는 모름)
+export function kindOf(title) {
+  const t = String(title || "").toLowerCase();
+  if (/설교|말씀|sermon|메시지|message/.test(t)) return "sermon";
+  if (/찬양|워십|worship|praise/.test(t)) return "praise";
+  return null;
+}
 // 영상 하나 → { service_date, date_src, status, reasons, skip_why, marks, leaders_said, rows }
 //  v = { id, title, description, published_at, duration_sec, pinned, service_date, status, skip_why }
 export function matchVideo(v, ctx) {
@@ -126,6 +135,7 @@ export function matchVideo(v, ctx) {
     if (v.status === "skipped") return { ...out, status: "skipped", skip_why: v.skip_why || "manual", service_date: v.service_date };
     date = v.service_date; sure = !!date;
   } else {
+    if (kindOf(v.title) === "sermon") return { ...out, status: "skipped", skip_why: "sermon" };
     const t = parseTitleDate(v.title, v.published_at);
     if (t) {
       date = t.date; out.date_src = t.src;
@@ -184,6 +194,8 @@ export function matchVideo(v, ctx) {
     });
   });
   if (unmatched) out.reasons.push("songs");
+  // 제목에 찬양 · 설교 표시가 없고 곡 마커도 하나도 안 맞으면 찬양 영상인지 확인
+  if (!v.pinned && !kindOf(v.title) && !out.marks.some((m) => m.songs)) out.reasons.unshift("kind");
   // 위치를 모르는 콘티 곡 (마커가 없거나 못 맞춘 곡) → 영상 처음부터
   sl.items.forEach((x) => { if (!rows.has(x.song_id)) rows.set(x.song_id, { song_id: x.song_id, start_sec: 0, end_sec: null, medley: false, located: false }); });
   out.rows = [...rows.values()];
@@ -192,7 +204,7 @@ export function matchVideo(v, ctx) {
     const said = leaders.map(normFull), have = sl.leaders.map((n) => normFull(untitle(n)));
     if (!said.some((n) => have.some((h) => h && (h === n || h.includes(n) || n.includes(h))))) out.reasons.push("leader");
   }
-  out.status = out.reasons.includes("date") ? "review" : "linked";
+  out.status = out.reasons.includes("date") || out.reasons.includes("kind") ? "review" : "linked";
   return out;
 }
 // 곡 시간으로 쓸 수 있는 구간 (메들리 · 위치 모름 · 너무 짧거나 긴 것 빼고)
@@ -237,6 +249,8 @@ export async function loadCtx(db) {
 
 // 맞춘 결과 저장 (영상 행 + 곡 위치). videos = 저장된 행 또는 새로 읽은 영상
 export async function saveMatched(db, videos, ctx) {
+  // 같은 영상이 두 번 오면(재생목록에 두 번 · 나눠 읽다 겹침) 하나만 — upsert는 한 번에 같은 행을 두 번 못 바꿔요
+  videos = [...new Map(videos.filter((v) => v?.id).map((v) => [v.id, v])).values()];
   if (!videos.length) return { linked: 0, review: 0, skipped: 0 };
   const now = new Date().toISOString(), cnt = { linked: 0, review: 0, skipped: 0 };
   const rows = [], songRows = [];
@@ -264,10 +278,11 @@ export async function saveMatched(db, videos, ctx) {
 // 저장된 영상 다시 맞추기 (YouTube를 다시 부르지 않음) — 별칭 · 날짜를 고친 뒤 · 콘티가 바뀐 뒤
 export async function rematch(db, filter = {}) {
   const ctx = await loadCtx(db);
-  let q = db.from("worship_videos").select("*");
-  if (filter.ids) q = q.in("id", filter.ids);
   const all = [];
   for (let from = 0; ; from += 1000) {
+    // 나눠 읽을 때 겹치지 않게 id 순서로 (쿼리는 매번 새로)
+    let q = db.from("worship_videos").select("*").order("id");
+    if (filter.ids) q = q.in("id", filter.ids);
     const { data, error } = await q.range(from, from + 999);
     if (error) throw new Error(error.message);
     all.push(...(data || []));
@@ -308,7 +323,7 @@ export async function syncPlaylist(db, { budgetMs = 7000, restart = false } = {}
     if (items.length) {
       const { data: have } = await db.from("worship_videos").select("id").in("id", items.map((x) => x.id));
       const known = new Set((have || []).map((x) => x.id));
-      const fresh = items.filter((x) => !known.has(x.id));
+      const fresh = items.filter((x) => !known.has(x.id) && (known.add(x.id), true));
       if (fresh.length) {
         const vj = await ytGet(`videos?part=contentDetails,snippet&id=${fresh.map((x) => x.id).join(",")}`, key);
         const det = new Map((vj.items || []).map((x) => [x.id, x]));

@@ -1,5 +1,5 @@
 // v32 단위: 예배 영상 날짜 · 마커 읽기 · 콘티 맞추기 (api/_video.js 순수 함수)
-import { parseTitleDate, titleSongs, parseDesc, matchVideo, normCore, normFull, sundayOnOrBefore, median, playSec } from "../../../api/_video.js";
+import { kindOf, parseTitleDate, titleSongs, parseDesc, matchVideo, normCore, normFull, sundayOnOrBefore, median, playSec } from "../../../api/_video.js";
 let ok = 0, bad = 0;
 const eq = (a, b, m) => { const s = JSON.stringify(a) === JSON.stringify(b); s ? ok++ : bad++; console.log(s ? "  ok " : "  BAD", m, s ? "" : `→ ${JSON.stringify(a)} (기대 ${JSON.stringify(b)})`); };
 
@@ -78,5 +78,13 @@ r = matchVideo(V({ title: "아무거나", pinned: true, service_date: "2025-11-0
 eq([r.status, r.service_date, r.date_src, r.rows.find((x) => x.song_id === 8)?.start_sec], ["linked", "2025-11-02", "manual", 10], "리더십이 정한 날짜는 그대로");
 r = matchVideo(V({ title: "2026년 8월 30일", pinned: true, status: "skipped", skip_why: "manual" }), ctx);
 eq(r.status, "skipped", "리더십이 뺀 영상은 계속 빠짐");
+// 설교 영상 (같은 재생목록)
+eq([kindOf("2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 설교"), kindOf("25. 10.26 Pole2 대학부_주일예배 말씀"), kindOf("2026년 8월 30일 … 주일예배 찬양"), kindOf("Pole2 대학부 8/30")], ["sermon", "sermon", "praise", null], "제목으로 찬양 · 설교 구분");
+r = matchVideo(V({ title: "2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 설교", description: D }), ctx);
+eq([r.status, r.skip_why, r.rows.length], ["skipped", "sermon", 0], "설교 영상 → 건너뜀 (콘티에 안 붙음)");
+r = matchVideo(V({ title: "2026년 8월 30일 Pole2" }), ctx);
+eq([r.status, r.reasons], ["review", ["kind"]], "찬양 · 설교 표시 없고 마커도 없음 → 찬양 영상인지 확인");
+r = matchVideo(V({ title: "2026년 8월 30일 Pole2", description: "03:51 : 놀라우신 은혜" }), ctx);
+eq(r.status, "linked", "표시가 없어도 곡 마커가 콘티와 맞으면 찬양 영상");
 eq(median([300, 100, 200]), 200, "중간값 (홀수)"); eq(median([100, 200, 300, 400]), 250, "중간값 (짝수)"); eq(median([]), null, "기록 없음");
 console.log(`ok ${ok} bad ${bad}`);

@@ -20,6 +20,8 @@
 ### 예배 영상 (api/_video.js)
 - **순수 함수**: `parseTitleDate` · `titleSongs` · `parseDesc` · `songMatcher` · `matchVideo` · `median`. 단위 시험은 `unit_video.mjs`에 있어요.
   - 날짜 src: `title`(확실) · `title-short`(`25. 10.26`, 제목 곡으로 ±21일 확인) · `title-md`(`8월 30일` + 올린 해) · `upload`(직전 주일, 확인) · `manual`
+  - 설교 영상(11/8 추가): `kindOf(title)`는 sermon(설교 · 말씀 · sermon · 메시지) → `skip_why = 'sermon'`, praise(찬양 · worship · praise), null이면 곡 마커가 하나도 안 맞을 때 `reasons`에 `kind`(확인)
+  - 같은 영상이 두 번 오면 saveMatched가 id로 하나만 남겨요(실제 오류: ON CONFLICT … second time). rematch는 id 순으로 나눠 읽어요
   - 상태 `linked | review | skipped`. `reasons`: date · songs · noconti · leader(참고). `skip_why`: outside · noconti · manual
   - 곡 이름 맞추기: normFull / normCore(괄호 안 빼고) 일치 → 별칭(song_aliases) → 한쪽이 다른 쪽을 품고 하나뿐일 때
   - 마커 → `video_songs(start, end = 다음 마커 · 마지막은 영상 길이, medley, located)`. 한 마커에 여러 곡이 있거나 join_prev면 medley. 마커 없는 콘티 곡은 located=false, 0초부터
