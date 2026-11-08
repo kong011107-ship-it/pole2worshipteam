@@ -1,0 +1,5 @@
+v32 시험 (실제 서버 없이)
+- 단위: node dev/tests/v32/unit_video.mjs  (제목 날짜 · 설명란 마커 · 콘티 맞추기 · 중간값)
+- 동기화: node dev/tests/v32/sync_video.mjs  (가짜 DB + 가짜 YouTube: 나눠 읽기 · 다시 맞추기 · cron)
+- 화면: python3 dev/tests/v32/run_video.py · run_bk.py · run_pedal.py  (v31 틀 = dev/tests/v31/run.py 헬퍼 · 가짜 sb, pdf.js · pdf-lib는 /home/claude/libs에 npm으로)
+DB: dev/tests/v32_db — createdb t && psql -d t -f stub.sql && psql -d t -f test.sql (test.sql은 /tmp/m031.sql = migration_031.sql을 두 번 실행)

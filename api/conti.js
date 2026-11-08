@@ -11,9 +11,13 @@
 //  027: { action: "applied-notify", service_id } — 적용찬양을 처음 올린 사람이 부름 → 그 예배 라인업에 한 번만 (applied_meta.notified_at)
 //       { action: "backup-notify" }               — 백업찬양 후보를 확정 · 수정한 사람이 부름 → 그 예배 라인업에 pub_ver마다 한 번
 //       공유 링크: 적용찬양 · 예배 진행곡 · 백업찬양의 공유 필기(ink_extra)도 · 백업찬양 후보는 확정한 것만
+//  032: 예배 영상 (리더십 · api/_video.js) — { action: "video-sync", restart? } 재생목록 읽기(나눠서 · pending이면 다시 부름)
+//       { action: "video-rematch" } 저장된 영상 다시 맞추기 · { action: "video-set", id, date | skip | reset } 날짜 · 빼기를 직접
+//       { action: "video-alias", id, label, song_id } 마커 이름을 곡에 연결(별칭으로 기억) → 다시 맞춤
 //  029: 공유 링크에 예배 순서(flow) · 특별순서 · 등단송 쓰기 · 모든 순서의 BPM · 레퍼런스(메들리는 메들리 것) · 실시간 채널(rt)
 import { adminClient, requireAdmin, requireMember, handler, HttpError } from "./_lib.js";
 import { settingOf, fill, deliverOnce, serviceName } from "./_notify.js";
+import { syncPlaylist, rematch, normFull, normCore } from "./_video.js";
 
 export default handler(async (req, body) => {
   const db = adminClient();
@@ -23,6 +27,7 @@ export default handler(async (req, body) => {
   if (body.action === "sheet-notify") return sheetNotify(req, db, body);
   if (body.action === "yt") { await requireMember(req, db); return { ...(await ytLookup(db, body.ids)) }; }
   if (body.action === "yt-fill") { await requireAdmin(req, db); return ytFill(db); }
+  if (String(body.action || "").startsWith("video-")) { const u = await requireAdmin(req, db); return videoAction(db, body, u); }
   if (body.action === "share") return share(db, body);
   if (body.action === "share-live") return shareLive(db, body);
   throw new HttpError(400, "알 수 없는 요청이에요.");
@@ -222,6 +227,49 @@ async function ytFill(db) {
   const rows = await fetchYT(missing);
   for (let i = 0; i < rows.length; i += 200) await db.from("yt_videos").upsert(rows.slice(i, i + 200));
   return { total: all.length, fetched: rows.length, found: rows.filter((r) => r.duration_sec !== null).length, left: Math.max(0, all.length - known.size - rows.length) };
+}
+
+// ---------------------------------------------------------------- 032: 예배 영상 (리더십)
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+async function videoAction(db, body, user) {
+  const a = body.action;
+  try {
+    if (a === "video-sync") {
+      const r = await syncPlaylist(db, { budgetMs: 7000, restart: !!body.restart });
+      if (r.done) r.rematched = await rematch(db, { recent: 60 });
+      return r;
+    }
+    if (a === "video-rematch") return rematch(db, {});
+    const id = String(body.id || "");
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) throw new HttpError(400, "영상을 찾을 수 없어요.");
+    const { data: v } = await db.from("worship_videos").select("id, status").eq("id", id).maybeSingle();
+    if (!v) throw new HttpError(404, "영상을 찾을 수 없어요. 새로고침해 주세요.");
+    if (a === "video-set") {
+      let patch;
+      if (body.reset) patch = { pinned: false };
+      else if (body.skip) patch = { pinned: true, status: "skipped", skip_why: "manual" };
+      else if (ISO.test(body.date || "")) patch = { pinned: true, status: "review", skip_why: null, service_date: body.date };
+      else throw new HttpError(400, "날짜를 2026-08-30처럼 골라 주세요.");
+      const { error } = await db.from("worship_videos").update(patch).eq("id", id);
+      if (error) throw new HttpError(500, "저장하지 못했어요: " + error.message);
+      return rematch(db, { ids: [id] });
+    }
+    if (a === "video-alias") {
+      const label = String(body.label || "").trim().slice(0, 120), sid = +body.song_id;
+      if (!label || !sid) throw new HttpError(400, "마커 이름과 곡을 골라 주세요.");
+      const { data: so } = await db.from("songs").select("id").eq("id", sid).maybeSingle();
+      if (!so) throw new HttpError(404, "곡을 찾을 수 없어요.");
+      const rows = [...new Set([normFull(label), normCore(label)])].filter(Boolean).map((norm) => ({ norm, song_id: sid, label, created_by: user.id }));
+      const { error } = await db.from("song_aliases").upsert(rows);
+      if (error) throw new HttpError(500, "저장하지 못했어요: " + error.message);
+      // 같은 이름을 쓴 다른 영상도 함께 맞춰요
+      return rematch(db, { recent: 36500 });
+    }
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
+    throw new HttpError(502, e.message || "예배 영상을 처리하지 못했어요.");
+  }
+  throw new HttpError(400, "알 수 없는 요청이에요.");
 }
 
 // ---------------------------------------------------------------- 025: 섬김이 팀 공유 링크 (로그인 없음 · 보기만)

@@ -100,7 +100,7 @@
           : `<div class="cv-wait"><span><b>아직 콘티가 올라오지 않았어요</b><span class="small muted">올라오면 이 화면에 바로 보여요</span></span></div>`}
         ${items.length ? `<section class="card"><div class="card-title cv-ct">곡 순서 <span class="cv-chips">${ch?.text?.length ? `<span class="chip chip-mid" title="${esc(ch.text.join(" · "))}">수정됨 · ${esc(ch.text.slice(0, 2).join(" · "))}${ch.text.length > 2 ? " 외" : ""}</span>` : ""}${sc && (!ch?.at || sc.at > ch.at) ? `<span class="chip chip-violet">악보 바뀜 · ${esc(kdt(sc.at))}</span>` : ""}</span></div>
           <div class="cv-slist">${items.map((x, i) => { const jn = i > 0 && x.join_prev; return `<div class="cv-srow ${jn ? "join" : ""}"><span class="cv-sn">${jn ? "+" : gno(items, i)}</span><button type="button" class="cv-st" data-sh-at="c:${i}"><b>${esc(x.title)}</b><small>${jn ? "앞 곡에 이어서" : `${x.sheet ? `${x.sheet.pages}쪽` : "악보 없음"}${items[i + 1]?.join_prev ? " · 메들리" : ""}`}</small></button>
-            ${x.ref ? `<a class="cv-yt" href="${ytLink(x.ref[0], x.ref[1])}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${PLAY}레퍼런스</a>` : "<span></span>"}
+            ${x.ref ? `<a class="cv-yt" href="${ytLink(x.ref[0], x.ref[1])}" data-play="${esc(x.ref[0])}" data-ps="${x.ref[1] || 0}" data-pt="${esc(x.title)}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${PLAY}레퍼런스</a>` : "<span></span>"}
             ${x.bpm ? `<span class="cv-bpm">${esc(bpmText(x.bpm, x.meter))}</span>` : "<span></span>"}<span class="cv-key">${esc(kt(x))}</span>${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`; }).join("")}</div>${items.some((x) => x.diff_key) ? `<p class="small muted cv-dk">* 음원(레퍼런스)과 키가 달라요</p>` : ""}</section>` : ""}
         ${rows.length ? `<section class="card"><div class="card-title cv-ct">예배 순서 <small>${f.communion ? "성찬식 주일 · " : ""}콘티 다음 차례대로</small>${flowChg ? `<span class="chip chip-mid">순서 바뀜 · ${esc(kdt(f.flow_at))}</span>` : ""}</div>
           ${rows.map((r) => `<button type="button" class="cv-prow" data-sh-at="${esc(r.at)}"><span class="cv-ptag">${esc(r.tag)}</span><span class="cv-st2"><b>${esc(r.title)}</b><small>${esc(r.sub || "")}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}`
@@ -348,8 +348,8 @@
     V.follow = !!(follow && liveOn());
     if (multiOn()) applyMode(); else draw();
     wake(true);
-    const onKey = (e) => { if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); turn(1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); turn(-1); } };
-    document.addEventListener("keydown", onKey);
+    // 032: 블루투스 페달 · 키보드 (assets/pedal.js)
+    const offPedal = window.PEDAL ? PEDAL.attach(el, (d) => turn(d)) : null;
     el.addEventListener("click", (e) => {
       const mb = e.target.closest("[data-v-mode]");
       if (mb) { const m = mb.dataset.vMode; if (m === V.mode && !V.temp) return; if (iv?.state?.pen) iv.setPen(false); V.mode = m; V.temp = false; V.penTemp = false; ls.set(VIEW_K, m); applyMode(); return toast(`${VIEW_NAME[m]} 보기`, 1500); }
@@ -364,7 +364,7 @@
     window.addEventListener("popstate", onPop);
     const vapi = {
       get hasLive() { return liveOn(); },
-      close(fromPop) { window.removeEventListener("popstate", onPop); document.removeEventListener("keydown", onKey); iv?.destroy(); ml?.destroy(); el.remove(); document.body.classList.remove("cv-open"); S.viewer = null; wake(false); if (!fromPop && history.state?.shv) history.back(); },
+      close(fromPop) { window.removeEventListener("popstate", onPop); offPedal?.(); iv?.destroy(); ml?.destroy(); el.remove(); document.body.classList.remove("cv-open"); S.viewer = null; wake(false); if (!fromPop && history.state?.shv) history.back(); },
       refresh() { rebuild(); },
       onLive(prev) {
         const was = !!(prev?.active);

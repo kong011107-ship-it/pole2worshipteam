@@ -9,7 +9,7 @@
       eq(k, v) { st.filters.push((r) => r[k] === v); return api; },
       neq(k, v) { st.filters.push((r) => r[k] !== v); return api; },
       in(k, vs) { st.filters.push((r) => vs.includes(r[k])); return api; },
-      gte() { return api; }, lte() { return api; }, lt() { return api; }, gt() { return api; }, like() { return api; }, ilike() { return api; }, is() { return api; }, not() { return api; }, or() { return api; }, contains() { return api; },
+      gte() { return api; }, lte() { return api; }, lt() { return api; }, gt() { return api; }, like() { return api; }, ilike() { return api; }, is(k, v) { st.filters.push((r) => (r[k] ?? null) === v); return api; }, not() { return api; }, or() { return api; }, contains() { return api; },
       order() { return api; }, limit() { return api; }, range() { return api; },
       maybeSingle() { st.maybe = true; return api; }, single() { st.single = true; return api; },
       insert(p) { st.op = "insert"; st.payload = p; return api; }, update(p) { st.op = "update"; st.payload = p; return api; },

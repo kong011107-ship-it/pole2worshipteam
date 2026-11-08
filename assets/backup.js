@@ -13,7 +13,7 @@
   const LSK = "pole2.backup.cache";
   const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
   const B = { book: null, songs: [], live: null, proc: [], q: "", keys: new Set(), topics: new Set(), me: null, root: null, loaded: false,
-    ch: null, timer: null, layer: null, follow: true, view: null, pg: 0, saved: null, adding: false, toastT: null, offline: false, bpm: {} };
+    ch: null, timer: null, layer: null, follow: true, view: null, pg: 0, saved: null, adding: false, editing: null, editEl: null, toastT: null, offline: false, bpm: {} };
   const listeners = new Set();
   const emit = () => listeners.forEach((f) => { try { f(B.live); } catch (e) { console.warn(e); } });
 
@@ -132,16 +132,19 @@
       const n = picked.indexOf(s.id) + 1, alts = altsOf(s);
       return `<div class="bk-item"><button type="button" class="bk-main" data-bk-song="${s.id}">${codeHTML(s.code)}<span><b>${esc(s.title)}</b><small>${[alts.length ? `다른 키 ${alts.map((a) => a.code).join(" · ")}` : "", s.images ? `그림 ${s.images.length}장` : ""].filter(Boolean).join(" · ")}</small></span>
           ${lead ? `<span class="bk-ck ${n ? "on" : ""}" aria-label="${n ? `${n}번 후보` : "후보 아님"}">${n || ""}</span>` : ""}</button>
-        <button type="button" class="btn btn-ghost btn-sm" data-bk-view="${s.id}">악보</button></div>`;
+        ${lead && !s.book_id ? `<button type="button" class="btn btn-ghost btn-sm" data-bk-ed="${s.id}" aria-expanded="${B.editing === s.id}">고치기</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-bk-view="${s.id}">악보</button></div>
+        ${B.editing === s.id ? `<div class="bk-edslot" data-bk-edslot></div>` : ""}`;
     }).join("")}`).join("")}</div>`;
   }
   function drawHome() {
     const root = B.root; if (!root) return;
     const focus = document.activeElement?.id === "bkQ", pos = focus ? document.activeElement.selectionStart : null;
+    // 032: 입력 칸(곡 더하기 · 고치기)은 다시 그려도 쓰던 칸에 그대로
+    const act = document.activeElement, actPos = (() => { try { return act?.selectionStart ?? null; } catch { return null; } })();
     const lead = canLead(), live = B.live?.active, T = topics(), cs = cands();
     const slots = Math.max(lead ? 4 : 0, cs.length);
     // 025: 이미지로 곡 더하기 — 검색창 옆 · 입력 칸은 검색창 바로 아래 (다시 그려도 고른 사진 · 적은 값은 그대로)
-    const keepForm = B.adding ? root.querySelector(".bk-add") : null;
+    const keepForm = B.adding ? root.querySelector(".bk-add:not(.bk-edit)") : null;
     root.innerHTML = `${B.offline ? `<div class="notice warn">인터넷 연결이 없어 저장해 둔 목록을 보여 줘요.</div>` : ""}
       ${live ? `<button type="button" class="bk-livecard" data-bk="join"><span class="bk-dot"></span><span><b>백업찬양 진행 중</b><small>${esc(B.live.leader || "인도자")} 인도${B.live.now ? ` · 지금 ${esc(refInfo(B.live.now)?.code || "")} ${esc(refInfo(B.live.now)?.title || "")}` : ""}</small></span><span class="btn btn-primary btn-sm">${amLeader() ? "진행 화면" : "참여"}</span></button>` : ""}
       <div class="bk-head"><h2>백업찬양 후보</h2><span class="small muted">${B.book ? `악보집 ${esc(B.book.label)} · ${B.songs.filter((s) => s.book_id).length}곡 · <span id="bkSaved">${savedHTML()}</span>` : "악보집이 아직 없어요"}</span></div>
@@ -163,6 +166,8 @@
           ${live ? "" : B.live?.confirmed ? `<button type="button" class="btn btn-soft" data-bk="edit" ${sameAsPub() ? "disabled" : ""}>수정</button>` : `<button type="button" class="btn btn-soft" data-bk="confirm" ${cs.length ? "" : "disabled"}>확정</button>`}
           ${live ? `<button type="button" class="btn btn-primary" data-bk="join">진행 화면</button>` : `<button type="button" class="btn btn-primary" data-bk="start" ${cs.length ? "" : "disabled"}>기도회 시작</button>`}</div>` : ""}`;
     if (keepForm) root.querySelector("#bkAddSlot")?.replaceChildren(keepForm);
+    fillEdit();
+    if (act && !focus && (keepForm?.contains(act) || B.editEl?.contains(act)) && document.activeElement !== act) { act.focus(); try { if (actPos != null) act.setSelectionRange(actPos, actPos); } catch {} }
     if (focus) { const q = root.querySelector("#bkQ"); q?.focus(); try { q?.setSelectionRange(pos, pos); } catch {} }
     root.onclick = onHomeClick; root.oninput = onHomeInput; root.onchange = onHomeChange;
     root.onpointerdown = onSlotDrag;
@@ -230,9 +235,9 @@
   }
   // 코드 자동 추천: 키 · 주제를 고르면 그 키 · 주제에서 비어 있는 다음 번호 (예: g51 · g54 · g56 → g57)
   //  키나 주제를 '모름'으로 두면 비워서 x1, x2 … 로
-  function suggestCode(k, t) {
+  function suggestCode(k, t, except) {
     if (!k || t === "" || t == null) return "";
-    const re = new RegExp(`^${k}${t}([0-9]{1,3})$`), used = B.songs.map((x) => x.code.match(re)?.[1]).filter((x) => x != null).map(Number);
+    const re = new RegExp(`^${k}${t}([0-9]{1,3})$`), used = B.songs.filter((x) => x.id !== except).map((x) => x.code.match(re)?.[1]).filter((x) => x != null).map(Number);
     if (!used.length) return `${k}${t}0`;
     const max = Math.max(...used);
     if (max + 1 <= 9) return `${k}${t}${max + 1}`;
@@ -242,8 +247,16 @@
   function codeHint(form) {
     const k = form.querySelector("#bkAK").value, t = form.querySelector("#bkATp").value, c = form.querySelector("#bkAC").value.trim().toLowerCase();
     const re = k && t !== "" ? new RegExp(`^${k}${t}[0-9]{1,3}$`) : null;
-    const same = re ? B.songs.filter((x) => re.test(x.code)).map((x) => x.code).sort() : [];
-    const dup = c && B.songs.some((x) => x.code === c);
+    const ed = +form.dataset.edit || null;
+    const same = re ? B.songs.filter((x) => x.id !== ed && re.test(x.code)).map((x) => x.code).sort() : [];
+    const dup = c && B.songs.some((x) => x.code === c && x.id !== ed);
+    // 032: 고치기 — 코드는 그대로 두고, 키 · 주제와 안 맞으면 추천 코드로 바꾸는 버튼
+    if (ed && !dup) {
+      const sug = suggestCode(k, t, ed);
+      form.querySelector("#bkACh").innerHTML = !k || t === "" || (re && re.test(c)) ? "코드를 비우면 지금 코드 그대로예요"
+        : `${k.toUpperCase()} · ${esc(topics()[t] || t)}에 맞는 코드 → <b>${esc(sug)}</b> <button type="button" class="linkbtn" data-bke-code="${esc(sug)}">이걸로</button>`;
+      return;
+    }
     form.querySelector("#bkACh").innerHTML = dup ? `<span class="bad">이미 있는 코드예요 (${esc(c)})</span>`
       : !k || t === "" ? "키 · 주제를 모르면 비워 두세요 · x1, x2 …로 붙어요"
       : same.length ? `${k.toUpperCase()} · ${esc(topics()[t] || t)}: ${same.slice(-4).map(esc).join(" · ")}${same.length > 4 ? " …" : ""} → <b>${esc(suggestCode(k, t))}</b> 추천` : `${k.toUpperCase()} · ${esc(topics()[t] || t)}의 첫 곡 → <b>${esc(suggestCode(k, t))}</b>`;
@@ -260,10 +273,89 @@
       <span class="small muted" id="bkAP">고른 사진 없음</span>
       <div class="row"><button type="button" class="btn btn-primary btn-sm" data-bk="add-save">더하고 후보에 넣기</button><button type="button" class="btn btn-ghost btn-sm" data-bk="add-cancel">취소</button></div></section>`;
   }
+  // ------------------------------------------------------------------ 032: 직접 더한 곡 고치기 · 지우기 (인도자 화면 · 리더십 관리 화면 공통)
+  function fillEdit() {
+    const slot = B.root?.querySelector("[data-bk-edslot]"); if (!slot) return;
+    const s = songOf(B.editing); if (!s) { B.editing = null; B.editEl = null; return; }
+    if (!B.editEl) B.editEl = editForm(s, () => { B.editing = null; B.editEl = null; drawHome(); });
+    slot.replaceChildren(B.editEl);
+  }
+  function editForm(s, done) {
+    const T = topics(), el = document.createElement("section");
+    const opt = (v, label, cur) => `<option value="${v}" ${String(cur ?? "") === String(v) ? "selected" : ""}>${label}</option>`;
+    el.className = "card bk-add bk-edit"; el.dataset.edit = s.id;
+    el.innerHTML = `<div class="card-title cv-ct">곡 고치기 <small>직접 더한 곡 · 지금 사진 ${s.images?.length || 0}장 <button type="button" class="linkbtn" data-bke="view">보기</button></small></div>
+      <label class="field">곡 이름<input class="input" id="bkAT" maxlength="80" value="${esc(s.title)}"></label>
+      <div class="row bk-addrow" style="gap:10px;align-items:flex-end"><label class="field" style="flex:1">키<select class="select" id="bkAK">${opt("", "모름", s.key)}${KEYS.map((k) => opt(k, k.toUpperCase(), s.key)).join("")}</select></label>
+        <label class="field" style="flex:1.4">주제<select class="select" id="bkATp">${opt("", "모름", s.topic)}${Object.entries(T).map(([k, v]) => opt(k, `${k} ${esc(v)}`, s.topic)).join("")}</select></label>
+        <label class="field" style="flex:1">코드<input class="input" id="bkAC" maxlength="6" value="${esc(s.code)}" autocomplete="off" data-touched="1"></label></div>
+      <span class="small muted bk-codehint" id="bkACh"></span>
+      <label class="btn btn-ghost btn-sm cv-upl" style="align-self:flex-start">사진 바꾸기<input type="file" accept="image/*" multiple id="bkAF" hidden></label>
+      <div class="bk-emode" hidden><label class="small"><input type="radio" name="bkEM${s.id}" value="replace" checked> 전부 바꾸기</label><label class="small"><input type="radio" name="bkEM${s.id}" value="append"> 뒤에 이어 붙이기</label></div>
+      <span class="small muted" id="bkAP">안 고르면 지금 사진 그대로예요</span>
+      <div class="row bk-erow"><button type="button" class="btn btn-primary btn-sm" data-bke="save">저장</button><button type="button" class="btn btn-ghost btn-sm" data-bke="cancel">취소</button>
+        <button type="button" class="btn btn-danger btn-sm bk-edel" data-bke="del">곡 지우기</button></div>`;
+    const $ = (q) => el.querySelector(q);
+    const files = () => [...($("#bkAF").files || [])];
+    const mode = () => el.querySelector(`input[name=bkEM${s.id}]:checked`)?.value || "replace";
+    const pics = () => { const f = files(); $(".bk-emode").hidden = !f.length;
+      $("#bkAP").textContent = !f.length ? "안 고르면 지금 사진 그대로예요" : mode() === "append" ? `지금 ${s.images?.length || 0}장 뒤에 ${f.length}장 · 앞쪽 필기는 그대로` : `새 사진 ${f.length}장으로 바꿔요 · 이 곡 공유 필기는 지워져요`; };
+    // 인도자 화면 · 관리 화면의 다른 입력 처리로 넘어가지 않게 여기서 끝내요
+    el.addEventListener("input", (e) => { e.stopPropagation(); if (e.target.id === "bkAC") codeHint(el); });
+    el.addEventListener("change", (e) => { e.stopPropagation(); if (e.target.id === "bkAK" || e.target.id === "bkATp") codeHint(el); if (e.target.id === "bkAF" || e.target.name === `bkEM${s.id}`) pics(); });
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const cb = e.target.closest("[data-bke-code]"); if (cb) { $("#bkAC").value = cb.dataset.bkeCode; return codeHint(el); }
+      const b = e.target.closest("[data-bke]"); if (!b) return;
+      const a = b.dataset.bke;
+      if (a === "cancel") return done();
+      if (a === "view") return CONTI.openViewer(null, { title: `${s.code} ${s.title}`, items: [{ id: `b:${s.id}`, tag: s.code, title: s.title, src: (s.images || []).map((img) => ({ img })) }] });
+      if (a === "del") return delCustom(s, b, done);
+      if (a === "save") return saveCustom(s, el, b, files(), mode(), done);
+    });
+    codeHint(el);
+    return el;
+  }
+  async function saveCustom(s, el, b, files, mode, done) {
+    const $ = (q) => el.querySelector(q);
+    const title = $("#bkAT").value.trim(), code = $("#bkAC").value.trim().toLowerCase(), key = $("#bkAK").value, tp = $("#bkATp").value;
+    if (!title) return toast("곡 이름을 적어 주세요");
+    if (code && !/^[a-z0-9+]{1,6}$/.test(code)) return toast("코드는 영문 소문자 · 숫자 6자까지예요");
+    if (code && code !== s.code && B.songs.some((x) => x.code === code && x.id !== s.id)) return toast(`이미 있는 코드예요 (${code})`);
+    const keep = mode === "append" ? s.images || [] : [];
+    if (files.length && keep.length + files.length > 12) return toast(`사진은 12장까지예요${keep.length ? ` (지금 ${keep.length}장)` : ""}`);
+    if (files.length && mode === "replace" && !confirm(`사진을 새 ${files.length}장으로 바꿀까요?\n이 곡에 쓴 공유 필기는 지워져요.`)) return;
+    b.disabled = true;
+    try {
+      const images = files.length ? [...keep, ...(await L().uploadImages(files, "backup/", (n, t2) => (b.textContent = `올리는 중 ${n}/${t2}…`)))] : null;
+      const { data, error } = await sb.rpc("backup_edit_custom", { p_id: s.id, p_title: title, p_key: key || null, p_topic: tp === "" ? null : +tp, p_code: code || null, p_images: images });
+      if (error) throw new Error(error.message || "저장하지 못했어요");
+      const i = B.songs.findIndex((x) => x.id === s.id);
+      if (i >= 0) B.songs[i] = { ...B.songs[i], ...data };
+      if (data.code !== s.code && B.bpm?.[s.code] && !B.bpm[data.code] && !B.songs.some((x) => x.code === s.code)) { B.bpm[data.code] = B.bpm[s.code]; delete B.bpm[s.code]; }
+      Object.assign(s, data);
+      toast(`${data.code} ${data.title}을 고쳤어요`); emit(); done(data);
+    } catch (err) { toast(err.message || "저장하지 못했어요", 4000); b.disabled = false; b.textContent = "저장"; }
+  }
+  async function delCustom(s, b, done) {
+    const lv = B.live || {}, id = s.id;
+    const inCand = (lv.candidates || []).map(Number).includes(id) || (lv.pub_candidates || []).map(Number).includes(id);
+    if (lv.active && (lv.candidates || []).map(Number).includes(id)) return toast("기도회 중인 후보예요. 먼저 후보에서 빼 주세요", 3500);
+    if (!confirm(`${s.code} ${s.title}을 지울까요?\n${inCand ? "후보에서도 빠져요. " : ""}이 곡에 쓴 공유 필기 · BPM도 함께 지워지고, 되돌릴 수 없어요.`)) return;
+    b.disabled = true;
+    if (!(await flushCands())) { b.disabled = false; return; }
+    const { data, error } = await sb.rpc("backup_delete_custom", { p_id: id });
+    if (error) { b.disabled = false; return toast(error.message || "지우지 못했어요", 4000); }
+    B.songs = B.songs.filter((x) => x.id !== id);
+    if (data) B.live = data;
+    if (B.bpm?.[s.code] && !B.songs.some((x) => x.code === s.code)) delete B.bpm[s.code];
+    ls.set(LSK, { book: B.book, songs: B.songs, proc: B.proc, live: B.live, bpm: B.bpm, at: Date.now() });
+    toast(`${s.code} ${s.title}을 지웠어요`); emit(); done(null);
+  }
   let candT = null;
   function onHomeInput(e) {
     if (e.target.id === "bkAC") { e.target.dataset.touched = e.target.value ? "1" : ""; return codeHint(e.target.closest(".bk-add")); }
-    if (e.target.id === "bkQ") { B.q = e.target.value; const box = B.root.querySelector(".bk-list"); if (box) box.outerHTML = listHTML(canLead()); }
+    if (e.target.id === "bkQ") { B.q = e.target.value; const box = B.root.querySelector(".bk-list"); if (box) { box.outerHTML = listHTML(canLead()); fillEdit(); } }
   }
   function onHomeChange(e) {
     if (e.target.id === "bkAF") B.root.querySelector("#bkAP").textContent = e.target.files.length ? `사진 ${e.target.files.length}장` : "고른 사진 없음";
@@ -280,6 +372,12 @@
     if (rm) { if (!canLead()) return; const id = +rm.dataset.bkRm; return setCands((B.live?.candidates || []).map(Number).filter((x) => x !== id)); }
     if (e.target.closest("[data-bk-grip]")) return;
     const v = e.target.closest("[data-bk-view]"); if (v) return preview(+v.dataset.bkView);
+    const ed = e.target.closest("[data-bk-ed]");
+    if (ed) {
+      const id = +ed.dataset.bkEd; B.editEl = null;
+      B.editing = B.editing === id ? null : id; if (B.editing) B.adding = false;
+      drawHome(); return B.editing && B.root.querySelector(".bk-edit #bkAT")?.focus();
+    }
     const s = e.target.closest("[data-bk-song]");
     if (s) {
       if (!canLead()) return preview(+s.dataset.bkSong);
@@ -309,7 +407,7 @@
       else b.disabled = false;
       return;
     }
-    if (a === "add") { B.adding = !B.adding; drawHome(); return B.root.querySelector("#bkAT")?.focus(); }
+    if (a === "add") { B.adding = !B.adding; B.editing = null; B.editEl = null; drawHome(); return B.root.querySelector("#bkAT")?.focus(); }
     if (a === "add-cancel") { B.adding = false; return drawHome(); }
     if (a === "add-save") {
       const title = B.root.querySelector("#bkAT").value.trim(), files = [...(B.root.querySelector("#bkAF").files || [])];
@@ -325,7 +423,7 @@
         const tp = B.root.querySelector("#bkATp").value;
         const { data, error } = await sb.rpc("backup_add_custom", { p_title: title, p_key: B.root.querySelector("#bkAK").value || null, p_code: B.root.querySelector("#bkAC").value.trim().toLowerCase() || null, p_images: images, p_topic: tp === "" ? null : +tp });
         if (error) throw new Error(error.message || "더하지 못했어요");
-        B.songs.push(data); B.adding = false; B.root.querySelector(".bk-add")?.remove();
+        B.songs.push(data); B.adding = false; B.root.querySelector(".bk-add:not(.bk-edit)")?.remove();
         await update({ candidates: [...(B.live?.candidates || []).map(Number), data.id] });
         toast(`${data.code} ${data.title}을 더했어요`);
       } catch (err) { toast(err.message || "더하지 못했어요", 4000); b.disabled = false; b.textContent = "더하고 후보에 넣기"; }
@@ -347,7 +445,7 @@
       <div class="bk-stage" id="bkStage"><canvas id="bkCanvas" aria-label="악보"></canvas><div class="cvv-blank hidden" id="bkBlank"></div>
         <button type="button" class="cvv-tap l" data-bkl="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-bkl="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="bkLoad">불러오는 중…</div><div class="bk-toast hidden" id="bkToast"></div></div>
-      <div class="bk-dock" id="bkDock"></div>`, () => { CONTI.METRO.off(); L().wake?.(false); B.iv?.destroy(); B.iv = null; B.layer = null; document.removeEventListener("keydown", onKey); watch(false); if (B.root?.offsetParent) drawHome(); });
+      <div class="bk-dock" id="bkDock"></div>`, () => { CONTI.METRO.off(); L().wake?.(false); B.iv?.destroy(); B.iv = null; B.layer = null; offPedal?.(); offPedal = null; watch(false); if (B.root?.offsetParent) drawHome(); });
     B.layer = el; L().wake?.(true);
     // 024: 내 메모 · 확대 — 따라가는 중에도 쓸 수 있고, 인도자가 넘기면 쓰던 메모를 먼저 저장하고 같이 넘어감
     B.iv = window.INK ? INK.view({ stage: $("#bkStage", el), canvas: $("#bkCanvas", el), root: el, bar: $("#bkInk", el), onTurn: (d) => turn(d) }) : null;
@@ -355,7 +453,8 @@
     B.iv?.prefetch([...cands().map((s) => `b:${s.code}`), ...B.proc.map((p) => `p:${p.id}`)]);
     el.addEventListener("click", onLiveClick);
     el.addEventListener("keydown", (e) => { if (e.target.id === "bkCode" && e.key === "Enter") reserveCode(); });
-    document.addEventListener("keydown", onKey);
+    // 032: 블루투스 페달 · 키보드 (assets/pedal.js)
+    offPedal = window.PEDAL ? PEDAL.attach(el, (d) => turn(d)) : null;
     if (!B.iv) window.addEventListener("resize", () => { if (B.layer) drawSheet(); });
     watch(true);
     renderLive(); drawSheet();
@@ -363,11 +462,7 @@
     if (B.book) L().sheetDoc(B.book.path).catch(() => {});
     cands().forEach((s) => s.images?.forEach((p) => L().sheetImage(p).catch(() => {})));
   }
-  const onKey = (e) => {
-    if (!B.layer || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-    if (["ArrowRight", "PageDown"].includes(e.key)) { e.preventDefault(); turn(1); }
-    if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); turn(-1); }
-  };
+  let offPedal = null;
   function turn(d) { const n = pagesOf(B.view).length; const p = Math.max(0, Math.min(n - 1, B.pg + d)); if (p !== B.pg) { B.pg = p; drawSheet(); } }
   function onLiveChange(prev, mine) {
     if (!B.live.active) { const el = B.layer; if (el) { L().closeLayer(); toast("기도회가 끝났어요"); } return; }
@@ -467,11 +562,13 @@
   // =================================================================== 리더십: 찬양 › 곡 — 백업찬양 악보집 · 예배 진행곡
   async function mountAdmin(root) {
     root.innerHTML = `<div class="empty">불러오는 중…</div>`;
+    // 032: 고치기에서 코드가 겹치는지 · 후보에 든 곡인지 보려고 백업찬양 목록도 받아요
     const [bk, cnt, cust, pr] = await Promise.all([
       sb.from("backup_books").select("*").order("created_at", { ascending: false }).limit(5),
       sb.from("backup_songs").select("book_id", { count: "exact", head: false }).not("book_id", "is", null),
-      sb.from("backup_songs").select("id, code, title, key, images, hidden, created_at").is("book_id", null).order("created_at", { ascending: false }),
+      sb.from("backup_songs").select("id, code, title, key, topic, pages, images, hidden, created_at").is("book_id", null).order("created_at", { ascending: false }),
       sb.from("worship_proc").select("*").order("start_date", { ascending: false }).order("id", { ascending: false }),
+      loadData(true).catch(() => {}),
     ]);
     if (bk.error) { root.innerHTML = `<div class="empty">백업찬양을 불러오지 못했어요. migration_022를 실행했는지 확인해 주세요.</div>`; return; }
     const act = (bk.data || []).find((x) => x.active);
@@ -485,9 +582,9 @@
             <div class="row" style="gap:6px;flex:none"><button type="button" class="btn btn-ghost btn-sm" data-bka="songs">곡 목록 고치기</button><button type="button" class="btn btn-ghost btn-sm" data-bka="view">보기</button></div></div>`
           : `<p class="small muted" style="margin:0">아직 올린 악보집이 없어요. 악보집 PDF를 올리면 쪽마다 첫 줄의 코드(예: g40)와 곡 이름을 읽어서 목록을 만들어요.</p>`}
         <label class="btn btn-soft btn-sm cv-upl" style="align-self:flex-start">${act ? "새 버전 올리기 (PDF)" : "악보집 PDF 올리기"}<input type="file" accept="application/pdf" id="bkBookFile" hidden></label>
-        ${(cust.data || []).length ? `<details><summary class="small" style="cursor:pointer;font-weight:700;color:var(--violet)">이미지로 더한 곡 ${(cust.data || []).filter((x) => !x.hidden).length}곡</summary>
+        ${(cust.data || []).length ? `<details ${B.custOpen ? "open" : ""}><summary class="small" style="cursor:pointer;font-weight:700;color:var(--violet)">이미지로 더한 곡 ${(cust.data || []).filter((x) => !x.hidden).length}곡</summary>
           <div class="bk-alist">${(cust.data || []).map((x) => `<div class="devrow"><span>${codeHTML(x.code)} <b>${esc(x.title)}</b> <span class="small muted">${x.images?.length || 0}장${x.hidden ? " · 숨김" : ""}</span></span>
-            <button type="button" class="btn btn-ghost btn-sm" data-bka="hide" data-id="${x.id}" data-h="${x.hidden ? 0 : 1}">${x.hidden ? "다시 보이기" : "숨기기"}</button></div>`).join("")}</div></details>` : ""}
+            <div class="row" style="gap:6px;flex:none"><button type="button" class="btn btn-ghost btn-sm" data-bka="cedit" data-id="${x.id}">고치기</button><button type="button" class="btn btn-ghost btn-sm" data-bka="hide" data-id="${x.id}" data-h="${x.hidden ? 0 : 1}">${x.hidden ? "다시 보이기" : "숨기기"}</button></div></div>`).join("")}</div></details>` : ""}
       </section>
       <section class="panel" id="procAdmin"><h2>예배 진행곡 <small>종류마다 1곡(성찬 찬양은 2곡) · 바꿀 때만 고쳐요 · RT에 넣지 않아요</small></h2>
         <div class="bk-alist">${L().PROC_ORDER.map((k) => { const c = cur(k), n = next(k);
@@ -502,6 +599,16 @@
       const a = b.dataset.bka;
       if (a === "view" && act) return CONTI.openViewer(null, { single: { title: `백업찬양 악보집 ${act.label}`, path: act.path, pages: act.pages } });
       if (a === "songs" && act) return openSongEditor(act, () => mountAdmin(root));
+      // 032: 직접 더한 곡 고치기 · 지우기 — 줄 바로 아래에 열려요
+      if (a === "cedit") {
+        B.custOpen = true;
+        const row = b.closest(".devrow"), open = row.nextElementSibling?.classList.contains("bk-edit");
+        root.querySelectorAll(".bk-edit").forEach((x) => x.remove());
+        if (open) return;
+        const x = (cust.data || []).find((y) => y.id === +b.dataset.id); if (!x) return;
+        const f = editForm(x, (r) => (r === undefined ? f.remove() : mountAdmin(root)));
+        row.after(f); return f.querySelector("#bkAT")?.focus();
+      }
       if (a === "hide") { const { error } = await sb.from("backup_songs").update({ hidden: b.dataset.h === "1" }).eq("id", +b.dataset.id); toast(error ? "바꾸지 못했어요" : "바꿨어요"); return mountAdmin(root); }
       if (a === "proc") { const c = cur(b.dataset.k); return openProcEdit(b.dataset.k, c && !c.removed ? c : null, () => mountAdmin(root)); }
       // 029: 지우기 — 그날부터 그 종류는 없음 (지난 기록은 남아요 · 다시 올리면 돼요)

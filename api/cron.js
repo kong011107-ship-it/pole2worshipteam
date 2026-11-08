@@ -2,10 +2,12 @@
 //  · 마감 임박: 월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 — 아직 안 끝낸 사람에게
 //  · 수습 기록 차례: 그 주차 기록이 비어 있으면 나눔 리더(없으면 리더십)에게
 //  보낼지는 '공지 · 알림 › 알림 설정'의 시간을 보고 정함. 같은 알림은 한 번만.
+//  032: 예배 영상 — 새벽 5시에 재생목록을 확인하고(하루 1번), 덜 끝났으면 다음 시간에 이어서 (api/_video.js)
 //  020: 보내기 전에 자리를 잡아서(claim) 두 번 불려도 한 번만 · 한 건이 실패해도 나머지는 계속 · 새벽 4시에 오래된 변경 기록 정리
 import { adminClient } from "./_lib.js";
 import { settingOf, fill, deliverOnce, wasSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf, birthdayIn, GIFT_TEXT, serviceName, deadlineLabel,
   pendingForMonth, pendingForMinistry, pollPeople, votePending, traineeWeekOn } from "./_notify.js";
+import { videoCron } from "./_video.js";
 
 export default async function cron(req, res) {
   try {
@@ -184,6 +186,8 @@ export default async function cron(req, res) {
         }
       } catch (e) { fail("콘티 알림", e); }
     }
+    // ---------- 032: 예배 영상 (YouTube 재생목록 → 기록 탭 콘티)
+    try { const v = await videoCron(db, now); if (v) out.videos = v; } catch (e) { fail("예배 영상", e); }
     // ---------- 정리 (020): 새벽 4시에 1년 지난 변경 기록을 지움
     if (now.hour === 4) {
       const cut = new Date(Date.now() - 365 * 864e5).toISOString();

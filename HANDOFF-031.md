@@ -1,11 +1,13 @@
 # HANDOFF-031 (v31 · 2026-11-07)
 
-## 상태
+## 상태 (2026-11-07 저녁 · 세션 마무리)
 
-구현과 시험은 끝났어요. 실제 사이트 적용 · 실기기 확인은 아직이에요.
-
+- 구현과 시험은 끝났어요. **실제 사이트에는 아직 적용하지 않았어요.**
+- 사용자 결정: v31 마지막 변경분(모든 유튜브 링크 → 앱 안 재생, `assets/ytp.js`)은 **v32와 함께 진행**해요. 다음 세션은 v31 최종 묶음 위에서 v32를 시작해요.
 - 기준: GitHub 최신본(v30.1).
-- 받은 묶음: `v31-update.zip`
+- 받은 묶음: `v31-update.zip` 최종본(29개 파일, `ytp.js` 포함).
+  - **프로젝트 문서에는 큰 JS가 올라가 있지 않아요.** 프로젝트의 `assets/*.js`는 v29 · v30 이전 것이에요. 다음 세션에서는 사용자가 이 묶음(또는 배포한 GitHub zip)을 첨부해 줘야 해요.
+- v32에서 할 일은 `PLAN-032.md`에 있어요(예배 영상 자동 연결 · 실제 연주 시간 · 콘티 쓰기 '이전 연주' 같은 키 먼저).
 
 | 구분 | 파일 |
 |---|---|
@@ -42,8 +44,11 @@
   - 저장소 remove는 리더십만 돼요(정책). 올린 사람이 리더십이 아니면 파일은 남아요.
   - `#sdOrig` · `#mdOrig`는 `accept="application/pdf,image/*" multiple`이고, `filesToPdf`를 써요.
 
-### 레퍼런스 앱 안 재생 (conti.js)
-- 모듈 위쪽: `playRef(id, start, end, title)`(.ytp 창, youtube-nocookie embed) · `playAttrs()` · `ytThumb()`. 문서 전체 `[data-play]` 클릭을 capture로 받아요.
+### 레퍼런스 앱 안 재생 (assets/ytp.js · conti.js)
+- **`assets/ytp.js`(새 파일, me · admin · share.html에서 config.js 바로 다음)**: `window.YTP = { play, attrs, thumb, idOf }`.
+  - 문서 전체 클릭을 capture로 받아요. 받는 것은 `[data-play]`와, 화면 안의 모든 유튜브 영상 링크(youtu.be · watch?v= · shorts · live, `t=` 시작 시간)예요.
+  - `data-yt-ext`가 달린 링크와 `.ytp` 안 링크는 빼요. 링크 글자가 짧으면 둘레의 b · .song-name에서 제목을 가져와요.
+- conti.js는 `playAttrs()` · `ytThumb()`만 남겼어요. 재생은 ytp.js가 해요.
 - 편집기 곡 줄은 `refChip()`, 펼침 후보는 `refCands()`(`data-ce="ref-use"`)예요.
 - 펼침을 열 때 후보 영상 제목을 `loadYt`로 가져와요. `yt_videos` select에 `title`을 더했어요.
 - 곡 찾기 `searchHTML`: `.ce-orow` > `.ce-o` + `.ce-oplay`.

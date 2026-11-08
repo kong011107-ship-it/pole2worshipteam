@@ -282,12 +282,46 @@ async def ink_tests(p):
     check(not errs, f"오류 없음 {errs}")
     await b.close()
 
+async def links_tests(p):
+    print("== 모든 유튜브 링크 → 앱 안 재생")
+    b, pg = await page(p, mobile=True)
+    await pg.goto(BASE + "/dev/tests/v31/harness.html"); await pg.wait_for_timeout(400)
+    await pg.evaluate("""document.getElementById('root').innerHTML = `<ol class="hx-svc"><li><b>놀라우신 은혜</b> <a id="l1" class="hx-yt" href="https://youtu.be/CwCDGzuTrYs?t=231" target="_blank">▶ 영상</a></li></ol>
+      <a id="l2" href="https://www.youtube.com/watch?v=CwCDGzuTrYs&list=PLH1dfOmrHoct-UOzuYzLZiBOAyBiyycIj&index=100&t=582s" target="_blank">I thank God</a>
+      <a id="l3" href="https://www.youtube.com/@onnuri" target="_blank">채널</a>
+      <a id="l4" href="https://youtu.be/CwCDGzuTrYs" data-yt-ext target="_blank">밖에서</a>`; 0""")
+    pops = []
+    pg.context.on("page", lambda np: pops.append(np))
+    await pg.click("#l1"); await pg.wait_for_timeout(300)
+    src = await pg.get_attribute(".ytp iframe", "src") or ""
+    check("embed/CwCDGzuTrYs" in src and "start=231" in src, "youtu.be?t= 링크 → 앱 안 재생 · 시작 지점 " + src[-40:])
+    check("놀라우신 은혜" in await pg.inner_text(".ytp-hd"), "제목은 둘레 곡 이름")
+    await pg.click(".ytp-x")
+    await pg.click("#l2"); await pg.wait_for_timeout(300)
+    src = await pg.get_attribute(".ytp iframe", "src") or ""
+    check("start=582" in src, "watch?v=…&t=582s 링크 " + src[-30:])
+    await pg.click(".ytp-x")
+    await pg.click("#l3"); await pg.wait_for_timeout(500)
+    check(await pg.locator(".ytp").count() == 0, "영상이 아닌 유튜브 링크(채널)는 그대로")
+    await pg.click("#l4"); await pg.wait_for_timeout(500)
+    check(await pg.locator(".ytp").count() == 0, "data-yt-ext 링크는 밖에서 열기")
+    # 악보 보기 위쪽 '레퍼런스' 단추
+    await pg.evaluate("CONTI.openViewer({ id: 's1', date: '2026-11-07', setlist: null, proc: [], extras: [], applied: [] }, { items: [{ title: '은혜', key: 'G', ref: ['AAAAAAAAAAA', 30], src: [{ path: 'sheets/1/a.pdf', p: 1 }] }] })")
+    await pg.wait_for_timeout(2000)
+    ref = pg.locator("#cvvRef")
+    if await ref.count() and await ref.is_visible():
+        await ref.click(); await pg.wait_for_timeout(300)
+        src = await pg.get_attribute(".ytp iframe", "src") or ""
+        check("AAAAAAAAAAA" in src and "start=30" in src, "악보 보기 '레퍼런스' 단추 → 앱 안 재생")
+    else: check(False, "악보 보기 레퍼런스 단추가 안 보임")
+    await b.close()
+
 async def main():
     srv = subprocess.Popen([sys.executable, "-m", "http.server", str(PORT), "-d", ROOT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1)
     try:
         async with async_playwright() as p:
-            for t in [editor_tests, band_tests, ios_tests, backup_tests, ink_tests]:
+            for t in [editor_tests, band_tests, ios_tests, backup_tests, ink_tests, links_tests]:
                 try: await t(p)
                 except Exception as e: check(False, f"{t.__name__} 예외: {e}")
     finally: srv.kill()

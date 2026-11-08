@@ -3,6 +3,8 @@
 //  DB(songs · setlists · setlist_items · lineup_history)를 history_bundle()로 한 번에 읽고,
 //  화면에서 통계를 계산해요. 팀원(찬양 탭)과 리더십(찬양 › 기록)이 같은 화면을 써요.
 //  HISTORY.mount(root, { admin, tab })  ·  HISTORY.load(force)  ·  HISTORY.reset()
+//  032: 예배 영상(video_bundle) — 콘티 탭에 ▶ 예배 영상 · 곡마다 ▶ 우리 연주, 리더십은 '예배 영상 연결' 확인 목록
+//       HISTORY.perfs(D, 곡, 키) 이전 연주 (같은 키 먼저 · 최근 먼저) · HISTORY.liveSec(D, 곡) 실연주 기준(중간값)
 // =====================================================================
 (function () {
   const POS_LABEL = { leader: "인도", singer: "싱어", key_main: "메인", key_second: "세컨", e_guitar: "일렉", acoustic: "어쿠스틱", bass: "베이스", drum: "드럼" };
@@ -16,7 +18,7 @@
   const top = (obj, n) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n).map((x) => x[0]);
 
   // ------------------------------------------------------------------ 데이터 만들기
-  function build(raw) {
+  function build(raw, vb) {
     const T = today();
     const st = {}; (raw.songs || []).forEach((s) => (st[s.id] = s.title));
     const mainKey = {}; (raw.songs || []).forEach((s) => (mainKey[s.id] = s.main_key));
@@ -98,7 +100,21 @@
     const people = [...PP.values()].map((r) => ({ ...r, guest: r.gN === r.total })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "ko"));
     const lyears = {}; DATES.forEach((d) => (lyears[d.slice(0, 4)] = (lyears[d.slice(0, 4)] || 0) + 1));
 
+    // 032: 예배 영상 — 주일마다 영상 1개 · 곡마다 그날 연주 (위치 · 실제 연주 시간)
+    const V = { byDate: {}, perf: {}, live: {} };
+    const v2d = {};
+    (vb?.videos || []).forEach(([id, d, dur, title, linked, marked]) => { V.byDate[d] = { id, date: d, dur, title, linked, marked }; v2d[id] = d; });
+    const keyAt = {}; plays.forEach(([d, , sid, , key]) => { if (!keyAt[d + ":" + sid]) keyAt[d + ":" + sid] = key; });
+    (vb?.songs || []).forEach(([vid, sid, start, end, medley, located]) => {
+      const d = v2d[vid]; if (!d) return;
+      const raw = located && !medley && end ? end - start : null;
+      (V.perf[sid] = V.perf[sid] || []).push({ vid, date: d, start: start || 0, end: located ? end : null, medley: !!medley, located: !!located,
+        sec: raw != null && raw >= 40 && raw <= 1200 ? raw : null, key: keyAt[d + ":" + sid] || "", leaders: (svc[d]?.[0] || []).map(untitle) });
+    });
+    Object.entries(V.perf).forEach(([sid, ps]) => { const xs = ps.map((p) => p.sec).filter(Boolean); if (xs.length) V.live[sid] = { sec: median(xs), n: xs.length }; });
+
     return {
+      V,
       summary: { services: DATES.length, conti: CD.length, plays: plays.length, unique: songs.length, once: songs.filter((s) => s.count === 1).length,
         avg: CD.length ? Math.round(100 * plays.length / CD.length) / 100 : 0, from: DATES[0], to: LTO, lineup: list.filter((l) => !l.partial).length },
       songs, plays, years, keys, leaders, st, svc, sids, applied, multi: Object.keys(ytSongs).filter((id) => ytSongs[id].size > 1),
@@ -106,14 +122,25 @@
     };
   }
 
+  function median(xs) { const a = xs.slice().sort((p, q) => p - q), m = a.length >> 1; return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2); }
+  // 이전 연주: 키가 같은 연주 먼저 → 그 안에서 최근 먼저. 키를 모르면 그 곡을 주로 부른 키 기준
+  const keyNorm = (k) => startKey(String(k || "")).trim().toUpperCase().replace(/MAJOR|MAJ$/i, "").replace(/♯/g, "#").replace(/♭/g, "b");
+  function perfs(D, sid, key) {
+    const ps = (D?.V?.perf?.[sid] || []).slice();
+    const want = keyNorm(key) || keyNorm(D?.songs?.find((x) => x.id === sid)?.key_main);
+    return ps.map((p) => ({ ...p, same: !!want && keyNorm(p.key) === want })).sort((a, b) => (b.same - a.same) || b.date.localeCompare(a.date));
+  }
+  const liveSec = (D, sid) => D?.V?.live?.[sid] || null;
+
   let cache = null, loading = null;
   async function load(force = false) {
     if (cache && !force) return cache;
     if (loading && !force) return loading;
     loading = (async () => {
-      const { data, error } = await sb.rpc("history_bundle");
+      // 032: 예배 영상은 따로 (migration_031 전이거나 실패해도 기록은 보여요)
+      const [{ data, error }, vb] = await Promise.all([sb.rpc("history_bundle"), Promise.resolve(sb.rpc("video_bundle")).catch(() => ({}))]);
       if (error) throw new Error("기록을 불러오지 못했어요");
-      cache = build(data || {});
+      cache = build(data || {}, vb?.data || null);
       loading = null;
       return cache;
     })();
@@ -132,6 +159,8 @@
 
   async function mount(root, opts = {}) {
     if (opts.tab) state.tab = opts.tab;
+    state.admin = !!opts.admin;
+    state.remount = () => { cache = null; mount(root, { ...opts, tab: state.tab }); };
     root.innerHTML = `<div class="hx ${opts.admin ? "adm" : ""}"><div class="empty">기록을 불러오는 중…</div></div>`;
     let D;
     try { D = await load(); } catch (e) { root.innerHTML = `<div class="hx"><div class="empty">${esc(e.message)}</div></div>`; return; }
@@ -415,7 +444,9 @@
     const C = ctx(D), LU = new Map(D.lineup.list.map((l) => [l.date, l]));
     const c = card("콘티", "주일마다 부른 곡과 그날 라인업");
     const flt = el("div", "hx-flt"), sum = el("div", "hx-fsum"), list = el("div"), more = el("button", "hx-more", "더 보기"); more.type = "button";
-    c.append(flt, sum, list, more); Pg.append(c);
+    c.append(flt, sum, list, more);
+    if (state.admin) { const vc = el("div", "hx-card hx-vadm"); Pg.append(vc); videoAdmin(vc, D); }
+    Pg.append(c);
     const HS = svcFilter(C, flt, () => draw());
     const keys = segOf(C.KEYS.map((k) => [k, k]));
     const q = el("input", "hx-search"); q.type = "search"; q.placeholder = "곡 이름 (쉼표로 여러 곡 · 모두 있는 콘티)"; q.setAttribute("aria-label", "곡 이름");
@@ -463,6 +494,15 @@
         h.append(el("b", null, `${dot(d)} (${WD[new Date(d + "T00:00:00").getDay()]})`));
         if (C.SV[d][0].length) h.append(el("span", "chip chip-gray", "인도 " + C.SV[d][0].join(" · ")));
         if (C.SV[d][1]) h.append(el("span", "chip chip-violet", C.SV[d][1]));
+        // 032: 예배 영상 (앱 안 재생)
+        const wv = D.V.byDate[d];
+        if (wv) {
+          const b = el("button", "hx-wv", "▶ 예배 영상"); b.type = "button";
+          Object.assign(b.dataset, { play: wv.id, ps: "0", pt: `${dot(d)} 예배 영상` });
+          if (wv.dur) b.title = `영상 ${mmss(wv.dur)}`;
+          h.append(b);
+          if (wv.linked && dayDiff(String(wv.linked).slice(0, 10), today()) <= 7 && dayDiff(d, today()) <= 21) h.append(el("span", "chip chip-ok", "새 영상"));
+        }
         const sx = D.sids[d];
         if (sx) {
           const acts = el("span", "hx-acts");
@@ -480,6 +520,9 @@
           if (x.key) rw.append(el("span", "chip chip-violet", x.key));
           if (x.bpm) rw.append(el("span", "chip chip-gray", `♩=${x.bpm}`));
           x.refs.forEach((rf, i) => { const a = yt(rf[0], rf[1], (x.refs.length > 1 ? `▶ ${i + 1}` : "▶ 영상") + (rf[2] && rf[2] !== "메들리" ? ` ${rf[2]}` : ""), "hx-yt"); if (a) rw.append(a); });
+          // 032: 그날 우리 연주 (곡 시작 지점부터 · 메들리는 메들리 구간)
+          const pf = wv && (D.V.perf[x.sid] || []).find((q) => q.vid === wv.id && q.located);
+          if (pf) { const b = el("button", "hx-live", `▶ 우리 연주 ${mmss(pf.start)}`); b.type = "button"; Object.assign(b.dataset, { play: pf.vid, ps: String(pf.start), pt: `${C.ST[x.sid] || x.title} · ${dot(d)}` }); if (pf.end) b.dataset.pe = String(pf.end); rw.append(b); }
           li.append(rw); ol.append(li);
         });
         if (!songs.length) ol.append(el("li", "muted", "콘티 기록 없음"));
@@ -676,5 +719,89 @@
     draw();
   }
 
-  window.HISTORY = { load, mount, reset: () => { cache = null; }, build, POS_LABEL };
+  // ------------------------------------------------------------------ 032: 리더십 — 예배 영상 연결 · 확인 목록
+  const REASON = { date: "날짜 확인", songs: "곡 이름 확인", noconti: "그날 콘티 없음", leader: "인도자 다름" };
+  async function videoAdmin(box, D) {
+    box.innerHTML = `<div class="hx-ch"><h2>예배 영상 연결</h2></div><p class="hx-note">불러오는 중…</p>`;
+    const [vs, st] = await Promise.all([
+      sb.from("worship_videos").select("id, title, service_date, date_src, status, reasons, skip_why, marks, leaders_said, pinned, duration_sec").order("service_date", { ascending: false }),
+      sb.from("video_sync").select("*").eq("id", 1).maybeSingle(),
+    ]);
+    if (vs.error || st.error) { box.innerHTML = `<div class="hx-ch"><h2>예배 영상 연결</h2></div><p class="hx-note">migration_031을 실행하면 YouTube 재생목록의 예배 영상을 콘티에 연결해요.</p>`; return; }
+    const all = vs.data || [], S = st.data || {};
+    const n = (f) => all.filter(f).length;
+    const todo = all.filter((v) => v.status === "review" || (v.status === "linked" && (v.reasons || []).includes("songs")));
+    const skipped = all.filter((v) => v.status === "skipped" && v.skip_why !== "outside");
+    const songsOn = (d) => [...new Map(D.plays.filter((p) => p[0] === d).map((p) => [p[2], p[3] || D.st[p[2]]])).entries()];
+    const allSongs = Object.entries(D.st).sort((a, b) => a[1].localeCompare(b[1], "ko"));
+    const res = S.last_result || {};
+    const itemHTML = (v) => {
+      const songs = v.service_date ? songsOn(v.service_date) : [];
+      const marks = (v.marks || []).filter((m) => !m.songs && !m.skip);
+      const leads = v.service_date && D.svc[v.service_date] ? D.svc[v.service_date][0] : [];
+      return `<div class="hx-vi" data-vid="${esc(v.id)}">
+        <div class="hx-vt"><button type="button" class="hx-wv" data-play="${esc(v.id)}" data-ps="0" data-pt="${esc(v.title)}">▶</button><b>${esc(v.title || v.id)}</b></div>
+        <div class="hx-vr">${(v.reasons || []).map((r) => `<span class="chip ${r === "leader" ? "chip-gray" : "chip-warn"}">${REASON[r] || r}</span>`).join("")}
+          ${v.status === "linked" ? `<span class="chip chip-ok">연결됨 ${dot(v.service_date)}</span>` : ""}${v.date_src === "upload" ? `<span class="small muted">제목에 날짜가 없어 올린 날로 짐작했어요</span>` : ""}
+          ${(v.reasons || []).includes("leader") ? `<span class="small muted">설명란 ${esc((v.leaders_said || []).join(", "))} · 콘티 ${esc(leads.join(", ") || "–")}</span>` : ""}</div>
+        ${v.status !== "linked" || (v.reasons || []).includes("date") ? `<div class="hx-vrow"><input type="date" class="input hx-vdate" value="${esc(v.service_date || "")}" aria-label="예배 날짜">
+          <button type="button" class="btn btn-soft btn-sm" data-va="date">이 날로 연결</button><button type="button" class="btn btn-ghost btn-sm" data-va="skip">빼기</button>
+          ${v.service_date && D.svc[v.service_date] ? `<span class="small muted">그날 콘티: ${esc(songs.map((x) => x[1]).join(" · ") || "곡 없음")}</span>` : v.service_date ? `<span class="small muted">그날 콘티가 없어요</span>` : ""}</div>` : ""}
+        ${marks.length ? `<div class="hx-vmarks">${marks.map((m) => `<div class="hx-vrow" data-label="${esc(m.label)}"><span class="hx-vm">${mmss(m.t)} · ${esc(m.label)}</span>
+            <select class="select hx-vsel" aria-label="${esc(m.label)} 곡"><option value="">곡 고르기</option>${songs.map(([id, t]) => `<option value="${id}">${esc(t)}</option>`).join("")}<option value="?">다른 곡…</option></select>
+            <input class="input hx-vother" list="hxAllSongs" placeholder="곡 이름" hidden><button type="button" class="btn btn-soft btn-sm" data-va="alias">연결</button></div>`).join("")}
+          <span class="small muted">한 번 연결하면 같은 이름은 다음부터 자동으로 맞아요 · 곡이 아니면 그대로 두세요</span></div>` : ""}</div>`;
+    };
+    const draw = (msg) => {
+      box.innerHTML = `<div class="hx-ch"><h2>예배 영상 연결</h2><span class="hx-acts"><button type="button" class="btn btn-primary btn-sm" data-va="sync">${S.full_done ? "지금 확인" : "처음 전체 맞추기"}</button><button type="button" class="btn btn-ghost btn-sm" data-va="rematch">다시 맞추기</button></span></div>
+        <p class="hx-note">YouTube 재생목록(Pole2대학부)을 매일 새벽 5시에 확인해서 새 영상을 그 주일 콘티에 붙여요. 설명란의 '03:51 : 곡 이름'으로 곡마다 시작 지점을 맞춰요.</p>
+        <div class="hx-vsum"><span>연결 <b>${n((v) => v.status === "linked")}</b></span><span>확인 <b>${todo.length}</b></span><span>건너뜀 ${n((v) => v.status === "skipped")}</span>
+          <span class="muted">${S.last_run ? `마지막 확인 ${esc(fmtDateTime(S.last_run))}` : "아직 확인 전"}${S.pending && S.last_run ? " · 이어서 읽는 중" : ""}${res.added != null ? ` · 새 영상 ${res.added}` : ""}</span></div>
+        ${msg ? `<p class="hx-vmsg">${esc(msg)}</p>` : ""}
+        ${todo.length ? `<div class="hx-vlist">${todo.slice(0, 40).map(itemHTML).join("")}</div>${todo.length > 40 ? `<p class="small muted">${todo.length - 40}개 더 있어요 · 위에서부터 정리하면 이어서 보여요</p>` : ""}` : `<p class="small muted">확인할 영상이 없어요.</p>`}
+        ${skipped.length ? `<details class="hx-vskip"><summary>건너뛴 영상 ${skipped.length}개 (그날 콘티 없음 · 직접 뺀 것)</summary><div class="hx-vlist">${skipped.slice(0, 60).map((v) => `<div class="hx-vi" data-vid="${esc(v.id)}"><div class="hx-vt"><button type="button" class="hx-wv" data-play="${esc(v.id)}" data-ps="0" data-pt="${esc(v.title)}">▶</button><b>${esc(v.title)}</b></div>
+          <div class="hx-vrow"><input type="date" class="input hx-vdate" value="${esc(v.service_date || "")}" aria-label="예배 날짜"><button type="button" class="btn btn-soft btn-sm" data-va="date">이 날로 연결</button>${v.pinned ? `<button type="button" class="btn btn-ghost btn-sm" data-va="reset">자동으로 되돌리기</button>` : ""}<span class="small muted">${v.skip_why === "manual" ? "직접 뺌" : "그날 콘티 없음"}</span></div></div>`).join("")}</div></details>` : ""}
+        <datalist id="hxAllSongs">${allSongs.map(([id, t]) => `<option value="${esc(t)}" data-id="${id}"></option>`).join("")}</datalist>`;
+    };
+    draw();
+    const call = (body) => meApiH("/api/conti", body);
+    box.addEventListener("change", (e) => { const s = e.target.closest(".hx-vsel"); if (s) s.parentElement.querySelector(".hx-vother").hidden = s.value !== "?"; });
+    box.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-va]"); if (!b) return;
+      const a = b.dataset.va, vi = b.closest("[data-vid]"), id = vi?.dataset.vid;
+      const busy = (t) => { b.disabled = true; b.textContent = t; };
+      try {
+        if (a === "sync") {
+          // 나눠서 읽어요 — 끝날 때까지 이어서
+          let r, k = 0, added = 0;
+          do { busy(`읽는 중${k ? ` (${k + 1})` : ""}…`); r = await call({ action: "video-sync" }); added += r.added || 0; k++; } while (!r.done && k < 30);
+          toast(r.done ? `새 영상 ${added}개 · 연결 ${r.linked || 0} · 확인 ${r.review || 0}` : "아직 다 못 읽었어요 · 다시 눌러 주세요", 4000);
+          return state.remount();
+        }
+        if (a === "rematch") { busy("맞추는 중…"); const r = await call({ action: "video-rematch" }); toast(`${r.checked}개 다시 맞췄어요 · 연결 ${r.linked} · 확인 ${r.review}`, 3500); return state.remount(); }
+        if (a === "date") { const d = vi.querySelector(".hx-vdate").value; if (!d) return toast("날짜를 골라 주세요"); busy("연결 중…"); await call({ action: "video-set", id, date: d }); toast(`${dot(d)} 콘티에 연결했어요`); return state.remount(); }
+        if (a === "skip") { if (!confirm("이 영상을 빼 둘까요? (나중에 '건너뛴 영상'에서 다시 연결할 수 있어요)")) return; busy("빼는 중…"); await call({ action: "video-set", id, skip: true }); return state.remount(); }
+        if (a === "reset") { busy("되돌리는 중…"); await call({ action: "video-set", id, reset: true }); return state.remount(); }
+        if (a === "alias") {
+          const r = b.closest("[data-label]"), sel = r.querySelector(".hx-vsel");
+          let sid = +sel.value || null;
+          if (sel.value === "?") { const t = r.querySelector(".hx-vother").value.trim(); const hit = allSongs.find(([, x]) => x === t); sid = hit ? +hit[0] : null; if (!sid) return toast("목록에 있는 곡 이름을 골라 주세요"); }
+          if (!sid) return toast("곡을 골라 주세요");
+          busy("연결 중…"); await call({ action: "video-alias", id, label: r.dataset.label, song_id: sid });
+          toast(`'${r.dataset.label}' → ${D.st[sid]} · 다음부터 자동으로 맞아요`, 3500); return state.remount();
+        }
+      } catch (err) { toast(err.message || "처리하지 못했어요", 4500); b.disabled = false; draw(); }
+    });
+  }
+  // api 부르기 (콘티 모듈 · 관리자 화면 모두)
+  async function meApiH(path, body) {
+    if (window.CONTI?.lib?.meApi) return CONTI.lib.meApi(path, body);
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token || ""}` }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "처리하지 못했어요");
+    return j;
+  }
+
+  window.HISTORY = { load, mount, reset: () => { cache = null; }, build, POS_LABEL, perfs, liveSec, keyNorm };
 })();

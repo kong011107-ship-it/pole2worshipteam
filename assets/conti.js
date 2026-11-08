@@ -54,27 +54,9 @@
   const svcShort = (s, all) => (s.ministry_id ? `${svcTitle(s, all)} · ${mdw(s.date)}` : `${md(s.date)} 주일`);
   const ytOf = (v) => { const m = String(v || "").match(/(?:youtu\.be\/|v=|\/shorts\/|\/live\/|\/embed\/)([A-Za-z0-9_-]{11})/) || String(v || "").match(/^([A-Za-z0-9_-]{11})$/); return m ? m[1] : null; };
   const ytLink = (id, t) => `https://youtu.be/${id}${t ? `?t=${t}` : ""}`;
-  // 031: 레퍼런스 영상 — 앱 안에서 바로 재생 (아래에서 올라오는 창 · 구간이 있으면 그 시작부터 끝에서 멈춤)
+  // 031: 레퍼런스 영상 — 앱 안 재생은 assets/ytp.js (window.YTP)
   const ytThumb = (id) => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
   const playAttrs = (id, start, end, title) => `data-play="${esc(id)}" data-ps="${start || 0}"${end ? ` data-pe="${end}"` : ""}${title ? ` data-pt="${esc(title)}"` : ""}`;
-  function playRef(id, start, end, title) {
-    if (!/^[A-Za-z0-9_-]{11}$/.test(id || "")) return;
-    document.querySelector(".ytp")?.remove();
-    const q = new URLSearchParams({ autoplay: "1", playsinline: "1", rel: "0", modestbranding: "1" });
-    if (start) q.set("start", String(Math.floor(start)));
-    if (end && end > (start || 0)) q.set("end", String(Math.floor(end)));
-    const w = document.createElement("div");
-    w.className = "ytp"; w.setAttribute("role", "dialog"); w.setAttribute("aria-label", "레퍼런스 영상");
-    w.innerHTML = `<div class="ytp-back" data-ytp="x"></div><div class="ytp-box">
-      <div class="ytp-hd"><b>${esc(title || "레퍼런스 영상")}</b>${start || end ? `<span class="ytp-rg">${mmss(start || 0)}~${end ? mmss(end) : "끝"}</span>` : ""}
-        <a class="ytp-ext" href="${ytLink(id, start)}" target="_blank" rel="noopener">유튜브에서 열기</a><button type="button" class="ytp-x" data-ytp="x" aria-label="닫기">${ICO.x}</button></div>
-      <div class="ytp-fr"><iframe src="https://www.youtube-nocookie.com/embed/${id}?${q}" title="${esc(title || "레퍼런스 영상")}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div></div>`;
-    const close = () => { w.remove(); document.removeEventListener("keydown", key); };
-    const key = (e) => { if (e.key === "Escape") close(); };
-    w.addEventListener("click", (e) => { if (e.target.closest("[data-ytp=x]")) close(); });
-    document.addEventListener("keydown", key);
-    document.body.appendChild(w);
-  }
   // 031: 아이폰 · 아이패드 — 'PDF · 사진' 칸을 누르면 파일 앱만 열리는 경우가 있어서 먼저 고르게 해요
   //  사진 보관함 → accept를 잠깐 image/*로 · 파일 → 원래대로. 고른 뒤 같은 change 흐름을 그대로 타요
   const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -117,12 +99,6 @@
     if (data?.path) { try { await sb.storage.from("sheets").remove([data.path]); } catch {} try { const c = await caches.open(CACHE); await c.delete(ckey(data.path)); } catch {} }
     toast("원본 악보를 지웠어요");
     b.closest(".cv-sheet")?.remove();
-  }, true);
-  // 어디서든 data-play를 누르면 앱 안 재생 (곡 줄 · 후보 영상 · 곡 찾기 · 팀원 콘티 화면)
-  document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-play]"); if (!b) return;
-    e.preventDefault(); e.stopPropagation();
-    playRef(b.dataset.play, +b.dataset.ps || 0, +b.dataset.pe || null, b.dataset.pt || "");
   }, true);
   const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }, del(k) { try { localStorage.removeItem(k); } catch {} } };
   const isAdminPage = () => /admin\.html/.test(location.pathname);
@@ -648,6 +624,21 @@
 
   // =================================================================== 팀원: 이번 주 콘티
   const W = { focus: null };
+  // 032: 최근 주일 예배 영상이 새로 연결되면 콘티 화면 맨 위에 (✕로 닫으면 이 기기에서는 다시 안 보여요)
+  async function fillVideoNews(root) {
+    let v = null;
+    try {
+      const { data } = await sb.from("worship_videos").select("id, service_date, title, linked_at").eq("status", "linked")
+        .gte("linked_at", new Date(Date.now() - 7 * 864e5).toISOString()).gte("service_date", addDays(todayISO(), -21)).order("service_date", { ascending: false }).limit(1);
+      v = data?.[0] || null;
+    } catch { return; }
+    if (!v || !root.isConnected || ls.get(`pole2.vnews.${v.id}`)) return;
+    root.querySelector(".cv-vnews")?.remove();
+    const t = `${md(v.service_date)} 주일 예배 영상`;
+    root.insertAdjacentHTML("afterbegin", `<div class="cv-vnews" role="status"><span class="grow"><b>예배 영상이 올라왔어요</b><small>${md(v.service_date)} 주일 · 곡마다 시작 지점은 찬양 › 기록 › 콘티에서</small></span>
+      <button type="button" class="btn btn-sm" ${playAttrs(v.id, 0, null, t)}>▶ 보기</button><button type="button" class="x" data-vnews-x aria-label="닫기">✕</button></div>`);
+    root.querySelector("[data-vnews-x]").addEventListener("click", (e) => { e.stopPropagation(); ls.set(`pole2.vnews.${v.id}`, 1); root.querySelector(".cv-vnews")?.remove(); });
+  }
   async function mountWeek(root, opts = {}) {
     const me = opts.me;
     if (opts.focus) W.focus = opts.focus;
@@ -709,6 +700,7 @@
       }).join("")}</div>` : ""}`;
     fillFlowBackup(root, f);
     prefetchWeek(list, f);
+    fillVideoNews(root);
     root.onclick = async (e) => {
       const fb = e.target.closest("[data-cv-focus]"); if (fb) { W.focus = fb.dataset.cvFocus; mountWeek(root, { me }); return root.scrollIntoView({ block: "start" }); }
       const ob = e.target.closest("[data-cv-open]"); if (ob) return openViewer(list.find((s) => s.id === ob.dataset.cvOpen), {});
@@ -1037,6 +1029,7 @@
     V.cur = Math.max(0, V.pages.findIndex((x) => x.i === Math.max(0, idx)));
     V.follow = !!(follow && live());
     const stripHTML = () => (single ? "" : V.items.map((x, i) => `<button type="button" data-cvv-song="${i}" class="${x.kind || ""}${x.draft ? " draft" : ""}"><i>${esc(x.tag || String(i + 1))}</i>${esc(x.title)}${x.key ? ` · ${esc(x.key)}` : ""}</button>`).join(""));
+    let offPedal = null;
     const el = openLayer("cv-viewer", `<div class="cvv-top"><button type="button" class="cvv-back" data-cvv="close" aria-label="닫기">${ICO.back}</button>
         <b class="cvv-title">${esc(title)}</b>${contiItems.length && svc.target_sec ? `<span class="cvv-rt">RT ${mmss(rt)} / ${mmss(svc.target_sec)}</span>` : ""}<span class="cvv-pg" id="cvvPg"></span><a class="cvv-ref hidden" id="cvvRef" target="_blank" rel="noopener">${ICO.play}<span>레퍼런스</span></a>${window.INK?.multi ? `<span class="cvv-modes" role="group" aria-label="보기 방식">${Object.entries(VIEW_NAME).map(([k, n]) => `<button type="button" data-cvv-mode="${k}" aria-pressed="${V.mode === k}">${n}</button>`).join("")}</span><button type="button" class="cvv-pen cvv-back2 hidden" data-cvv="unone"></button>` : ""}${window.INK ? `<button type="button" class="cvv-pen cvv-hide hidden" data-iv="hide"></button><button type="button" class="cvv-pen cvv-fix hidden" data-iv="fix"></button><button type="button" class="cvv-pen" data-iv="pen"></button>` : ""}</div>
       <div class="cvv-strip">${hasBpm ? `<span class="cvv-bpmbox" id="cvvBpm"></span>` : ""}<button type="button" class="cvv-part hidden" id="cvvPart" data-cvv="part" aria-haspopup="menu"></button><div class="cvv-jump" role="tablist" id="cvvJump">${stripHTML()}</div></div>
@@ -1045,7 +1038,7 @@
         <button type="button" class="cvv-tap l" data-cvv="prev" aria-label="이전 쪽"><span>‹ 이전</span></button><button type="button" class="cvv-tap r" data-cvv="next" aria-label="다음 쪽"><span>다음 ›</span></button>
         <div class="cvv-load" id="cvvLoad">불러오는 중…</div></div>
       <div class="cvv-live hidden" id="cvvLive"></div>
-      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { document.removeEventListener("keydown", onKey); V.unsub?.(); V.ink?.destroy(); V.ml?.destroy(); V.ms?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); document.querySelector(".pt-pop")?.remove(); });
+      <div class="cvv-foot"><span class="cvv-dots" id="cvvDots"></span><span id="cvvNext"></span></div>`, () => { offPedal?.(); V.unsub?.(); V.ink?.destroy(); V.ml?.destroy(); V.ms?.destroy(); METRO.off(); wake(false); document.querySelector(".bpm-pop")?.remove(); document.querySelector(".pt-pop")?.remove(); });
     wake(true);
     // 024: 내 메모 · 확대 (INK) — 밀어서 넘기기 · 크기 맞춤도 여기서
     if (window.INK) {
@@ -1224,8 +1217,8 @@
       $("#cvvStage", el).addEventListener("pointerdown", (e) => { sx = e.clientX; sy = e.clientY; });
       $("#cvvStage", el).addEventListener("pointerup", (e) => { if (sx === null) return; const dx = e.clientX - sx, dy = e.clientY - sy; sx = null; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(V.cur + (dx < 0 ? 1 : -1)); });
     }
-    const onKey = (e) => { if (!document.body.contains(el) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return; if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); turn(1); } if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); turn(-1); } };
-    document.addEventListener("keydown", onKey);
+    // 032: 블루투스 페달 · 키보드 (assets/pedal.js — ↑↓ · ←→ · PageUp/Down · Space · Enter)
+    offPedal = window.PEDAL ? PEDAL.attach(el, (d) => turn(d)) : null;
     if (!V.ink) window.addEventListener("resize", () => { if (document.body.contains(el)) draw(); });
 
     // ---------------------------------------------------------------- 030: 파트 악보 (일렉 · 드럼 …)
@@ -1458,7 +1451,7 @@
     const el = openLayer("cv-sheetpage", `<div class="cvs-top"><button type="button" class="cvv-back light" data-sd="close" aria-label="닫기">${ICO.back}</button><b>곡</b></div>
       <div class="cvs-body">
         <div class="cvs-head"><h2>${esc(song.title)}</h2><span class="small muted">${[song.main_key || st?.key_main ? `주로 부른 키 ${esc(song.main_key || st.key_main)}` : "", st?.keys ? esc(st.keys) : "", st?.leaders ? `인도 ${esc(st.leaders)}` : ""].filter(Boolean).join(" · ")}</span></div>
-        <div class="cvs-kpis"><div><span>부른 횟수</span><b>${st?.count || 0}</b></div><div><span>최근 1년</span><b>${st?.last12 || 0}</b></div><div><span>마지막</span><b>${st?.last ? md(st.last) : "–"}</b><small>${st?.last ? `${st.days_since}일 전` : ""}</small></div><div><span>곡 시간</span><b>${song.team_sec ? mmss(song.team_sec) : "–"}</b><small>${song.team_sec ? "팀 기준" : ""}</small></div><div><span>BPM</span><b>${song.team_bpm || "–"}</b><small>${song.team_bpm ? `${esc(song.team_meter || "4/4")} · 팀 기준` : ""}</small></div></div>
+        <div class="cvs-kpis"><div><span>부른 횟수</span><b>${st?.count || 0}</b></div><div><span>최근 1년</span><b>${st?.last12 || 0}</b></div><div><span>마지막</span><b>${st?.last ? md(st.last) : "–"}</b><small>${st?.last ? `${st.days_since}일 전` : ""}</small></div><div><span>곡 시간</span><b>${song.team_sec ? mmss(song.team_sec) : "–"}</b><small>${song.team_sec ? "팀 기준" : ""}</small></div>${H?.V?.live?.[songId] ? `<div><span>실연주</span><b>${mmss(H.V.live[songId].sec)}</b><small>예배 영상 ${H.V.live[songId].n}번 중간값</small></div>` : ""}<div><span>BPM</span><b>${song.team_bpm || "–"}</b><small>${song.team_bpm ? `${esc(song.team_meter || "4/4")} · 팀 기준` : ""}</small></div></div>
         ${inMd.length ? `<section class="card"><div class="card-title cv-ct">메들리 <small>이 곡이 든 메들리 · 합친 악보는 메들리에</small></div>${inMd.map((m) => `<button type="button" class="cv-prow" data-sd-md="${m.id}"><span class="cv-ptag">메들리</span><span class="cv-st2"><b>${esc(m.title)}</b><small>${m.used || 0}번 · 악보 ${m.sheets || 0}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}
         <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 깨끗한 악보 · 키별</small></div>
           ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
@@ -1565,7 +1558,7 @@
     const songs = (sr.data || []).map((x) => ({ ...x, st: stats.get(x.id) }));
     const sl = svc.setlist;
     const E = {
-      svc, base: sl ? sl.version : null, pub: sl?.status === "published", songs, stats, medleys: mr?.data || [],
+      svc, base: sl ? sl.version : null, pub: sl?.status === "published", songs, stats, medleys: mr?.data || [], H, pvOpen: null, pvAll: null,
       target: sl?.target_sec ?? null, targetDefault: svc.target_sec, sheets: {}, yt: {}, ranges: {}, ytConfigured: true,
       items: (sl?.items || []).map((x, i) => ({ song_id: x.song_id, title: x.title, key: x.key || "", medley: x.medley, join: i > 0 && !!x.join_prev, medley_id: x.medley_id || null, medley_title: x.medley_title || null, diff: !!x.diff_key, refs: x.refs || [], dur: x.duration_sec, src: x.duration_src,
         memo: x.memo || "", sheet: x.sheet_id ? { mode: "saved", id: x.sheet_id } : sl?.status === "published" ? { mode: "none" } : { mode: "new", name: "" }, page_from: x.page_from, page_to: x.page_to,
@@ -1627,7 +1620,7 @@
       const ref = x.refs?.[0], rng = ref ? E.ranges[`${x.song_id}:${ref[0]}`] : null;
       const sheet = x.sheet.mode === "saved" ? list.find((v) => v.id === x.sheet.id) : null;
       const grpHead = !x.join && !!E.items[i + 1]?.join;
-      const srcTag = { manual: ["me", `직접${x.orig ? ` · 원래 ${mmss(x.orig)}` : ""}`], team: ["team", x.medley_id && grpHead ? "메들리 기준" : "팀 기준"], video: ["vid", "영상"], medley: ["team", "메들리 합계"] }[x.src] || ["none", "모름"];
+      const srcTag = { manual: ["me", `직접${x.orig ? ` · 원래 ${mmss(x.orig)}` : ""}`], team: ["team", x.medley_id && grpHead ? "메들리 기준" : "팀 기준"], video: ["vid", "영상"], medley: ["team", "메들리 합계"], live: ["live", "실연주"] }[x.src] || ["none", "모름"];
       const open = E.open === i;
       return `<div class="ce-row ${x.join ? "join" : ""}" data-i="${i}">
         <span class="ce-grip" data-grip aria-label="끌어서 순서 바꾸기" role="button" tabindex="0">${ICO.grip}</span><span class="cv-sn">${x.join ? "+" : gnum(i)}</span>
@@ -1647,7 +1640,8 @@
             ${i > 0 ? `<label class="checkrow"><input type="checkbox" data-f="join" ${x.join ? "checked" : ""}><span><b>앞 곡에 이어서 (메들리)</b><small>앞 곡 번호 아래로 · 예상 RT는 묶음 전체 시간 하나로</small></span></label>` : ""}
             ${grpHead ? (x.medley_id ? `<div class="ce-mdl"><span>메들리 <b>'${esc(x.medley_title || "")}'</b>로 넣었어요 · 악보 · 레퍼런스 · 시간은 메들리 기준</span></div>`
               : `<div class="ce-mdl"><span>이 묶음을 <b>메들리로 저장</b>하면 다음에 한 번에 넣고, 합친 악보 · 레퍼런스 · 시간을 같이 써요</span><button type="button" class="btn btn-soft btn-sm" data-ce="save-medley">메들리로 저장</button></div>`) : ""}
-            <div class="field">레퍼런스 영상${refCands(x, st, ref)}
+            ${prevField(x)}
+            <div class="field"><span>레퍼런스 영상 <span class="ce-reftag">음원</span></span>${refCands(x, st, ref)}
               <input class="input" data-f="refurl" placeholder="유튜브 주소 붙여 넣기" value="${ref ? ytLink(ref[0], ref[1] || 0) : ""}"></div>
             ${ref ? `<div class="row ce-range"><span class="small" style="font-weight:700">구간</span><input class="input" data-f="rs" value="${mmss(rng?.start_sec ?? ref[1] ?? 0)}" aria-label="시작"> ~ <input class="input" data-f="re" value="${rng?.end_sec ? mmss(rng.end_sec) : ""}" placeholder="끝" aria-label="끝">
               <span class="small muted">${E.yt[ref[0]]?.duration_sec ? `영상 길이 ${mmss(E.yt[ref[0]].duration_sec)}` : E.ytConfigured ? "" : "영상 길이를 아직 몰라요"}</span></div>` : ""}
@@ -1668,6 +1662,24 @@
           <span class="ce-rc-t"><b>${esc(t || "영상 " + r[0].slice(0, 5) + "…")}</b><small>${r[1]}번${r[4] ? ` · 마지막 ${r[4].slice(2).replace(/-/g, ".")}` : ""}</small></span>
           ${on ? `<span class="ce-rc-now">지금 영상</span>` : `<button type="button" class="btn btn-soft btn-sm" data-ce="ref-use" data-yt="${esc(r[0])}" data-t="${r[3] || 0}">이 영상으로</button>`}</div>`; }).join("")}</div>`;
     }
+    // 032: 이전 연주 — 우리 팀 예배 영상에서 이 곡 (같은 키 먼저 · 최근 먼저). 누르면 그 곡 시작 지점부터 앱 안에서
+    function prevList(sid, key, title) {
+      const ps = window.HISTORY?.perfs ? HISTORY.perfs(E.H, sid, key) : [];
+      if (!ps.length) return "";
+      const all = E.pvAll === sid, show = all ? ps : ps.slice(0, 5), want = HISTORY.keyNorm(key) || HISTORY.keyNorm(E.stats.get(sid)?.key_main);
+      const live = HISTORY.liveSec(E.H, sid);
+      return `<div class="pv-head"><span class="tag">이전 연주</span><span>우리 팀 예배 영상${want ? ` · ${esc(want)} 키 먼저` : ""}${live ? ` · 실연주 기준 ${mmss(live.sec)}` : ""}</span></div>
+        <div class="pv-list">${show.map((p) => `<button type="button" class="pv-row ${p.same ? "same" : ""}" ${playAttrs(p.vid, p.start, p.end || null, `${title} · ${p.date.slice(2).replace(/-/g, ".")} 예배`)} aria-label="${esc(title)} ${esc(p.date)} 연주 보기">
+            <span class="pv-play">▶</span><span>${p.date.slice(2).replace(/-/g, ".")}${p.leaders.length ? ` · ${esc(p.leaders.join(", "))}` : ""}${p.located ? "" : ` <span class="pv-unk">곡 위치 모름</span>`}${p.medley ? ` <span class="pv-unk">메들리</span>` : ""}</span>
+            <span class="pv-k">${esc(p.key || "–")}</span><span class="pv-t">${p.sec ? mmss(p.sec) : "–"}</span></button>`).join("")}</div>
+        ${ps.length > 5 ? `<button type="button" class="pv-more" data-ce-pvall="${sid}">${all ? "접기" : `${ps.length - 5}번 더 보기`}</button>` : ""}`;
+    }
+    function prevField(x) {
+      const h = prevList(x.song_id, x.key, x.title);
+      return h ? `<div class="field ce-prevf">${h}</div>` : "";
+    }
+    const prevN = (sid) => (window.HISTORY?.perfs ? (E.H?.V?.perf?.[sid] || []).length : 0);
+
     // 025: BPM · 박자 칸 (적으면 팀 기준으로 저장 · 다음에 자동으로 채워짐)
     function bpmCell(x) {
       return `<span class="ce-bpm"><input value="${x.bpm || ""}" data-f="bpm" inputmode="numeric" maxlength="3" aria-label="${esc(x.title)} BPM" placeholder="BPM">
@@ -1709,7 +1721,9 @@
           const d = guessDur(E, s, null), after = total + (d || 0);
           const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-warn">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
           const r0 = s.st?.refs?.[0], rg = r0 ? E.ranges[`${s.id}:${r0[0]}`] : null;
-          return `<div class="ce-orow"><button type="button" class="ce-o" data-add="${s.id}"><b>${esc(s.title)}</b><small>${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>${r0 ? `<button type="button" class="ce-oplay" ${playAttrs(r0[0], rg?.start_sec ?? r0[3] ?? 0, rg?.end_sec || null, s.title)} aria-label="${esc(s.title)} 레퍼런스 미리 보기"><img src="${ytThumb(r0[0])}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}</div>`;
+          const pn = prevN(s.id), pvo = E.pvOpen === s.id;
+          return `<div class="ce-orow"><button type="button" class="ce-o" data-add="${s.id}"><b>${esc(s.title)}</b><small>${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>${r0 ? `<button type="button" class="ce-oplay" ${playAttrs(r0[0], rg?.start_sec ?? r0[3] ?? 0, rg?.end_sec || null, s.title)} aria-label="${esc(s.title)} 레퍼런스 미리 보기"><img src="${ytThumb(r0[0])}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}${pn ? `<button type="button" class="ce-oprev" data-ce-prev="${s.id}" aria-expanded="${pvo}" aria-label="${esc(s.title)} 이전 연주 ${pn}번">연주 ${pn}</button>` : ""}</div>
+            ${pvo ? `<div class="ce-pvbox">${prevList(s.id, "", s.title)}</div>` : ""}`;
         }).join("")}${!exact ? `<button type="button" class="ce-o add" data-ce="newsong">+ '${esc(E.q.trim())}'으로 새 곡 추가</button>` : ""}</div>` : "";
     }
     function pdfHTML() {
@@ -1796,6 +1810,8 @@
       if (t.matches("[data-ce-add]")) { const r2 = t.closest(".ce-row"); const files = [...(t.files || [])]; t.value = ""; if (r2 && files.length) addFile(E.items[+r2.dataset.i], files); return; }
       const row = t.closest(".ce-row"); if (!row) return;
       const x = E.items[+row.dataset.i], f = t.dataset.f;
+      // 032: 키를 바꾸면 '이전 연주'를 다시 정렬 (같은 키 먼저)
+      if (f === "key" && E.more === +row.dataset.i && row.querySelector(".ce-prevf")) { x.key = t.value.trim(); persist(); return redrawList(); }
       if (f === "dur") {
         const v = parseMmss(t.value);
         if (t.value.trim() && v == null) { toast("곡 시간은 4:30처럼 적어 주세요"); t.value = x.dur ? mmss(x.dur) : ""; return; }
@@ -1832,6 +1848,11 @@
       }
     });
     el.addEventListener("click", async (e) => {
+      // 032: 곡 찾기 '연주 N' → 이전 연주 목록 열기 · 닫기 / '더 보기'
+      const pv = e.target.closest("[data-ce-prev]");
+      if (pv) { E.pvOpen = E.pvOpen === +pv.dataset.cePrev ? null : +pv.dataset.cePrev; const box = $(".ce-search", el); box.querySelector("#ceDrop")?.remove(); box.insertAdjacentHTML("beforeend", searchHTML()); return; }
+      const pa = e.target.closest("[data-ce-pvall]");
+      if (pa) { E.pvAll = E.pvAll === +pa.dataset.cePvall ? null : +pa.dataset.cePvall; if (pa.closest("#ceDrop")) { const box = $(".ce-search", el); box.querySelector("#ceDrop")?.remove(); box.insertAdjacentHTML("beforeend", searchHTML()); return; } return redrawList(); }
       const add = e.target.closest("[data-add]");
       if (add) { await addSong(+add.dataset.add); return; }
       const addm = e.target.closest("[data-addm]");
@@ -2127,6 +2148,7 @@
   // 곡 시간: 직접 고친 값 > 팀 기준 > 영상 길이(구간)
   function guessDur(E, s, x) {
     if (s?.team_sec) return s.team_sec;
+    const lv = liveOf(E, s?.id); if (lv) return lv;
     const ref = x ? x.refs?.[0] : s?.st?.refs?.[0] ? [s.st.refs[0][0], s.st.refs[0][3]] : null;
     if (!ref) return null;
     const r = E.ranges[`${s.id}:${ref[0]}`], v = E.yt[ref[0]]?.duration_sec;
@@ -2134,10 +2156,13 @@
     if (v) return Math.max(30, v - (r?.start_sec ?? ref[1] ?? 0));
     return null;
   }
+  const liveOf = (E, sid) => (sid && window.HISTORY?.liveSec ? HISTORY.liveSec(E.H, sid)?.sec || null : null);
   function recompute(E, x) {
     if (x.medley_id && !x.join) { const m = (E.medleys || []).find((q) => q.id === x.medley_id); if (m?.team_sec) return { dur: m.team_sec, src: "team" }; }
     const s = E.songs.find((q) => q.id === x.song_id);
     if (s?.team_sec) return { dur: s.team_sec, src: "team" };
+    // 032: 실연주 기준 (예배 영상 마커로 잰 중간값) → 영상 길이
+    const lv = liveOf(E, x.song_id); if (lv) return { dur: lv, src: "live" };
     const d = guessDur(E, { ...s, team_sec: null, id: x.song_id }, x);
     return d ? { dur: d, src: "video" } : { dur: null, src: null };
   }
