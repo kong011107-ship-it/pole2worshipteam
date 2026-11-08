@@ -27,7 +27,11 @@ export default handler(async (req, body) => {
   if (body.action === "sheet-notify") return sheetNotify(req, db, body);
   if (body.action === "yt") { await requireMember(req, db); return { ...(await ytLookup(db, body.ids)) }; }
   if (body.action === "yt-fill") { await requireAdmin(req, db); return ytFill(db); }
-  if (String(body.action || "").startsWith("video-")) { const u = await requireAdmin(req, db); return videoAction(db, body, u); }
+  if (String(body.action || "").startsWith("video-")) {
+    // 예배 영상은 무슨 오류든 실제 이유를 보여 줘요 ('서버 오류가 발생했습니다'로 가리지 않음)
+    try { const u = await requireAdmin(req, db); return await videoAction(db, body, u); }
+    catch (e) { if (e instanceof HttpError) throw e; console.error(e); throw new HttpError(502, `예배 영상: ${e?.message || String(e)}`); }
+  }
   if (body.action === "share") return share(db, body);
   if (body.action === "share-live") return shareLive(db, body);
   throw new HttpError(400, "알 수 없는 요청이에요.");
@@ -235,9 +239,8 @@ async function videoAction(db, body, user) {
   const a = body.action;
   try {
     if (a === "video-sync") {
-      const r = await syncPlaylist(db, { budgetMs: 7000, restart: !!body.restart });
-      if (r.done) r.rematched = await rematch(db, { recent: 60 });
-      return r;
+      // Vercel 시간 제한 안에 끝나도록 읽기만 (다 읽으면 화면이 video-rematch를 따로 불러요)
+      return syncPlaylist(db, { budgetMs: 5000, restart: !!body.restart });
     }
     if (a === "video-rematch") return rematch(db, {});
     const id = String(body.id || "");
@@ -267,7 +270,8 @@ async function videoAction(db, body, user) {
     }
   } catch (e) {
     if (e instanceof HttpError) throw e;
-    throw new HttpError(502, e.message || "예배 영상을 처리하지 못했어요.");
+    console.error(e);
+    throw new HttpError(502, e?.message || String(e) || "예배 영상을 처리하지 못했어요.");
   }
   throw new HttpError(400, "알 수 없는 요청이에요.");
 }

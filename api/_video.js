@@ -6,7 +6,7 @@
 //      2) '25. 10.26 Pole2 대학부…_곡1_곡2'           → 제목 곡 이름을 그날 콘티와 비교해서 한 번 더 확인
 //         (그날 콘티와 하나도 안 맞고 가까운 다른 주일과 맞으면 그 날로 두고 리더십이 확인)
 //      3) 날짜가 없으면 올린 날의 직전 주일 (그날이 주일이면 그날) → 확신 낮음, 리더십이 확인
-//  · 같은 재생목록에 설교 영상도 있어요: 제목에 설교 · 말씀 · sermon → 건너뜀, 찬양 · worship · praise → 찬양 영상,
+//  · 같은 재생목록에 설교 영상도 있어요: 제목에 성경 구절(요한복음 3:16 · 롬 8:28) · 설교 · 말씀 · sermon → 건너뜀, 찬양 · worship · praise → 찬양 영상,
 //    둘 다 없으면 설명란 곡 마커가 그날 콘티와 맞을 때만 찬양으로 보고 아니면 리더십 확인(kind)
 //  · 콘티 기록이 있는 기간(첫 콘티 ~ 오늘) 밖의 영상은 건너뛰어요
 //  · 곡 이름 맞추기: 띄어쓰기 · 대소문자 · 괄호 무시 → 별칭(리더십이 직접 연결한 것) → 한쪽이 다른 쪽을 품으면(하나뿐일 때)
@@ -116,9 +116,16 @@ const scoreDate = (ctx, date, songs) => {
   return songs.filter((x) => m(x)).length;
 };
 
+// 제목에 성경 구절이 있으면 설교 영상 ('요한복음 3:16' · '롬 8:28-30' · '마태복음 5장' · '(시 23:1)')
+const BOOKS = "창세기|출애굽기|레위기|민수기|신명기|여호수아|사사기|룻기|사무엘[상하]|열왕기[상하]|역대[상하]|에스라|느헤미야|에스더|욥기|시편|잠언|전도서|아가|이사야|예레미야애가|예레미야|에스겔|다니엘|호세아|요엘|아모스|오바댜|요나|미가|나훔|하박국|스바냐|학개|스가랴|말라기|마태복음|마가복음|누가복음|요한복음|사도행전|로마서|고린도[전후]서|갈라디아서|에베소서|빌립보서|골로새서|데살로니가[전후]서|디모데[전후]서|디도서|빌레몬서|히브리서|야고보서|베드로[전후]서|요한[일이삼]서|유다서|요한계시록";
+const ABBR = "창|출|레|민|신|수|삿|룻|삼상|삼하|왕상|왕하|대상|대하|스|느|에|욥|시|잠|전|아|사|렘|애|겔|단|호|욜|암|옵|욘|미|나|합|습|학|슥|말|마|막|눅|요|행|롬|고전|고후|갈|엡|빌|골|살전|살후|딤전|딤후|딛|몬|히|약|벧전|벧후|요일|요이|요삼|유|계";
+const BIBLE_FULL = new RegExp(`(?:${BOOKS})\\s*\\d{1,3}\\s*(?:장|편|:)`);
+const BIBLE_ABBR = new RegExp(`(?:^|[^가-힣])(?:${ABBR})\\s*\\d{1,3}\\s*:\\s*\\d{1,3}`);
+export const hasBibleRef = (title) => { const t = String(title || ""); return BIBLE_FULL.test(t) || BIBLE_ABBR.test(t); };
 // 찬양 영상인지: 'praise' | 'sermon' | null(제목만으로는 모름)
 export function kindOf(title) {
   const t = String(title || "").toLowerCase();
+  if (hasBibleRef(title)) return "sermon";
   if (/설교|말씀|sermon|메시지|message/.test(t)) return "sermon";
   if (/찬양|워십|worship|praise/.test(t)) return "praise";
   return null;
@@ -221,30 +228,35 @@ export function median(xs) {
 const isoSec = (iso) => { const m = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || ""); return m ? (+(m[1] || 0)) * 86400 + (+(m[2] || 0)) * 3600 + (+(m[3] || 0)) * 60 + (+(m[4] || 0)) : null; };
 const todayKST = () => kstDate(Date.now());
 
+// Supabase는 한 번에 1000행까지만 줘요 → 끝까지 나눠 읽기 (mk: 매번 새 쿼리, 정렬 필수)
+async function readAll(mk, what) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await mk().range(from, from + 999);
+    if (error) throw new Error(`${what}을(를) 읽지 못했어요: ${error.message}`);
+    out.push(...(data || []));
+    if (!data || data.length < 1000) return out;
+  }
+}
 export async function loadCtx(db) {
   const today = todayKST();
-  const [sl, sv, so, al] = await Promise.all([
-    db.from("setlists").select("id, service_date, leaders, service_id, status").eq("status", "published").lte("service_date", today).order("service_date"),
-    db.from("services").select("id, ministry_id"),
-    db.from("songs").select("id, title"),
-    db.from("song_aliases").select("norm, song_id"),
+  const [sl, sv, so, al, it] = await Promise.all([
+    readAll(() => db.from("setlists").select("id, service_date, leaders, service_id, status").eq("status", "published").lte("service_date", today).order("id"), "콘티 기록"),
+    readAll(() => db.from("services").select("id, ministry_id").not("ministry_id", "is", null).order("id"), "예배"),
+    readAll(() => db.from("songs").select("id, title").order("id"), "곡"),
+    readAll(() => db.from("song_aliases").select("norm, song_id").order("norm"), "별칭"),
+    readAll(() => db.from("setlist_items").select("setlist_id, ord, song_id, join_prev").order("id"), "콘티 곡"),
   ]);
-  if (sl.error) throw new Error("콘티 기록을 읽지 못했어요: " + sl.error.message);
-  const ministry = new Set((sv.data || []).filter((x) => x.ministry_id).map((x) => x.id));
-  const lists = (sl.data || []).filter((x) => !x.service_id || !ministry.has(x.service_id));
-  const title = new Map((so.data || []).map((x) => [x.id, x.title]));
-  const items = [];
-  const ids = lists.map((x) => x.id);
-  for (let i = 0; i < ids.length; i += 300) {
-    const { data, error } = await db.from("setlist_items").select("setlist_id, ord, song_id, join_prev").in("setlist_id", ids.slice(i, i + 300));
-    if (error) throw new Error("콘티 곡을 읽지 못했어요: " + error.message);
-    items.push(...(data || []));
-  }
+  const ministry = new Set(sv.map((x) => x.id));
+  const lists = sl.filter((x) => !x.service_id || !ministry.has(x.service_id));
+  const title = new Map(so.map((x) => [x.id, x.title]));
+  const keep = new Set(lists.map((x) => x.id));
+  const items = it.filter((x) => keep.has(x.setlist_id));
   const by = new Map();
   items.forEach((x) => { (by.get(x.setlist_id) || by.set(x.setlist_id, []).get(x.setlist_id)).push(x); });
   const setlists = new Map(lists.map((x) => [x.service_date, { date: x.service_date, leaders: x.leaders || [],
     items: (by.get(x.id) || []).sort((a, b) => a.ord - b.ord).map((i) => ({ ord: i.ord, song_id: i.song_id, title: title.get(i.song_id) || "", join_prev: !!i.join_prev })) }]));
-  return { setlists, dates: [...setlists.keys()].sort(), aliases: new Map((al.data || []).map((x) => [x.norm, x.song_id])), today };
+  return { setlists, dates: [...setlists.keys()].sort(), aliases: new Map(al.map((x) => [x.norm, x.song_id])), today };
 }
 
 // 맞춘 결과 저장 (영상 행 + 곡 위치). videos = 저장된 행 또는 새로 읽은 영상
@@ -278,16 +290,8 @@ export async function saveMatched(db, videos, ctx) {
 // 저장된 영상 다시 맞추기 (YouTube를 다시 부르지 않음) — 별칭 · 날짜를 고친 뒤 · 콘티가 바뀐 뒤
 export async function rematch(db, filter = {}) {
   const ctx = await loadCtx(db);
-  const all = [];
-  for (let from = 0; ; from += 1000) {
-    // 나눠 읽을 때 겹치지 않게 id 순서로 (쿼리는 매번 새로)
-    let q = db.from("worship_videos").select("*").order("id");
-    if (filter.ids) q = q.in("id", filter.ids);
-    const { data, error } = await q.range(from, from + 999);
-    if (error) throw new Error(error.message);
-    all.push(...(data || []));
-    if (!data || data.length < 1000 || filter.ids) break;
-  }
+  // 나눠 읽을 때 겹치지 않게 id 순서로
+  const all = await readAll(() => { let q = db.from("worship_videos").select("*").order("id"); if (filter.ids) q = q.in("id", filter.ids); return q; }, "저장된 영상");
   const pick = filter.recent ? all.filter((v) => v.status === "review" || (v.reasons || []).includes("songs") || (v.service_date && v.service_date >= addDays(ctx.today, -filter.recent)))
     : all.filter((v) => filter.ids || v.skip_why !== "outside");
   return { checked: pick.length, ...(await saveMatched(db, pick, ctx)) };

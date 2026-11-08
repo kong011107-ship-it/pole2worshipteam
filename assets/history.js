@@ -775,8 +775,10 @@
         if (a === "sync") {
           // 나눠서 읽어요 — 끝날 때까지 이어서
           let r, k = 0, added = 0;
-          do { busy(`읽는 중${k ? ` (${k + 1})` : ""}…`); r = await call({ action: "video-sync" }); added += r.added || 0; k++; } while (!r.done && k < 30);
-          toast(r.done ? `새 영상 ${added}개 · 연결 ${r.linked || 0} · 확인 ${r.review || 0}` : "아직 다 못 읽었어요 · 다시 눌러 주세요", 4000);
+          do { busy(`읽는 중${k ? ` (${k + 1})` : ""}…`); r = await call({ action: "video-sync" }); added += r.added || 0; k++; } while (!r.done && k < 60);
+          // 다 읽으면 콘티와 다시 맞추기 (따로 불러서 시간 제한에 안 걸리게)
+          if (r.done) { busy("맞추는 중…"); const m = await call({ action: "video-rematch" }); toast(`새 영상 ${added}개 · 연결 ${m.linked} · 확인 ${m.review} · 건너뜀 ${m.skipped}`, 4500); }
+          else toast("아직 다 못 읽었어요 · 다시 누르면 이어서 읽어요", 4000);
           return state.remount();
         }
         if (a === "rematch") { busy("맞추는 중…"); const r = await call({ action: "video-rematch" }); toast(`${r.checked}개 다시 맞췄어요 · 연결 ${r.linked} · 확인 ${r.review}`, 3500); return state.remount(); }
