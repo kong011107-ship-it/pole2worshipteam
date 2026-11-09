@@ -4,13 +4,13 @@
 
 - 구현과 시험은 끝났어요. **실제 사이트에는 아직 적용하지 않았어요.** 올리는 순서는 `UPDATE-033.md`에 있어요.
 - 기준: GitHub 최신본(v32 포함, `pole2worshipteam-main_3.zip`).
-- 범위: 실연주 시간의 메들리 처리 기준(사용자 확정 1~4). 그 밖의 미뤄 둔 것은 그대로예요(아래).
+- 범위: 실연주 시간의 메들리 처리 기준(사용자 확정 1~4) + 곡 '부른 기록'에 우리 연주 연결. 그 밖의 미뤄 둔 것은 그대로예요(아래).
 
 | 구분 | 파일 |
 |---|---|
 | DB | `migration_032.sql` (video_songs.seg · grp · grp_sec, video_sync.rule_ver, video_bundle 9칸) |
 | 서버 | `api/_video.js` (`classify` · `loadCtx` 레퍼런스 길이 · `RULE_VER` · `videoCron` 다시 맞추기) |
-| 화면 | `assets/history.js` · `assets/conti.js` · HTML 6개(?v=35) |
+| 화면 | `assets/history.js` · `assets/conti.js` · `assets/v32.css`(끝에 033 두 줄) · HTML 6개(?v=35) |
 | 문서 | `UPDATE-033.md` · `CHANGELOG.md` · 이 파일 |
 | 시험 | `dev/tests/v33/` · `dev/tests/v32/unit_video.mjs`(행 모양 기대값만 고침) |
 
@@ -40,17 +40,23 @@
 - **history.js** `build`: `video_bundle.songs` 9칸 `[영상, 곡, 시작, 끝, 메들리, 위치 앎, seg, grp, grp_sec]`(6칸이어도 동작). `V.live`는 solo만, `V.mlive[grp]`는 영상마다 묶음 하나씩 모아 중간값(40초~30분). `HISTORY.medleyLiveSec(D, [곡id…])`.
 - **conti.js** `regroup`: 묶음 머리 시간 순서 = 직접 → 메들리 기준(team) → **메들리 실연주(src 'live')** → 곡 시간 합('medley'). 곡 상세 KPI 문구 '단독 연주 N번 중간값'. 이전 연주 목록에 unsure · odd → '시간 제외'(title에 이유).
 
+### 곡 '부른 기록' ↔ 예배 영상
+- **history.js** `HISTORY.perfAt(D, 곡, 날짜)` → `V.perf`에서 그날 행(없으면 null). `liveBtn(D, 곡, 날짜, 제목)`: 위치 알면 `.hx-live` '▶ 우리 연주 m:ss'(data-play · ps · pe), 모르면 `.hx-wv` '▶ 예배 영상' + '위치 모름'(title에 이유). 재생은 ytp.js의 전역 `[data-play]` 처리.
+  - 기록 › 곡: `songCard(…, D)`로 D를 넘겨 '부른 기록' 줄마다 붙이고, summary에 '영상 N'(영상 있는 날짜 수).
+- **conti.js** `songDetail`: `pAt` · `nVid` · `logLive`. 부른 기록 전체를 그리되 13번째부터 `hidden`, `[data-sd-more]`로 펼침. 메들리 날은 ' · 메들리'.
+- **v32.css** 끝: `.sd-log[hidden] { display: none !important }`(.cv-ref가 flex라서).
+
 ## 검증
 
 - `node --check` api · assets 통과
 - 단위 `dev/tests/v33/unit_seg.mjs` 22 · cron `sync_rule.mjs` 4
 - v32 회귀: `unit_video.mjs` 50 · `sync_video.mjs` 21
 - PG16(v32_db stub): migration_031 → 032 두 번, 기존 메들리 행 seg 채움, seg · grp 제약, video_bundle 9칸
-- Playwright: `v33/run_seg.py` 12 · v32 `run_video.py` 47 · `run_bk.py` 29 · `run_pedal.py` 22 · v31 `run.py` 65
+- Playwright: `v33/run_seg.py` 12 · `v33/run_songs.py` 17(기록 › 곡 · 곡 상세 우리 연주 · 위치 모름 · 더 보기) · v32 `run_video.py` 47 · `run_bk.py` 29 · `run_pedal.py` 22 · v31 `run.py` 65
 - **못 한 것**: 실제 재생목록 데이터로 다시 맞춘 결과(종류별 개수), 실제 Supabase e2e
 
 ## 다음에 볼 것
 
 - 다시 맞춘 뒤 `seg`별 개수를 보고 기준값(0.5 · 1.25 · 1.5)을 조정할지 정해요. 사례는 `unit_seg.mjs`에 더해요.
 - 제안했지만 이번에 안 한 것: 리더십이 기록 탭 지난 콘티에서 '앞 곡에 이어서'를 직접 체크(예전 기록인데 곡마다 나눈 메들리는 지금은 길이 규칙으로만 걸러요).
-- 미뤄 둔 것(그대로): 아이폰 자동 완성(공지 · 투표), 실연주를 팀 기준보다 우선할지, 곡 상세 '이전 연주' 목록, 부분 지우개 조각의 쓴 사람
+- 미뤄 둔 것(그대로): 아이폰 자동 완성(공지 · 투표), 실연주를 팀 기준보다 우선할지, 부분 지우개 조각의 쓴 사람

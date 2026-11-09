@@ -68,3 +68,7 @@
 .ce-prevf { gap: 4px; }
 .hx-vt .hx-vpass { margin-left: auto; flex: none; }
 .hx-vi[hidden] { display: none; }
+
+/* 033: 곡 상세 부른 기록 — 12개 넘으면 '더 보기'까지 숨김 (.cv-ref의 display를 이김) */
+.sd-log[hidden] { display: none !important; }
+.sd-log .hx-live, .sd-log .hx-wv { flex: none; }

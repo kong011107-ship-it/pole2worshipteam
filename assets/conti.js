@@ -1437,6 +1437,13 @@
     const inMd = ((await sb.rpc("medley_list")).data || []).filter((m) => m.songs.some((x) => x.song_id === songId));
     const orig = (sheets || []).filter((x) => x.kind === "original"), saved = (sheets || []).filter((x) => x.kind === "sheet");
     const log = H ? H.plays.filter((p) => p[2] === songId).sort((a, b) => b[0].localeCompare(a[0])) : [];
+    // 033: 부른 기록마다 그날 우리 연주 (위치를 모르면 예배 영상 처음부터)
+    const pAt = (d) => (window.HISTORY?.perfAt ? HISTORY.perfAt(H, songId, d) : null);
+    const nVid = new Set(log.filter((p) => pAt(p[0])).map((p) => p[0])).size;
+    const logLive = (p) => { const pf = pAt(p[0]); if (!pf) return "";
+      const t = `${song.title} · ${p[0].slice(2).replace(/-/g, ".")} 예배`;
+      return pf.located ? `<button type="button" class="hx-live" ${playAttrs(pf.vid, pf.start, pf.end || null, t)}>▶ 우리 연주 ${mmss(pf.start)}</button>`
+        : `<button type="button" class="hx-wv" ${playAttrs(pf.vid, 0, null, t)}>▶ 예배 영상</button><span class="small muted" title="설명란에 곡 시간 표시가 없어 영상 처음부터 재생해요">위치 모름</span>`; };
     // 030: 파트 악보 (같은 포지션끼리)
     const myParts = await PARTS.my().catch(() => []);
     const parts = myParts.length ? (await PARTS.list([songId]).catch(() => [])).filter((q) => myParts.includes(q.part)) : [];
@@ -1464,11 +1471,14 @@
             : myParts.map((p) => `<label class="btn btn-soft btn-sm cv-upl">+ ${esc(partName(p))} 악보<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="${p}" hidden></label>`).join("")}</div></section>` : ""}
         ${st?.refs?.length ? `<section class="card"><div class="card-title cv-ct">레퍼런스 <small>${st.refs.length}개</small></div>
           ${st.refs.slice(0, 6).map((r, i) => `<div class="cv-ref"><a class="hx-yt" href="${ytLink(r[0], r[3])}" ${playAttrs(r[0], r[3], null, song.title + ` · 영상 ${i + 1}`)} target="_blank" rel="noopener">▶ 영상 ${i + 1}</a><span class="small muted">${r[1]}번 사용 · 마지막 ${r[4] ? r[4].slice(2).replace(/-/g, ".") : ""}${r[2] ? ` · ${esc(r[2])}` : ""}</span></div>`).join("")}</section>` : ""}
-        ${log.length ? `<section class="card"><div class="card-title cv-ct">부른 기록 <small>${st?.count || log.length}번</small></div>
-          ${log.slice(0, 12).map((p) => `<div class="cv-ref"><b class="small">${p[0].replace(/-/g, ".")}</b><span class="small muted">${esc((H.svc[p[0]]?.[0] || []).join(" · "))}</span>${p[7] ? `<span class="cv-bpm sm">♩=${p[7]}</span>` : ""}${p[4] ? `<span class="cv-key">${esc(p[4])}</span>` : ""}</div>`).join("")}</section>` : ""}
+        ${log.length ? `<section class="card" id="sdLog"><div class="card-title cv-ct">부른 기록 <small>${st?.count || log.length}번${nVid ? ` · 영상 ${nVid}` : ""}</small></div>
+          ${log.map((p, i) => `<div class="cv-ref sd-log"${i >= 12 ? " hidden" : ""}><b class="small">${p[0].replace(/-/g, ".")}</b><span class="small muted">${esc((H.svc[p[0]]?.[0] || []).join(" · "))}${p[6] ? " · 메들리" : ""}</span>${logLive(p)}${p[7] ? `<span class="cv-bpm sm">♩=${p[7]}</span>` : ""}${p[4] ? `<span class="cv-key">${esc(p[4])}</span>` : ""}</div>`).join("")}
+          ${log.length > 12 ? `<button type="button" class="pv-more" data-sd-more>${log.length - 12}번 더 보기</button>` : ""}</section>` : ""}
       </div>`);
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-sd=close]")) return closeLayer();
+      const more = e.target.closest("[data-sd-more]");
+      if (more) { el.querySelectorAll(".sd-log[hidden]").forEach((x) => (x.hidden = false)); more.remove(); return; }
       const mdb = e.target.closest("[data-sd-md]"); if (mdb) return medleyDetail(+mdb.dataset.sdMd);
       const pv = e.target.closest("[data-sd-part]");
       if (pv) { const q = parts.find((y) => y.id === +pv.dataset.sdPart); if (q) openViewer(null, { single: { title: `${song.title} · ${partName(q.part)} · ${q.name}`, key: q.key, path: q.path, pages: q.pages, ink: { key: `t:${q.id}` } } }); return; }

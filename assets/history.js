@@ -137,6 +137,18 @@
     return ps.map((p) => ({ ...p, same: !!want && keyNorm(p.key) === want })).sort((a, b) => (b.same - a.same) || b.date.localeCompare(a.date));
   }
   const liveSec = (D, sid) => D?.V?.live?.[sid] || null;
+  // 033: 그날 이 곡의 우리 연주 { vid, start, end, located } — 영상은 있는데 곡 위치를 모르면 located: false (처음부터)
+  const perfAt = (D, sid, date) => (D?.V?.perf?.[sid] || []).find((q) => q.date === date) || null;
+  // 버튼(DOM): 위치를 알면 '▶ 우리 연주 m:ss', 모르면 '▶ 예배 영상' + '곡 위치 모름'
+  function liveBtn(D, sid, date, title) {
+    const pf = perfAt(D, sid, date); if (!pf) return null;
+    const b = el("button", pf.located ? "hx-live" : "hx-wv", pf.located ? `▶ 우리 연주 ${mmss(pf.start)}` : "▶ 예배 영상"); b.type = "button";
+    Object.assign(b.dataset, { play: pf.vid, ps: String(pf.located ? pf.start : 0), pt: title });
+    if (pf.located && pf.end) b.dataset.pe = String(pf.end);
+    if (pf.located) return [b];
+    const n = el("span", "muted small", "위치 모름"); n.title = "설명란에 곡 시간 표시가 없어 영상 처음부터 재생해요";
+    return [b, n];
+  }
   // 033: 메들리 실연주 (곡 id를 부른 순서대로) — 예배 영상 묶음 시간의 중간값
   const medleyLiveSec = (D, ids) => (ids?.length > 1 ? D?.V?.mlive?.[ids.join("+")] || null : null);
 
@@ -395,12 +407,12 @@
       sum.replaceChildren(el("b", null, cond.join(" · ")), el("span", null, `콘티 있는 주일 ${sdates.length}번 · ${rows.length}곡 · 총 ${fmt(rows.reduce((a, g) => a + g.n, 0))}번`));
       if (sdates.length) sum.append(el("span", "muted", `${dot(sdates[0])} ~ ${dot(sdates[sdates.length - 1])}`));
       const max = Math.max(1, ...rows.map((g) => g.n));
-      list.replaceChildren(...(rows.length ? rows.slice(0, lim).map((g) => songCard(C, MU, g, sdates.length, max, B)) : [el("p", "muted", "조건에 맞는 곡이 없어요.")]));
+      list.replaceChildren(...(rows.length ? rows.slice(0, lim).map((g) => songCard(C, MU, g, sdates.length, max, B, D)) : [el("p", "muted", "조건에 맞는 곡이 없어요.")]));
       more.hidden = rows.length <= lim;
     }
     draw();
   }
-  function songCard(C, MU, g, nsvc, max, B) {
+  function songCard(C, MU, g, nsvc, max, B, D) {
     const r = el("div", "hx-sc"), head = el("div", "hx-sch");
     head.append(el("div", "t", g.title));
     const tot = el("div", "tot"); tot.append(el("span", null, `${g.n}번`), el("small", null, nsvc ? `주일의 ${Math.round(100 * g.n / nsvc)}%` : ""));
@@ -428,13 +440,16 @@
       });
       det.append(ul); r.append(det);
     }
-    const det2 = el("details", "hx-refs"); det2.append(el("summary", null, `부른 기록 ${g.dates.size}번`));
+    // 033: 부른 기록마다 그날 우리 연주 (예배 영상)
+    const nv = new Set(g.log.filter((p) => perfAt(D, g.sid, p.date)).map((p) => p.date)).size;
+    const det2 = el("details", "hx-refs"); det2.append(el("summary", null, `부른 기록 ${g.dates.size}번${nv ? ` · 영상 ${nv}` : ""}`));
     const ul2 = el("ul");
     g.log.slice().sort((a, b) => b.date.localeCompare(a.date)).forEach((p) => {
       const li = el("li"); li.append(el("b", null, dot(p.date).slice(2)));
       if (p.key) li.append(el("span", "chip chip-violet", p.key));
       li.append(el("span", "muted small", (C.SV[p.date][0].join(" · ") || "") + (C.SV[p.date][1] ? ` · ${C.SV[p.date][1]}` : "") + (p.medley ? " · 메들리" : "")));
       p.refs.slice(0, 3).forEach((rf, i) => { const a = yt(rf[0], rf[1], p.refs.length > 1 ? `▶${i + 1}` : "▶", "hx-yt"); if (a) li.append(a); });
+      const b = liveBtn(D, g.sid, p.date, `${g.title} · ${dot(p.date)}`); if (b) li.append(...b);
       ul2.append(li);
     });
     det2.append(ul2); r.append(det2);
@@ -822,5 +837,5 @@
     return j;
   }
 
-  window.HISTORY = { load, mount, reset: () => { cache = null; }, build, POS_LABEL, perfs, liveSec, medleyLiveSec, keyNorm };
+  window.HISTORY = { load, mount, reset: () => { cache = null; }, build, POS_LABEL, perfs, perfAt, liveSec, medleyLiveSec, keyNorm };
 })();
