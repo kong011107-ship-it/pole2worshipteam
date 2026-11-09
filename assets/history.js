@@ -4,7 +4,8 @@
 //  화면에서 통계를 계산해요. 팀원(찬양 탭)과 리더십(찬양 › 기록)이 같은 화면을 써요.
 //  HISTORY.mount(root, { admin, tab })  ·  HISTORY.load(force)  ·  HISTORY.reset()
 //  032: 예배 영상(video_bundle) — 콘티 탭에 ▶ 예배 영상 · 곡마다 ▶ 우리 연주, 리더십은 '예배 영상 연결' 확인 목록
-//       HISTORY.perfs(D, 곡, 키) 이전 연주 (같은 키 먼저 · 최근 먼저) · HISTORY.liveSec(D, 곡) 실연주 기준(중간값)
+//       HISTORY.perfs(D, 곡, 키) 이전 연주 (같은 키 먼저 · 최근 먼저) · HISTORY.liveSec(D, 곡) 실연주 기준(중간값, 그 곡만 부른 구간)
+//       HISTORY.medleyLiveSec(D, [곡, 곡]) 메들리 실연주 (033)
 // =====================================================================
 (function () {
   const POS_LABEL = { leader: "인도", singer: "싱어", key_main: "메인", key_second: "세컨", e_guitar: "일렉", acoustic: "어쿠스틱", bass: "베이스", drum: "드럼" };
@@ -101,17 +102,22 @@
     const lyears = {}; DATES.forEach((d) => (lyears[d.slice(0, 4)] = (lyears[d.slice(0, 4)] || 0) + 1));
 
     // 032: 예배 영상 — 주일마다 영상 1개 · 곡마다 그날 연주 (위치 · 실제 연주 시간)
-    const V = { byDate: {}, perf: {}, live: {} };
+    const V = { byDate: {}, perf: {}, live: {}, mlive: {} };
     const v2d = {};
     (vb?.videos || []).forEach(([id, d, dur, title, linked, marked]) => { V.byDate[d] = { id, date: d, dur, title, linked, marked }; v2d[id] = d; });
     const keyAt = {}; plays.forEach(([d, , sid, , key]) => { if (!keyAt[d + ":" + sid]) keyAt[d + ":" + sid] = key; });
-    (vb?.songs || []).forEach(([vid, sid, start, end, medley, located]) => {
+    // 033: 곡 실연주는 그 곡만 부른 구간(seg 'solo')만. 메들리는 묶음(grp) 전체 시간(grp_sec)으로 따로 — 편집자가 나눴든 묶었든 같은 값
+    const mseen = new Set(), mxs = {};
+    (vb?.songs || []).forEach(([vid, sid, start, end, medley, located, seg, grp, gsec]) => {
       const d = v2d[vid]; if (!d) return;
-      const raw = located && !medley && end ? end - start : null;
-      (V.perf[sid] = V.perf[sid] || []).push({ vid, date: d, start: start || 0, end: located ? end : null, medley: !!medley, located: !!located,
+      const solo = seg ? seg === "solo" : !medley;
+      const raw = located && solo && end ? end - start : null;
+      (V.perf[sid] = V.perf[sid] || []).push({ vid, date: d, start: start || 0, end: located ? end : null, medley: !!medley, located: !!located, seg: seg || (medley ? "medley" : "solo"),
         sec: raw != null && raw >= 40 && raw <= 1200 ? raw : null, key: keyAt[d + ":" + sid] || "", leaders: (svc[d]?.[0] || []).map(untitle) });
+      if (grp && gsec && gsec >= 40 && gsec <= 1800 && !mseen.has(vid + ":" + grp)) { mseen.add(vid + ":" + grp); (mxs[grp] = mxs[grp] || []).push(gsec); }
     });
     Object.entries(V.perf).forEach(([sid, ps]) => { const xs = ps.map((p) => p.sec).filter(Boolean); if (xs.length) V.live[sid] = { sec: median(xs), n: xs.length }; });
+    Object.entries(mxs).forEach(([g, xs]) => (V.mlive[g] = { sec: median(xs), n: xs.length }));
 
     return {
       V,
@@ -131,6 +137,8 @@
     return ps.map((p) => ({ ...p, same: !!want && keyNorm(p.key) === want })).sort((a, b) => (b.same - a.same) || b.date.localeCompare(a.date));
   }
   const liveSec = (D, sid) => D?.V?.live?.[sid] || null;
+  // 033: 메들리 실연주 (곡 id를 부른 순서대로) — 예배 영상 묶음 시간의 중간값
+  const medleyLiveSec = (D, ids) => (ids?.length > 1 ? D?.V?.mlive?.[ids.join("+")] || null : null);
 
   let cache = null, loading = null;
   async function load(force = false) {
@@ -814,5 +822,5 @@
     return j;
   }
 
-  window.HISTORY = { load, mount, reset: () => { cache = null; }, build, POS_LABEL, perfs, liveSec, keyNorm };
+  window.HISTORY = { load, mount, reset: () => { cache = null; }, build, POS_LABEL, perfs, liveSec, medleyLiveSec, keyNorm };
 })();

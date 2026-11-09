@@ -48,7 +48,7 @@ const V = (o) => ({ id: "AAAAAAAAAAA", title: "", description: "", published_at:
 let r = matchVideo(V({ title: "2026년 8월 30일 온누리교회 Pole2 대학부 주일예배 찬양", description: D }), ctx);
 eq([r.status, r.service_date, r.reasons], ["linked", "2026-08-30", []], "제목 날짜 + 마커 → 연결 (인도자 맞음)");
 const row = (id) => r.rows.find((x) => x.song_id === id);
-eq(row(1), { song_id: 1, start_sec: 231, end_sec: 552, medley: false, located: true }, "곡 시간 = 다음 마커 − 이 마커");
+eq(row(1), { song_id: 1, start_sec: 231, end_sec: 552, medley: false, located: true, seg: "solo", grp: null, grp_sec: null }, "곡 시간 = 다음 마커 − 이 마커");
 eq([row(3).medley, row(4).medley, row(3).start_sec, row(4).end_sec], [true, true, 845, 3723], "'곡A + 곡B' → 메들리 (같은 구간)");
 eq(row(5).end_sec, 4000, "마지막 곡은 영상 끝까지");
 eq([row(6).located, row(6).start_sec], [false, 0], "마커 없는 콘티 곡 → 위치 모름");

@@ -1451,7 +1451,7 @@
     const el = openLayer("cv-sheetpage", `<div class="cvs-top"><button type="button" class="cvv-back light" data-sd="close" aria-label="닫기">${ICO.back}</button><b>곡</b></div>
       <div class="cvs-body">
         <div class="cvs-head"><h2>${esc(song.title)}</h2><span class="small muted">${[song.main_key || st?.key_main ? `주로 부른 키 ${esc(song.main_key || st.key_main)}` : "", st?.keys ? esc(st.keys) : "", st?.leaders ? `인도 ${esc(st.leaders)}` : ""].filter(Boolean).join(" · ")}</span></div>
-        <div class="cvs-kpis"><div><span>부른 횟수</span><b>${st?.count || 0}</b></div><div><span>최근 1년</span><b>${st?.last12 || 0}</b></div><div><span>마지막</span><b>${st?.last ? md(st.last) : "–"}</b><small>${st?.last ? `${st.days_since}일 전` : ""}</small></div><div><span>곡 시간</span><b>${song.team_sec ? mmss(song.team_sec) : "–"}</b><small>${song.team_sec ? "팀 기준" : ""}</small></div>${H?.V?.live?.[songId] ? `<div><span>실연주</span><b>${mmss(H.V.live[songId].sec)}</b><small>예배 영상 ${H.V.live[songId].n}번 중간값</small></div>` : ""}<div><span>BPM</span><b>${song.team_bpm || "–"}</b><small>${song.team_bpm ? `${esc(song.team_meter || "4/4")} · 팀 기준` : ""}</small></div></div>
+        <div class="cvs-kpis"><div><span>부른 횟수</span><b>${st?.count || 0}</b></div><div><span>최근 1년</span><b>${st?.last12 || 0}</b></div><div><span>마지막</span><b>${st?.last ? md(st.last) : "–"}</b><small>${st?.last ? `${st.days_since}일 전` : ""}</small></div><div><span>곡 시간</span><b>${song.team_sec ? mmss(song.team_sec) : "–"}</b><small>${song.team_sec ? "팀 기준" : ""}</small></div>${H?.V?.live?.[songId] ? `<div><span>실연주</span><b>${mmss(H.V.live[songId].sec)}</b><small>단독 연주 ${H.V.live[songId].n}번 중간값</small></div>` : ""}<div><span>BPM</span><b>${song.team_bpm || "–"}</b><small>${song.team_bpm ? `${esc(song.team_meter || "4/4")} · 팀 기준` : ""}</small></div></div>
         ${inMd.length ? `<section class="card"><div class="card-title cv-ct">메들리 <small>이 곡이 든 메들리 · 합친 악보는 메들리에</small></div>${inMd.map((m) => `<button type="button" class="cv-prow" data-sd-md="${m.id}"><span class="cv-ptag">메들리</span><span class="cv-st2"><b>${esc(m.title)}</b><small>${m.used || 0}번 · 악보 ${m.sheets || 0}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}
         <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 깨끗한 악보 · 키별</small></div>
           ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
@@ -1594,8 +1594,13 @@
         const h = g[0];
         g.slice(1).forEach((x) => { x.dur = 0; x.src = "medley"; });
         if (g.length > 1 && h.src !== "manual" && !(h.medley_id && h.src === "team")) {
-          const parts = g.map((x) => recompute(E, { ...x, join: false, medley_id: null }).dur);
-          h.dur = parts.every(Boolean) ? parts.reduce((a, b) => a + b, 0) : parts.find(Boolean) ? parts.reduce((a, b) => a + (b || 0), 0) : null; h.src = h.dur ? "medley" : null;
+          // 033: 메들리 실연주(예배 영상에서 묶음 전체 시간) → 없으면 곡 시간 합
+          const ml = window.HISTORY?.medleyLiveSec ? HISTORY.medleyLiveSec(E.H, g.map((x) => x.song_id))?.sec || null : null;
+          if (ml) { h.dur = ml; h.src = "live"; }
+          else {
+            const parts = g.map((x) => recompute(E, { ...x, join: false, medley_id: null }).dur);
+            h.dur = parts.every(Boolean) ? parts.reduce((a, b) => a + b, 0) : parts.find(Boolean) ? parts.reduce((a, b) => a + (b || 0), 0) : null; h.src = h.dur ? "medley" : null;
+          }
         }
         if (g.length === 1 && h.src === "medley") Object.assign(h, recompute(E, h));
         g = [];
@@ -1670,7 +1675,7 @@
       const live = HISTORY.liveSec(E.H, sid);
       return `<div class="pv-head"><span class="tag">이전 연주</span><span>우리 팀 예배 영상${want ? ` · ${esc(want)} 키 먼저` : ""}${live ? ` · 실연주 기준 ${mmss(live.sec)}` : ""}</span></div>
         <div class="pv-list">${show.map((p) => `<button type="button" class="pv-row ${p.same ? "same" : ""}" ${playAttrs(p.vid, p.start, p.end || null, `${title} · ${p.date.slice(2).replace(/-/g, ".")} 예배`)} aria-label="${esc(title)} ${esc(p.date)} 연주 보기">
-            <span class="pv-play">▶</span><span>${p.date.slice(2).replace(/-/g, ".")}${p.leaders.length ? ` · ${esc(p.leaders.join(", "))}` : ""}${p.located ? "" : ` <span class="pv-unk">곡 위치 모름</span>`}${p.medley ? ` <span class="pv-unk">메들리</span>` : ""}</span>
+            <span class="pv-play">▶</span><span>${p.date.slice(2).replace(/-/g, ".")}${p.leaders.length ? ` · ${esc(p.leaders.join(", "))}` : ""}${p.located ? "" : ` <span class="pv-unk">곡 위치 모름</span>`}${p.medley ? ` <span class="pv-unk">메들리</span>` : ""}${p.seg === "unsure" ? ` <span class="pv-unk" title="콘티 다음 곡 위치가 없어 이 구간에 섞였을 수 있어요 · 실연주 기준에서 뺐어요">시간 제외</span>` : p.seg === "odd" ? ` <span class="pv-unk" title="레퍼런스 길이와 많이 달라요 · 실연주 기준에서 뺐어요">시간 제외</span>` : ""}</span>
             <span class="pv-k">${esc(p.key || "–")}</span><span class="pv-t">${p.sec ? mmss(p.sec) : "–"}</span></button>`).join("")}</div>
         ${ps.length > 5 ? `<button type="button" class="pv-more" data-ce-pvall="${sid}">${all ? "접기" : `${ps.length - 5}번 더 보기`}</button>` : ""}`;
     }

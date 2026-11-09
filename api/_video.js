@@ -11,7 +11,7 @@
 //  · 콘티 기록이 있는 기간(첫 콘티 ~ 오늘) 밖의 영상은 건너뛰어요
 //  · 곡 이름 맞추기: 띄어쓰기 · 대소문자 · 괄호 무시 → 별칭(리더십이 직접 연결한 것) → 한쪽이 다른 쪽을 품으면(하나뿐일 때)
 //      '00:00 : 찬양 List'처럼 곡이 아닌 줄은 건너뛰고, '찬양 인도자 : 이름 & 이름'은 그날 인도자와 비교만 해요
-//  · 곡 시간 = 다음 마커 − 이 마커 (마지막 곡은 영상 끝까지). 메들리(한 마커에 여러 곡 · 이어 부른 곡)는 시간 통계에서 빼요
+//  · 곡 시간 = 다음 마커 − 이 마커 (마지막 곡은 영상 끝까지). 033: 그 곡만 부른 구간(solo)만 곡 시간에 쓰고, 메들리는 묶음 전체 시간으로 따로 (classify)
 //  순수 함수(parse* · matchVideo)는 dev/tests/v32/unit_video.mjs에서 시험해요
 // =====================================================================
 
@@ -196,18 +196,19 @@ export function matchVideo(v, ctx) {
         if (!out.marks.some((q) => q !== mk && q.songs?.includes(jid)) && !raw.some((q, qi) => qi > i && match(q.label) === jid)) group.push(jid);
       }
     });
-    const medley = new Set(group).size > 1;
-    [...new Set(group)].forEach((id) => {
+    const uniq = [...new Set(group)], medley = uniq.length > 1;
+    uniq.forEach((id) => {
       if (rows.has(id)) return;   // 다시 부른 곡은 처음 것만
-      rows.set(id, { song_id: id, start_sec: mk.t, end_sec: end && end > mk.t ? end : null, medley, located: true });
+      rows.set(id, { song_id: id, start_sec: mk.t, end_sec: end && end > mk.t ? end : null, medley, located: true, _mi: i, _grp: medley ? uniq : null });
     });
   });
+  classify(rows, sl.items, out.marks, ctx.refSec);
   // 리더십이 '넘기기'를 누른 연결 영상은 못 맞춘 곡 이름을 다시 묻지 않아요
   if (unmatched && !v.dismissed) out.reasons.push("songs");
   // 제목에 찬양 · 설교 표시가 없고 곡 마커도 하나도 안 맞으면 찬양 영상인지 확인
   if (!v.pinned && !kindOf(v.title) && !out.marks.some((m) => m.songs)) out.reasons.unshift("kind");
   // 위치를 모르는 콘티 곡 (마커가 없거나 못 맞춘 곡) → 영상 처음부터
-  sl.items.forEach((x) => { if (!rows.has(x.song_id)) rows.set(x.song_id, { song_id: x.song_id, start_sec: 0, end_sec: null, medley: false, located: false }); });
+  sl.items.forEach((x) => { if (!rows.has(x.song_id)) rows.set(x.song_id, { song_id: x.song_id, start_sec: 0, end_sec: null, medley: false, located: false, seg: "solo", grp: null, grp_sec: null }); });
   out.rows = [...rows.values()];
   // 인도자 확인 (참고용)
   if (leaders.length && sl.leaders?.length) {
@@ -217,8 +218,68 @@ export function matchVideo(v, ctx) {
   out.status = out.reasons.includes("date") || out.reasons.includes("kind") ? "review" : "linked";
   return out;
 }
-// 곡 시간으로 쓸 수 있는 구간 (메들리 · 위치 모름 · 너무 짧거나 긴 것 빼고)
-export const playSec = (r) => (r.located && !r.medley && r.end_sec ? r.end_sec - r.start_sec : null);
+// 033: 구간 종류 — 편집자마다 메들리를 한 구간으로 넣기도, 곡마다 나눠 넣기도 해서 기준을 정해요
+//  seg  solo   : 그 곡만 부른 구간 → 곡 실연주 시간에 씀
+//       medley : 한 마커에 여러 곡 (곡A + 곡B · 첫 곡 마커만 있고 이어 부른 곡) → 곡 시간에 안 씀
+//       split  : 콘티에서 메들리(이어서)인데 편집자가 곡마다 나눈 구간 → 곡 시간에 안 씀 (메들리 안에서는 짧게 부르기도 해서)
+//       unsure : 콘티에서 바로 다음 곡에 마커가 없음 → 그 곡이 이 구간에 섞였을 수 있어요 (예전 메들리는 콘티에 '이어서' 표시가 없어요)
+//                단, 구간이 레퍼런스 길이의 1.25배 안이면 그 곡만 부른 것으로 봐요 (콘티에만 있고 안 부른 곡)
+//       odd    : 레퍼런스 영상 길이의 0.5배보다 짧거나 1.5배보다 김
+//  grp · grp_sec : 메들리 묶음(콘티 순서대로 '곡id+곡id')과 그 묶음 전체 시간(첫 곡 시작 ~ 마지막 곡 끝, 나눴든 묶었든 같은 값)
+//  재생 위치(start · end)는 종류와 상관없이 그대로 써요
+export const ODD_LO = 0.5, ODD_HI = 1.5, HIDE_OK = 1.25;
+export function classify(rows, items, marks, refSec) {
+  const pos = new Map(); items.forEach((x, i) => { if (!pos.has(x.song_id)) pos.set(x.song_id, i); });
+  // 콘티 메들리(이어서) 묶음
+  const jg = []; items.forEach((x, i) => { if (i > 0 && x.join_prev && jg.length) jg[jg.length - 1].push(x.song_id); else jg.push([x.song_id]); });
+  const jOf = new Map(); jg.forEach((g) => { if (g.length > 1) g.forEach((id) => jOf.set(id, g)); });
+  const loc = (id) => rows.get(id)?.located;
+  // 이 구간 뒤에 콘티 다음 곡이 숨어 있을 수 있나: 다음 곡 마커가 없고, 바로 다음 마커가 못 맞춘 곡 이름도 아님
+  const hidden = (lastId, mi) => {
+    const k = pos.get(lastId); const nx = k == null ? null : items[k + 1];
+    if (!nx || loc(nx.song_id)) return false;
+    const nm = marks[mi + 1];
+    if (nm && !nm.songs && !nm.skip) return false;   // 이름만 못 맞춘 다음 곡 마커 → 구간은 거기서 끝나요
+    return true;
+  };
+  const byPos = (a, b) => (pos.get(a) ?? 99) - (pos.get(b) ?? 99);
+  const groups = new Map();
+  rows.forEach((r) => {
+    if (!r.located) return;
+    let g = null;
+    if (r._grp || jOf.has(r.song_id)) {
+      // 콘티에 메들리 묶음이 있으면 그 묶음 기준, 없으면(예전 기록) 마커에 함께 적힌 곡들
+      r.seg = r._grp ? "medley" : "split"; r.medley = true;
+      g = jOf.get(r.song_id) || r._grp;
+    }
+    else {
+      r.seg = "solo";
+      const sec = r.end_sec ? r.end_sec - r.start_sec : null;
+      const ref = refSec?.get(r.song_id);
+      // 다음 곡이 숨어 있을 수 있어도, 레퍼런스 길이와 거의 같으면(1.25배 이내) 그 곡만 부른 것으로 봐요 (콘티에만 있고 안 부른 곡)
+      if (hidden(r.song_id, r._mi) && !(sec && ref && sec >= ref * ODD_LO && sec <= ref * HIDE_OK)) r.seg = "unsure";
+      else if (sec && ref && (sec < ref * ODD_LO || sec > ref * ODD_HI)) r.seg = "odd";
+    }
+    if (g) { const key = [...g].sort(byPos).join("+"); r.grp = key; (groups.get(key) || groups.set(key, { ids: [...g].sort(byPos), rows: [] }).get(key)).rows.push(r); }
+  });
+  // 메들리 묶음 시간: 묶음 곡이 모두 위치가 있고, 마커가 이어져 있고(사이에 다른 곡 없음), 뒤에 숨은 곡이 없을 때만
+  groups.forEach((G) => {
+    let sec = null;
+    if (G.ids.every(loc)) {
+      const rs = G.ids.map((id) => rows.get(id));
+      const mis = [...new Set(rs.map((r) => r._mi))].sort((a, b) => a - b);
+      const between = marks.slice(mis[0], mis[mis.length - 1] + 1).some((m, j) => m.songs && !mis.includes(mis[0] + j));
+      const last = rs.reduce((a, b) => (b.start_sec > a.start_sec ? b : a));
+      const lastId = G.ids.reduce((a, b) => (pos.get(b) > pos.get(a) ? b : a));
+      const st = Math.min(...rs.map((r) => r.start_sec));
+      if (!between && last.end_sec && !hidden(lastId, mis[mis.length - 1])) sec = last.end_sec - st;
+    }
+    G.rows.forEach((r) => (r.grp_sec = sec));
+  });
+  rows.forEach((r) => { if (!r.located) r.seg = "solo"; r.grp = r.grp || null; r.grp_sec = r.grp_sec ?? null; delete r._mi; delete r._grp; });
+}
+// 곡 시간으로 쓸 수 있는 구간: 그 곡만 부른 구간(solo)만. 메들리 · 나눈 메들리 · 숨은 곡 의심 · 길이 이상 · 위치 모름은 빼요
+export const playSec = (r) => (r.located && (r.seg ? r.seg === "solo" : !r.medley) && r.end_sec ? r.end_sec - r.start_sec : null);
 export const usableSec = (s) => s != null && s >= 40 && s <= 1200;
 export function median(xs) {
   const a = xs.filter((x) => x != null).sort((p, q) => p - q);
@@ -243,13 +304,26 @@ async function readAll(mk, what) {
 }
 export async function loadCtx(db) {
   const today = todayKST();
-  const [sl, sv, so, al, it] = await Promise.all([
+  const [sl, sv, so, al, it, rf] = await Promise.all([
     readAll(() => db.from("setlists").select("id, service_date, leaders, service_id, status").eq("status", "published").lte("service_date", today).order("id"), "콘티 기록"),
     readAll(() => db.from("services").select("id, ministry_id").not("ministry_id", "is", null).order("id"), "예배"),
     readAll(() => db.from("songs").select("id, title").order("id"), "곡"),
     readAll(() => db.from("song_aliases").select("norm, song_id").order("norm"), "별칭"),
     readAll(() => db.from("setlist_items").select("setlist_id, ord, song_id, join_prev").order("id"), "콘티 곡"),
+    readAll(() => db.from("song_refs").select("song_id, youtube_id, start_sec, end_sec, updated_at").order("song_id").order("youtube_id"), "레퍼런스"),
   ]);
+  // 033: 곡마다 레퍼런스 길이 (가장 최근에 고친 레퍼런스 · 구간 끝이 없으면 영상 길이 − 시작)
+  const need = [...new Set(rf.filter((x) => !x.end_sec).map((x) => x.youtube_id))], ytd = new Map();
+  for (let i = 0; i < need.length; i += 200) {
+    const { data } = await db.from("yt_videos").select("id, duration_sec").in("id", need.slice(i, i + 200));
+    (data || []).forEach((x) => ytd.set(x.id, x.duration_sec));
+  }
+  const refSec = new Map(), refAt = new Map();
+  rf.forEach((x) => {
+    const sec = x.end_sec ? x.end_sec - (x.start_sec || 0) : ytd.get(x.youtube_id) ? ytd.get(x.youtube_id) - (x.start_sec || 0) : null;
+    if (!sec || sec < 30) return;
+    if (!refAt.has(x.song_id) || x.updated_at > refAt.get(x.song_id)) { refAt.set(x.song_id, x.updated_at); refSec.set(x.song_id, sec); }
+  });
   const ministry = new Set(sv.map((x) => x.id));
   const lists = sl.filter((x) => !x.service_id || !ministry.has(x.service_id));
   const title = new Map(so.map((x) => [x.id, x.title]));
@@ -259,7 +333,7 @@ export async function loadCtx(db) {
   items.forEach((x) => { (by.get(x.setlist_id) || by.set(x.setlist_id, []).get(x.setlist_id)).push(x); });
   const setlists = new Map(lists.map((x) => [x.service_date, { date: x.service_date, leaders: x.leaders || [],
     items: (by.get(x.id) || []).sort((a, b) => a.ord - b.ord).map((i) => ({ ord: i.ord, song_id: i.song_id, title: title.get(i.song_id) || "", join_prev: !!i.join_prev })) }]));
-  return { setlists, dates: [...setlists.keys()].sort(), aliases: new Map(al.map((x) => [x.norm, x.song_id])), today };
+  return { setlists, dates: [...setlists.keys()].sort(), aliases: new Map(al.map((x) => [x.norm, x.song_id])), today, refSec };
 }
 
 // 맞춘 결과 저장 (영상 행 + 곡 위치). videos = 저장된 행 또는 새로 읽은 영상
@@ -291,13 +365,17 @@ export async function saveMatched(db, videos, ctx) {
 }
 
 // 저장된 영상 다시 맞추기 (YouTube를 다시 부르지 않음) — 별칭 · 날짜를 고친 뒤 · 콘티가 바뀐 뒤
+export const RULE_VER = 33;   // 맞추기 규칙이 바뀌면 올려요 → 다음 cron에서 저장된 영상을 모두 다시 맞춤
 export async function rematch(db, filter = {}) {
   const ctx = await loadCtx(db);
   // 나눠 읽을 때 겹치지 않게 id 순서로
   const all = await readAll(() => { let q = db.from("worship_videos").select("*").order("id"); if (filter.ids) q = q.in("id", filter.ids); return q; }, "저장된 영상");
   const pick = filter.recent ? all.filter((v) => v.status === "review" || (v.reasons || []).includes("songs") || (v.service_date && v.service_date >= addDays(ctx.today, -filter.recent)))
     : all.filter((v) => filter.ids || v.skip_why !== "outside");
-  return { checked: pick.length, ...(await saveMatched(db, pick, ctx)) };
+  const r = { checked: pick.length, ...(await saveMatched(db, pick, ctx)) };
+  // 전체를 다시 맞췄으면 지금 규칙으로 맞춘 것으로 표시 (migration_032 전이면 칸이 없어 조용히 넘어가요)
+  if (!filter.ids && !filter.recent) await db.from("video_sync").update({ rule_ver: RULE_VER }).eq("id", 1).then(() => {}, () => {});
+  return r;
 }
 
 async function ytGet(path, key) {
@@ -355,6 +433,8 @@ export async function videoCron(db, now, hour = 5) {
   const { data: st, error } = await db.from("video_sync").select("*").eq("id", 1).maybeSingle();
   if (error || !st) return null;   // migration_031 전
   const fresh = now.hour === hour && st.last_day !== now.date;
+  // 033: 규칙이 바뀌었으면 YouTube를 부르지 않고 저장된 영상을 모두 다시 맞춰요 (한 번)
+  if (st.rule_ver != null && st.rule_ver < RULE_VER && st.full_done && !st.pending) return { rematched: await rematch(db, {}), rule: RULE_VER };
   if (!fresh && !st.pending) return null;
   if (fresh) await db.from("video_sync").update({ last_day: now.date }).eq("id", 1);
   const r = await syncPlaylist(db, { budgetMs: 6000, restart: fresh && st.full_done });
