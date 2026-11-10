@@ -37,10 +37,10 @@ body { background: var(--background); font-size: var(--fs-body); }
 .tabbar a, .tabbar button { position: relative; z-index: 1; color: var(--muted-foreground); font-size: var(--fs-cap); font-weight: var(--fw-m); gap: 3px; transition: color var(--d1); }
 .tabbar svg { width: 22px; height: 22px; }
 .tabbar .on { color: var(--primary); font-weight: var(--fw-s); }
-/* 선택 표시(움직이는 알약): ui.js가 .u-ind를 넣어요 */
-.u-ind { position: absolute; top: 4px; left: 0; height: 30px; display: flex; justify-content: center; pointer-events: none; z-index: 0;
+/* 선택 표시(칸 전체를 옅은 보라로 · B안): ui.js가 .u-ind를 넣어요 */
+.u-ind { position: absolute; top: 0; bottom: 0; left: 0; padding: 0 3px; display: flex; justify-content: center; pointer-events: none; z-index: 0;
   transition: transform 240ms var(--e-out), width var(--d2) var(--e-out); }
-.u-ind i { width: 56px; height: 30px; border-radius: 15px; background: var(--accent); }
+.u-ind i { flex: 1; max-width: 120px; border-radius: var(--radius); background: var(--accent); }
 
 .m-subnav { background: rgba(255, 255, 255, .96); padding: 10px 16px 8px; }
 .segbar, .u-seg { position: relative; display: inline-flex; background: var(--muted-bg); border: 0; border-radius: var(--radius); padding: 3px; overflow: visible; gap: 0; }
