@@ -115,9 +115,11 @@ async def main():
         check(abs((seg["x"] + seg["width"] / 2) - 1194 / 2) < 3, f"segbar centered {seg}")
         await pg.screenshot(path=SHOT + "tablet_tabs.png")
         await pg.goto(BASE + f"/me.html#worship/{sid}"); await pg.wait_for_timeout(2200)
-        rows = [x.strip() for x in await pg.locator(".cv-prow .cv-ptag").all_text_contents()]
-        check(rows[-5:] == ["축복송", "성찬 찬양 1", "성찬 찬양 2", "봉헌송", "축도송"], f"proc card order {rows}")
-        check("성찬식 주일" in await pg.locator(".card-title:has-text('예배 진행곡')").text_content(), "proc card communion label")
+        # v34.1: '콘티 다음 순서' 펼침 목록 — 짧은 꼬리표
+        rows = [x.strip() for x in await pg.locator("#cvFlow .u-tag").all_text_contents()]
+        procs = [t for t in rows if t not in ("적용", "백업", "특별")]   # 029부터 적용 · 백업도 같은 목록에
+        check(procs[-5:] == ["축복", "성찬 1", "성찬 2", "봉헌", "축도"], f"proc card order {rows}")
+        check("성찬식 주일" in await pg.locator("#cvFlow .u-ch").text_content(), "proc card communion label")
         await pg.screenshot(path=SHOT + "conti_communion.png", full_page=True)
         await ctx.close(); await b.close()
 

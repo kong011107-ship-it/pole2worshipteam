@@ -106,7 +106,7 @@
   // =================================================================== 찬양 탭 › 백업찬양 (후보 고르기 · 둘러보기)
   async function mount(root, { me } = {}) {
     B.root = root; B.me = me || B.me;
-    root.innerHTML = `<div class="empty">백업찬양을 불러오는 중…</div>`;
+    root.innerHTML = window.UI ? UI.skel(2, 3) : `<div class="empty">백업찬양을 불러오는 중…</div>`;
     try { await loadData(true); } catch (e) { root.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
     drawHome(); watch(false); checkSaved();
   }
@@ -561,7 +561,7 @@
 
   // =================================================================== 리더십: 찬양 › 곡 — 백업찬양 악보집 · 예배 진행곡
   async function mountAdmin(root) {
-    root.innerHTML = `<div class="empty">불러오는 중…</div>`;
+    root.innerHTML = window.UI ? UI.skel(1, 3) : `<div class="empty">불러오는 중…</div>`;
     // 032: 고치기에서 코드가 겹치는지 · 후보에 든 곡인지 보려고 백업찬양 목록도 받아요
     const [bk, cnt, cust, pr] = await Promise.all([
       sb.from("backup_books").select("*").order("created_at", { ascending: false }).limit(5),

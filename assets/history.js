@@ -181,7 +181,7 @@
     if (opts.tab) state.tab = opts.tab;
     state.admin = !!opts.admin;
     state.remount = () => { cache = null; mount(root, { ...opts, tab: state.tab }); };
-    root.innerHTML = `<div class="hx ${opts.admin ? "adm" : ""}"><div class="empty">기록을 불러오는 중…</div></div>`;
+    root.innerHTML = `<div class="hx ${opts.admin ? "adm" : ""}">${window.UI ? UI.skel(2, 4) : `<div class="empty">기록을 불러오는 중…</div>`}</div>`;
     let D;
     try { D = await load(); } catch (e) { root.innerHTML = `<div class="hx"><div class="empty">${esc(e.message)}</div></div>`; return; }
     if (!D.summary.services) { root.innerHTML = `<div class="hx"><div class="empty">아직 기록이 없어요.</div></div>`; return; }

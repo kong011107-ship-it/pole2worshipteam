@@ -1,0 +1,45 @@
+
+/* =========================================================
+   v34 토큰 — shadcn/ui 이름 · Pole2 색 (PLAN-034)
+   예전 이름(--violet · --line · --muted …)은 맨 아래 v34 층에서 새 토큰에 맞춰요.
+   주의: 예전 --muted는 '글자색'으로 쓰여 와서 그대로 글자색이에요. shadcn의 muted 바탕은 --muted-bg.
+   ========================================================= */
+:root {
+  --background: #FFFFFF;
+  --foreground: #17092E;
+  --card: #FFFFFF;
+  --border: #ECE6F3;
+  --input: #E2DAEC;
+  --primary: #410A85;
+  --primary-hover: #4F1A94;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F5EFFC;
+  --secondary-hover: #EDE3FA;
+  --accent: #F1E8FC;
+  --muted-bg: #F6F3FA;
+  --muted-foreground: #6B6080;
+  --ring: #8654CB;
+  --destructive: #B3261E;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-xs: 0 1px 2px rgba(23, 9, 46, .05);
+  --shadow-lg: 0 10px 15px -3px rgba(23, 9, 46, .1), 0 4px 6px -4px rgba(23, 9, 46, .1);
+
+  /* 글자 크기 7단계 (+ 숫자 강조) · 굵기 3단계 */
+  --fs-page: 20px;    /* 페이지 제목 */
+  --fs-dialog: 17px;  /* 시트 · 서랍 · 확인 창 제목 */
+  --fs-bar: 16px;     /* 위쪽 고정 막대 · 메뉴 칸 제목 · 입력칸 */
+  --fs-card: 15px;    /* 카드 제목 */
+  --fs-body: 14px;    /* 본문 · 줄 제목 · 단추 */
+  --fs-sub: 13px;     /* 보조 (넓은 화면) */
+  --fs-meta: 12px;    /* 보조 · 배지 */
+  --fs-cap: 11px;     /* 캡션 · 하단 탭 */
+  --fs-num: 24px;     /* 숫자 강조 */
+  --fs-num-lg: 26px;  /* 대시보드 큰 숫자 */
+  --fw-n: 400; --fw-m: 500; --fw-s: 600;
+
+  /* 모션: 절제형 120–280ms · 들어올 때 감속, 나갈 때 가속(180ms) */
+  --d1: 120ms; --d2: 200ms; --d3: 280ms; --d-out: 180ms;
+  --e-out: cubic-bezier(.2, .8, .2, 1);
+  --e-in: cubic-bezier(.4, 0, 1, 1);
+}

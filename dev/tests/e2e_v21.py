@@ -194,7 +194,7 @@ async def main():
         b, ctx = await browser(p, mobile=True)
         pg = await login(ctx, "demo02@pole2.test", "pole2test!", "me.html")
         labels = [x.strip() for x in await pg.locator("#tabbar button").all_text_contents()]
-        check(labels == ["홈", "섬김", "찬양", "나눔", "내 정보"], f"tabbar {labels}")
+        check(labels == ["홈", "찬양", "섬김", "나눔"], f"tabbar {labels}")
         await pg.click('#tabbar [data-tab="serve"]'); await pg.wait_for_timeout(1200)
         check(pg.url.endswith("#lineup") and await pg.locator("#serveNav:not(.hidden)").count() == 1, f"serve -> lineup {pg.url}")
         await pg.click('#serveNav [data-sv="respond"]'); await pg.wait_for_timeout(1200)
@@ -242,7 +242,7 @@ async def main():
         ctx = (await browser(p, mobile=True))[1]
         pg = await login(ctx, "trainee1@pole2.test", "pole2test!", "me.html")
         labels = [x.strip() for x in await pg.locator("#tabbar button").all_text_contents()]
-        check(labels == ["홈", "찬양", "나눔", "내 정보"], f"trainee tabbar {labels}")
+        check(labels == ["홈", "찬양", "나눔"], f"trainee tabbar {labels}")
         check(not pg.errs, f"trainee errs {pg.errs[:3]}")
         await b.close()
     print("ok", ok, "bad", bad)

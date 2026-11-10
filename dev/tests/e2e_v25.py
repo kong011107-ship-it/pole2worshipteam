@@ -317,8 +317,9 @@ async def main():
         b, ctx = await browser(p, viewport={"width": 820, "height": 1180}, has_touch=True)
         mp = await login(ctx, "demo02@pole2.test", PW, dest=None)
         await mp.goto(BASE + f"/me.html#worship/{sid}"); await mp.wait_for_timeout(2500)
-        chip = mp.locator(".cv-srow .cv-bpm").first
-        check(await chip.count() == 1 and "♩=76" in await chip.text_content() and await chip.is_disabled(), "conti list bpm chip (member read-only)")
+        # v34.1: 팀원은 BPM을 곡 줄 설명에 글자로 (고치는 단추 없음)
+        row = mp.locator(".cv-srow").first
+        check("♩=76" in await row.text_content() and await mp.locator(".cv-srow .cv-bpm").count() == 0, "conti list bpm (member read-only)")
         await mp.click(".cv-pdfbar"); await mp.wait_for_timeout(3000)
         s1 = await mp.evaluate(ST)
         check(s1["key"] == f"s:{S1}" and s1["strokes"] == 1 and s1["sheet"] == F1 and s1["shared"] == 3, f"memo continues on fork + shared ink {s1}")

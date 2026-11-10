@@ -6,8 +6,7 @@
 //  데이터는 /api/conti { action: "share" | "share-live", t } — 악보 파일은 서명된 주소(6시간)로 받아 파일 경로 기준으로 이 기기에 저장
 // =====================================================================
 (function () {
-  // 030: 두 쪽 · 세로 보기 스타일
-  if (!document.querySelector('link[href*="v30.css"]')) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "assets/v30.css?v=33"; document.head.appendChild(l); }
+  // v34.1: 두 쪽 · 세로 보기 스타일은 ui.css에 합쳤어요
   const VIEW_K = "pole2.view.mode", VIEW_NAME = { one: "한 쪽", two: "두 쪽", scroll: "세로" };
   const T = new URLSearchParams(location.search).get("t") || "";
   const $ = (s, r = document) => r.querySelector(s);
@@ -27,6 +26,9 @@
   if (!window.toast) window.toast = toast;
   const ytLink = (id, t) => `https://youtu.be/${id}${t ? `?t=${t}` : ""}`;
   const bpmText = (b, m) => (b ? `♩=${b}${m && m !== "4/4" ? ` · ${m}` : ""}` : "");
+  const ICL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>`;
+  const ICR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>`;
+  const ICF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>`;
   const PLAY = `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
   async function api(action) {
@@ -92,26 +94,32 @@
     const flowChg = f?.flow_at && f.setlist?.published_at && f.flow_at > f.setlist.published_at;
     $("#shMain").innerHTML = `${S.offline ? `<div class="notice warn">인터넷 연결이 없어 저장해 둔 콘티를 보여 줘요.</div>` : ""}
       ${L.active ? `<button type="button" class="bk-livecard" data-sh="live"><span class="bk-dot"></span><span><b>백업찬양 진행 중</b><small>지금 ${esc(refText(L.now) || "준비 중")}${L.next ? ` · 다음 ${esc(refText(L.next))}` : ""}</small></span><span class="btn btn-primary btn-sm">악보 따라 보기</span></button>` : ""}
-      ${D.services.length > 1 ? `<div class="chips2 shv-svcs">${D.services.map((s) => `<button type="button" data-sv="${s.id}" aria-pressed="${s.id === S.focus}">${mdw(s.date)} ${esc(s.title)}</button>`).join("")}</div>` : ""}
-      ${f ? `<section class="hero cv-hero"><span class="eyebrow">${f.date === D.today ? "오늘" : "다가오는 예배"} · ${mdw(f.date)}${f.start_time ? ` ${hm(f.start_time)}` : ""}</span>
-          <span class="big">${f.ministry ? esc(f.title) : `${md(f.date)} 주일`} 콘티</span>
-          <div class="pills">${f.communion ? "<span>성찬식 주일</span>" : ""}${items.length ? `<span>${items.length}곡</span>` : ""}</div></section>
-        ${f.setlist ? `<button type="button" class="cv-pdfbar" data-sh="open"><span class="cv-pdfic">PDF</span><span class="cv-pdft"><b>악보 보기</b><span class="small muted">${ch?.at ? `${kdt(ch.at)} 수정됨` : f.setlist.published_at ? `${kdt(f.setlist.published_at)} 올라옴` : ""}</span></span><span class="btn btn-primary btn-sm">열기</span></button>`
-          : `<div class="cv-wait"><span><b>아직 콘티가 올라오지 않았어요</b><span class="small muted">올라오면 이 화면에 바로 보여요</span></span></div>`}
-        ${items.length ? `<section class="card"><div class="card-title cv-ct">곡 순서 <span class="cv-chips">${ch?.text?.length ? `<span class="chip chip-mid" title="${esc(ch.text.join(" · "))}">수정됨 · ${esc(ch.text.slice(0, 2).join(" · "))}${ch.text.length > 2 ? " 외" : ""}</span>` : ""}${sc && (!ch?.at || sc.at > ch.at) ? `<span class="chip chip-violet">악보 바뀜 · ${esc(kdt(sc.at))}</span>` : ""}</span></div>
-          <div class="cv-slist">${items.map((x, i) => { const jn = i > 0 && x.join_prev; return `<div class="cv-srow ${jn ? "join" : ""}"><span class="cv-sn">${jn ? "+" : gno(items, i)}</span><button type="button" class="cv-st" data-sh-at="c:${i}"><b>${esc(x.title)}</b><small>${jn ? "앞 곡에 이어서" : `${x.sheet ? `${x.sheet.pages}쪽` : "악보 없음"}${items[i + 1]?.join_prev ? " · 메들리" : ""}`}</small></button>
-            ${x.ref ? `<a class="cv-yt" href="${ytLink(x.ref[0], x.ref[1])}" data-play="${esc(x.ref[0])}" data-ps="${x.ref[1] || 0}" data-pt="${esc(x.title)}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${PLAY}레퍼런스</a>` : "<span></span>"}
-            ${x.bpm ? `<span class="cv-bpm">${esc(bpmText(x.bpm, x.meter))}</span>` : "<span></span>"}<span class="cv-key">${esc(kt(x))}</span>${x.memo ? `<span class="cv-memo">${esc(x.memo)}</span>` : ""}</div>`; }).join("")}</div>${items.some((x) => x.diff_key) ? `<p class="small muted cv-dk">* 음원(레퍼런스)과 키가 달라요</p>` : ""}</section>` : ""}
-        ${rows.length ? `<section class="card"><div class="card-title cv-ct">예배 순서 <small>${f.communion ? "성찬식 주일 · " : ""}콘티 다음 차례대로</small>${flowChg ? `<span class="chip chip-mid">순서 바뀜 · ${esc(kdt(f.flow_at))}</span>` : ""}</div>
-          ${rows.map((r) => `<button type="button" class="cv-prow" data-sh-at="${esc(r.at)}"><span class="cv-ptag">${esc(r.tag)}</span><span class="cv-st2"><b>${esc(r.title)}</b><small>${esc(r.sub || "")}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}`
-        : `<div class="empty">앞으로 2주 안에 공개된 예배가 없어요.</div>`}
+      ${(() => { const i = D.services.findIndex((s) => s.id === S.focus), L2 = D.services.length;   // v34.1: 팀원 콘티와 같은 배치 (모션 없음)
+        return L2 > 1 ? `<div class="u-wsw shv-sw"><button type="button" class="u-ar" data-sv="${D.services[i - 1]?.id || ""}" aria-label="이전 예배" ${i <= 0 ? "disabled" : ""}>${ICL}</button>
+          <div class="u-wsel shv-sel"><span class="u-ic"><b>${f ? (f.ministry ? `${esc(f.title)} · ${mdw(f.date)}` : `${md(f.date)} 주일`) : ""}</b><small>${f ? `${f.date === D.today ? "오늘" : "다가오는 예배"} · ${i + 1} / ${L2}` : ""}</small></span></div>
+          <button type="button" class="u-ar" data-sv="${D.services[i + 1]?.id || ""}" aria-label="다음 예배" ${i >= L2 - 1 ? "disabled" : ""}>${ICR}</button></div>` : ""; })()}
+      ${f ? `${f.setlist ? `<section class="u-card shv-conti">
+          <div class="u-ch"><h2 class="u-ct">${f.ministry ? esc(f.title) : "주일"} 콘티</h2><span class="u-cd">${[f.start_time ? `${mdw(f.date)} ${hm(f.start_time)}` : mdw(f.date), f.communion ? "성찬식 주일" : "", ch?.at ? `${kdt(ch.at)} 수정됨` : f.setlist.published_at ? `${kdt(f.setlist.published_at)} 올라옴` : ""].filter(Boolean).join(" · ")}</span>
+            <span class="u-ca"><span class="u-badge ${ch?.text?.length ? "u-mid" : "u-ok"}">${ch?.text?.length ? "수정됨" : "올라옴"}</span></span></div>
+          ${ch?.text?.length || (sc && (!ch?.at || sc.at > ch.at)) ? `<div class="cvw-chg">${ch?.text?.length ? `<span class="u-badge u-mid" title="${esc(ch.text.join(" · "))}">수정 · ${esc(ch.text.slice(0, 2).join(" · "))}${ch.text.length > 2 ? " 외" : ""}</span>` : ""}${sc && (!ch?.at || sc.at > ch.at) ? `<span class="u-badge">악보 바뀜 · ${esc(kdt(sc.at))}</span>` : ""}</div>` : ""}
+          <div class="cvw-slist cv-slist">${items.map((x, i) => { const jn = i > 0 && x.join_prev; return `<div class="cvw-so cv-srow ${jn ? "join" : ""}"><span class="u-num ${jn ? "u-j" : ""} cv-sn">${jn ? "+" : gno(items, i)}</span>
+            <button type="button" class="cvw-st cv-st" data-sh-at="c:${i}"><b>${esc(x.title)}</b><small>${jn ? "앞 곡에 이어서" : [x.sheet ? `${x.sheet.pages}쪽` : "악보 없음", items[i + 1]?.join_prev ? "메들리" : ""].filter(Boolean).join(" · ")}</small>${x.memo ? `<small class="cv-memo">${esc(x.memo)}</small>` : ""}</button>
+            ${x.bpm ? `<span class="cv-bpm">${esc(bpmText(x.bpm, x.meter))}</span>` : ""}<span class="u-key cv-key">${esc(kt(x))}</span>
+            ${x.ref ? `<a class="u-icr cv-yt" href="${ytLink(x.ref[0], x.ref[1])}" data-play="${esc(x.ref[0])}" data-ps="${x.ref[1] || 0}" data-pt="${esc(x.title)}" target="_blank" rel="noopener" aria-label="${esc(x.title)} 레퍼런스">${PLAY}</a>` : `<span class="cvw-noref"></span>`}</div>`; }).join("") || `<p class="muted small" style="margin:0">곡이 아직 없어요.</p>`}</div>
+          ${items.some((x) => x.diff_key) ? `<p class="small muted cvw-note">* 음원(레퍼런스)과 키가 달라요</p>` : ""}
+          <div class="u-rtl"><span><b>${items.filter((x, i) => !(i > 0 && x.join_prev)).length}</b>곡</span><span></span><span>악보 <b>${items.reduce((a, x) => a + (x.sheet?.pages || 0), 0)}</b>쪽</span></div>
+          <div class="u-cf u-one"><button type="button" class="u-b u-p cv-pdfbar" data-sh="open">${ICF}악보 열기</button></div></section>`
+          : `<div class="u-empty cv-wait"><b>아직 콘티가 올라오지 않았어요</b><p>올라오면 이 화면에 바로 보여요</p></div>`}
+        ${rows.length ? `<section class="u-card u-tight shv-flow"><div class="u-ch"><h2 class="u-ct">콘티 다음 순서</h2><span class="u-cd">${f.communion ? "성찬식 주일 · " : ""}누르면 그 순서부터 악보를 열어요</span>${flowChg ? `<span class="u-ca"><span class="u-badge u-mid">순서 바뀜</span></span>` : ""}</div>
+          <div class="u-acc">${rows.map((r) => `<div class="u-acc-i"><button type="button" class="u-acc-t cv-prow" data-sh-at="${esc(r.at)}"><span class="u-tag cv-ptag ${r.tag === "백업" ? "u-g" : ""}">${esc(r.tag)}</span><span class="u-ic"><b>${esc(r.title)}</b><small>${esc(r.sub || "")}</small></span><span class="shv-go">보기</span></button></div>`).join("")}</div></section>` : ""}`
+        : `<div class="u-empty"><b>앞으로 2주 안에 공개된 예배가 없어요</b></div>`}
       ${(L.candidates || []).length ? `<section class="card"><div class="card-title cv-ct">백업찬양 후보 <small>${L.active ? "기도회 진행 중" : "기도회 때 쓰는 곡"}</small></div>
         <div class="bk-slots">${L.candidates.map((id, i) => { const s = bk.songs.find((x) => x.id === id); if (!s) return ""; const r = `b:${id}`;
           return `<button type="button" class="bk-slot ${L.now === r ? "now" : L.next === r ? "next" : ""}" data-sh-bk="${id}"><span class="h"><span class="bk-code">${esc(s.code)}</span><span class="n">${L.now === r ? "지금" : L.next === r ? "다음" : i + 1}</span></span><b>${esc(s.title)}</b></button>`; }).join("")}</div></section>` : ""}
       <p class="small muted shv-foot">보기 전용 화면이에요 · 악보에 쓴 메모는 이 기기에만 저장돼요 · 홈 화면에 추가하면 앱처럼 열 수 있어요 · 콘티가 바뀌면 자동으로 새로 보여요</p>`;
   }
   document.addEventListener("click", (e) => {
-    const sv = e.target.closest("[data-sv]"); if (sv) { S.focus = sv.dataset.sv; render(); return prefetch(); }
+    const sv = e.target.closest("[data-sv]"); if (sv && (!sv.dataset.sv || sv.disabled)) return; if (sv) { S.focus = sv.dataset.sv; render(); return prefetch(); }
     const a = e.target.closest("[data-sh]"); if (a?.dataset.sh === "open") return openViewer(null);
     if (a?.dataset.sh === "live") { const f = S.data.services.find((s) => s.id === lv().service_id); if (f) S.focus = f.id; render(); return openViewer(null, true); }
     const at = e.target.closest("[data-sh-at]"); if (at) return openViewer(at.dataset.shAt);

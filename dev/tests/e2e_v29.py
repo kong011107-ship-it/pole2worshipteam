@@ -267,8 +267,8 @@ async def browser_part():
         pg = await login(ctx, "demo01@pole2.test", PW, dest=None)
         pg.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
         await pg.goto(BASE + f"/me.html#worship/{sid}"); await pg.wait_for_timeout(2500)
-        rows = await pg.locator("#cvFlow .cv-prow .cv-ptag").all_text_contents()
-        check(rows[:5] == ["콘티", "적용", "축복송", "특별", "등단송"], f"flow card order {rows}")
+        rows = await pg.locator("#cvFlow .u-tag").all_text_contents()   # v34.1: 본 콘티는 위 카드 · 여기는 그다음 순서
+        check(rows[:4] == ["적용", "축복", "특별", "등단"], f"flow card order {rows}")
         check(await pg.locator("#cvFlow .cv-flowchg").count() == 1, "flow card shows 순서 바뀜")
         check("확정" in (await pg.locator("#cvFlow .cv-bkst").text_content()), f"backup row status {await pg.locator('#cvFlow .cv-bkst').text_content()}")
         await pg.screenshot(path=SHOT + "flow_card.png", full_page=True)
@@ -307,8 +307,8 @@ async def browser_part():
         await pg.click('[data-fo="save"]'); await pg.wait_for_timeout(3000)
         check(q(f"select (path like 'extra/{sid}/%')::text||pages||coalesce(cardinality(images),0) from service_extras where id={x3}") == "true10", "extra changed to pdf")
         await pg.click("[data-fo-close]"); await pg.wait_for_timeout(1500)
-        rows = await pg.locator("#cvFlow .cv-prow .cv-ptag").all_text_contents()
-        check(rows[-1] == "특별" and rows[-2] == "축도송" and rows[-3] == "특별" and await pg.locator("#cvFlow .cv-prow.dim").count() == 1, f"card follows order, entrance dim for leader {rows}")
+        rows = await pg.locator("#cvFlow .u-tag").all_text_contents()
+        check(rows[-1] == "특별" and rows[-2] == "축도" and rows[-3] == "특별" and await pg.locator("#cvFlow .cvw-dim").count() == 1, f"card follows order, entrance dim for leader {rows}")
         check(pg.errs == [], f"leader errs {pg.errs[:3]}")
         await ctx.close(); await b.close()
 
