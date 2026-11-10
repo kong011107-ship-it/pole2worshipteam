@@ -29,6 +29,13 @@ def rest(path, token, body=None, method=None, prefer=None):
 def up(path, file, token, ctype):
     return http("/storage/v1/object/sheets/" + path, raw=open(file, "rb").read() if isinstance(file, str) else file, token=token, ctype=ctype)
 ok = 0; bad = []
+# v34.2: 콘티 쓰기 — 곡 줄 펼치고 탭 고르기
+async def ce_open(pg, i, tab=None):
+    r = pg.locator(".ce-row").nth(i)
+    if await r.locator(".ce2-det").count() == 0: await r.locator(".ce2-hd").click(); await pg.wait_for_timeout(250)
+    if tab: await r.locator(f'[data-ce="tab"][data-tab="{tab}"]').click(); await pg.wait_for_timeout(300)
+    return r
+
 def check(c, msg):
     global ok
     if c: ok += 1
@@ -310,15 +317,18 @@ async def main():
         check(await pg.locator("#cvFlow .u-acc-i").count() >= 3, f"applied/proc rows {await pg.locator('#cvFlow .u-acc-i').count()}")
         await pg.screenshot(path=SHOT + "band_conti.png", full_page=True)
         await eb.click(); await pg.wait_for_timeout(1500)
-        check(await pg.locator(".ce-row.ro").count() == 2 and await pg.locator("#ceQ").count() == 0 and await pg.locator("[data-grip]").count() == 0, "sheets-only editor")
+        check(await pg.locator(".ce-row.ro").count() == 2 and await pg.locator("#ceQ").count() == 0 and await pg.locator("[data-grip]").count() == 0 and await pg.locator("[data-ce=join]").count() == 0, "sheets-only editor")
+        r_ = await ce_open(pg, 0)
+        tabs_ = [x.strip() for x in await r_.locator('[data-ce="tab"]').all_text_contents()]
+        check(tabs_ == ["악보", "BPM"] and await r_.locator('[data-ce="key"]').count() == 0, f"v34.2 band tabs only sheet · BPM {tabs_}")
         check(await pg.locator("[data-ce=sheets]").count() == 1 and await pg.locator("[data-ce=publish]").count() == 0, "sheets save button")
         await pg.locator("[data-ce-file]").set_input_files(FX + "conti5.pdf"); await pg.wait_for_timeout(2500)
         check(await pg.locator(".ce-pg").count() == 5, "band pdf pages")
         while await pg.locator("[data-cmp=new]").count():
             await pg.locator("[data-cmp=new]").first.click(); await pg.wait_for_timeout(300)
         # 두 번째 곡: 새로 저장
-        if await pg.locator(".ce-row").nth(1).locator("[data-ce=sheet-open]").count():
-            await pg.locator(".ce-row").nth(1).locator("[data-ce=sheet-open]").click(); await pg.wait_for_timeout(300)
+        await ce_open(pg, 1, "sheet")
+        if await pg.locator("[data-ce=sheet-new]").count():
             await pg.locator("[data-ce=sheet-new]").click(); await pg.wait_for_timeout(300)
         await pg.screenshot(path=SHOT + "band_editor.png", full_page=False)
         n0 = len(pushlog()); v0 = q(f"select version from setlists where service_id='{sid}'")

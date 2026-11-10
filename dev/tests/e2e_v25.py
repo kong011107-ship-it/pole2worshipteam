@@ -29,6 +29,13 @@ def rest(path, token, body=None, method=None, prefer=None):
 def up(path, file, token, ctype):
     return http("/storage/v1/object/sheets/" + path, raw=open(file, "rb").read(), token=token, ctype=ctype)
 ok = 0; bad = []
+# v34.2: 콘티 쓰기 — 곡 줄 펼치고 탭 고르기
+async def ce_open(pg, i, tab=None):
+    r = pg.locator(".ce-row").nth(i)
+    if await r.locator(".ce2-det").count() == 0: await r.locator(".ce2-hd").click(); await pg.wait_for_timeout(250)
+    if tab: await r.locator(f'[data-ce="tab"][data-tab="{tab}"]').click(); await pg.wait_for_timeout(300)
+    return r
+
 def check(c, msg):
     global ok
     if c: ok += 1
@@ -243,7 +250,7 @@ async def main():
         await ap_.screenshot(path=SHOT + "admin_past.png", full_page=True)
         await prow.locator('[data-cap="edit"]').click(); await ap_.wait_for_timeout(2000)
         check(await ap_.locator(".ce-past").count() == 1 and "알림 없음" in await ap_.locator("[data-ce=publish]").text_content(), "past editor notice")
-        k = ap_.locator(".ce-row").nth(0).locator("[data-f=key]"); await k.fill("B"); await k.dispatch_event("input")
+        r_ = await ce_open(ap_, 0, "basic"); await r_.locator('[data-ce="key"][data-k="B"]').click(); await ap_.wait_for_timeout(300)
         n0 = len(pushlog())
         await ap_.click("[data-ce=publish]"); await ap_.wait_for_timeout(3000)
         tt = " ".join(await ap_.locator(".toast").all_text_contents())
@@ -457,12 +464,14 @@ async def main():
         # 콘티 쓰기: BPM 칸 · 팀 기준 자동 채움 · 초안 PDF에 공유 필기
         q("update songs set team_bpm=92, team_meter='3/4' where title like '주님의 선하%'")
         await lp.click("[data-cv-edit]"); await lp.wait_for_timeout(2000)
+        await ce_open(lp, 0, "basic")
         bi0 = lp.locator(".ce-row").nth(0).locator("[data-f=bpm]")
         check(await bi0.input_value() == "78", f"editor bpm value {await bi0.input_value()}")
         await lp.fill("#ceQ", "주님의 선하"); await lp.wait_for_timeout(300)
         await lp.locator("#ceDrop [data-add]").first.click(); await lp.wait_for_timeout(1000)
-        r3_ = lp.locator(".ce-row").nth(2)
+        r3_ = await ce_open(lp, 2, "basic")
         check(await r3_.locator("[data-f=bpm]").input_value() == "92" and await r3_.locator("[data-f=meter]").input_value() == "3/4", "team bpm auto-filled")
+        if await lp.locator("details.ce-pdf[open]").count() == 0: await lp.click("details.ce-pdf > summary"); await lp.wait_for_timeout(300)
         async with lp.expect_download() as dl_info:
             await lp.click("[data-ce=draft]")
         dlf = await dl_info.value; path = await dlf.path()
@@ -567,7 +576,8 @@ async def main():
         await lp.goto(BASE + f"/me.html#worship/{sid}"); await lp.wait_for_timeout(2500)
         await lp.click("[data-cv-edit]"); await lp.wait_for_timeout(2000)
         sw = await lp.evaluate("document.documentElement.scrollWidth")
-        check(sw <= 392 and await lp.locator(".ce-row .ce-bpm").count() >= 2, f"phone editor bpm no h-scroll {sw}")
+        await ce_open(lp, 0, "basic"); sw = await lp.evaluate("document.documentElement.scrollWidth")
+        check(sw <= 392 and await lp.locator(".ce-row .ce-bpm").count() >= 1 and await lp.locator(".ce-row .ce2-ics").count() >= 2, f"phone editor bpm no h-scroll {sw}")
         await lp.screenshot(path=SHOT + "phone_editor.png", full_page=False)
         await lp.click("[data-ce=close]"); await lp.wait_for_timeout(800)
         await lp.click(".cv-pdfbar"); await lp.wait_for_timeout(2500)

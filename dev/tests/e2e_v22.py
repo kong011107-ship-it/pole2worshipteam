@@ -25,6 +25,15 @@ def http(path, body=None, token=None, headers=None, method=None, raw=None, ctype
 def tok(email, pw): return http("/auth/v1/token?grant_type=password", {"email": email, "password": pw})[1]["access_token"]
 def rpc(fn, args, token): return http("/rest/v1/rpc/" + fn, args, token)
 ok=0; bad=[]
+# v34.2: 콘티 쓰기 — 곡 줄 펼치고 탭 고르기 · 올리기 전 확인 창
+async def ce_open(pg, i, tab=None):
+    r = pg.locator(".ce-row").nth(i)
+    if await r.locator(".ce2-det").count() == 0: await r.locator(".ce2-hd").click(); await pg.wait_for_timeout(250)
+    if tab: await r.locator(f'[data-ce="tab"][data-tab="{tab}"]').click(); await pg.wait_for_timeout(300)
+    return r
+async def ce_go(pg):
+    await pg.wait_for_selector(".ce2-pub [data-pub=go]", timeout=5000)
+    await pg.locator(".ce2-pub [data-pub-copy]").uncheck(); await pg.click(".ce2-pub [data-pub=go]")
 def check(c, msg):
     global ok
     if c: ok+=1
@@ -120,15 +129,17 @@ async def main():
         await pg.click("[data-ce=newsong]"); await pg.wait_for_timeout(800)
         check(await pg.locator(".ce-row").count() == 4 and q("select count(*) from songs where title='테스트 새 찬양'") == "1", "new song added")
         # 키 · 시간
-        k0 = pg.locator(".ce-row").nth(0).locator("[data-f=key]")
-        await k0.fill("A"); await k0.dispatch_event("input")
+        r0 = await ce_open(pg, 0, "basic")
+        await r0.locator('[data-ce="key"][data-k="A"]').click(); await pg.wait_for_timeout(300)
+        check((await pg.locator(".ce-row").nth(0).locator(".ce2-key").text_content()).strip() == "A", "v34.2 key button")
+        await ce_open(pg, 3, "basic")
         t3 = pg.locator(".ce-row").nth(3).locator("[data-f=dur]")
         await t3.fill("4:30"); await t3.dispatch_event("change"); await pg.wait_for_timeout(400)
         check("직접" in await pg.locator(".ce-row").nth(3).locator(".ce-src").text_content(), "manual duration tag")
-        rt = await pg.locator("#ceRt b").first.text_content()
+        rt = await pg.locator("#ceRt .ce2-rt b").first.text_content()
         check(rt.strip() != "0:00", f"RT counted {rt}")
         # 메모 · 메들리
-        await pg.locator(".ce-row").nth(1).locator("[data-ce=more]").click(); await pg.wait_for_timeout(200)
+        await ce_open(pg, 1, "basic")
         m = pg.locator(".ce-row").nth(1).locator("[data-f=memo]"); await m.fill("A → Bb로 올림"); await m.dispatch_event("input")
         # 끌어서 순서: 4번째 곡을 맨 위로
         await pg.evaluate("document.querySelector('#ceList').scrollIntoView({block:'start'})"); await pg.wait_for_timeout(200)
@@ -141,10 +152,12 @@ async def main():
         # 이 기기에 남김
         check(await pg.evaluate(f"!!localStorage.getItem('pole2.conti.draft.{sid}')"), "local draft kept")
         # 악보: 곡마다 저장된 악보가 없으니 '새로 저장'
-        check(await pg.locator(".ce-new input[data-f=sheetname]").count() == 4, "all rows new sheet")
+        check(await pg.locator(".ce-row .ce2-ics span.no").count() == 4 and "악보 없는 곡 4" in await pg.locator(".ce2-checks").text_content(), "all rows new sheet (악보 없음 아이콘 · 칩)")
+        await ce_open(pg, 0, "sheet")
         nm = await pg.locator(".ce-new input[data-f=sheetname]").first.input_value()
         check(nm.startswith("demo") or len(nm) > 0, f"default sheet name {nm}")
         # 초안 PDF
+        if await pg.locator("details.ce-pdf[open]").count() == 0: await pg.click("details.ce-pdf > summary"); await pg.wait_for_timeout(300)
         async with pg.expect_download() as dl_info:
             await pg.click("[data-ce=draft]")
         dlf = await dl_info.value; path = await dlf.path()
@@ -165,7 +178,7 @@ async def main():
         await pg.screenshot(path=SHOT + "editor.png", full_page=False)
         await pg.locator(".ce-pdf").screenshot(path=SHOT + "editor_pdf.png")
         n0 = len(pushlog())
-        await pg.click("[data-ce=publish]")
+        await pg.click("[data-ce=publish]"); await ce_go(pg)
         await pg.wait_for_selector(".cv-editor", state="detached", timeout=15000)
         tt = await pg.locator(".toast").all_text_contents()
         check(any("올렸어요" in t for t in tt), f"publish toast {tt}")
@@ -193,14 +206,19 @@ async def main():
         # 수정 올리기: 키 바꿈
         await pg.click("[data-cv-edit]"); await pg.wait_for_timeout(1500)
         check("수정 올리기" in await pg.locator("[data-ce=publish]").text_content() and await pg.locator("[data-ce=save]").count() == 0, "republish only")
-        check(await pg.locator(".ce-shsel").count() == 4, "saved sheets selected")
-        k = pg.locator(".ce-row").nth(1).locator("[data-f=key]"); await k.fill("Bb"); await k.dispatch_event("input")
+        check(await pg.locator(".ce-row .ce2-ics span.no").count() == 0 and "악보 모두 있음" in await pg.locator(".ce2-checks").text_content(), "saved sheets selected")
+        r1 = await ce_open(pg, 1, "basic"); await r1.locator('[data-ce="key"][data-k="Bb"]').click(); await pg.wait_for_timeout(300)
         # 악보 고르기 · 미리보기
-        await pg.locator(".ce-row").nth(1).locator("[data-ce=sheet-open]").click(); await pg.wait_for_timeout(300)
+        await ce_open(pg, 1, "sheet")
         check(await pg.locator(".ce-shlist .ce-opt").count() >= 3, "sheet list options")
-        await pg.locator(".ce-shlist [data-ce=sheet-pv]").first.click(); await pg.wait_for_timeout(300)
+        # 고르지 않은 악보가 있으면 그걸 미리 보고 '이 악보 쓰기', 없으면 고른 악보 미리보기는 '이 콘티에서 빼기'
+        other = pg.locator(".ce-shlist .ce-opt:not(.on)[data-ce=sheet-pv]")
+        pv_ = other.first if await other.count() else pg.locator(".ce-shlist [data-ce=sheet-pv]").first
+        await pv_.click(); await pg.wait_for_timeout(300)
         check(await pg.locator(".ce-prev").count() == 1 and await pg.locator(".ce-prev img").count() == 1, "preview with thumb")
-        await pg.locator(".ce-prev [data-ce=sheet-use]").click(); await pg.wait_for_timeout(300)
+        if await pg.locator(".ce-prev [data-ce=sheet-use]").count(): await pg.locator(".ce-prev [data-ce=sheet-use]").click(); await pg.wait_for_timeout(300)
+        else: check(await pg.locator(".ce-prev [data-ce=sheet-none]").count() == 1, "selected sheet preview offers '이 콘티에서 빼기'")
+        check(await pg.locator('.ce-row[data-i="1"].open [data-ce="tab"][data-tab="sheet"][aria-pressed="true"]').count() == 1, "v34.2 row stays open on sheet tab")
         # 다른 통합본을 올리면 → 달라 보임 확인
         await pg.locator("[data-ce-file]").set_input_files(FX + "conti5b.pdf"); await pg.wait_for_timeout(2500)
         asks = await pg.locator(".ce-sum-r.ask").count()
@@ -211,7 +229,7 @@ async def main():
         while await pg.locator("[data-cmp=keep]").count():
             await pg.locator("[data-cmp=keep]").first.click(); await pg.wait_for_timeout(300)
         n0 = len(pushlog())
-        await pg.click("[data-ce=publish]"); await pg.wait_for_timeout(4000)
+        await pg.click("[data-ce=publish]"); await ce_go(pg); await pg.wait_for_timeout(4000)
         new = pushlog()[n0:]
         check(len(new) == int(ppl) and all("수정됐어요" in x["title"] and "키" in x.get("body", "") for x in new), f"conti_edit push {new[:1]}")
         check(q("select count(*) from sheet_versions where kind='sheet'") == nsv, "keep -> no new sheets")
@@ -224,7 +242,7 @@ async def main():
         await pg.goto(BASE + f"/me.html#worship/{sid}"); await pg.wait_for_timeout(2000)
         check(await pg.locator("#view-worship").is_visible() and await pg.locator(".cv-pdfbar").count() == 1, "deep link to conti")
         chip = await pg.locator(".cvw-chg .u-mid").all_text_contents()
-        check(any("수정됨" in c and "키" in c for c in chip), f"edited chip {chip}")
+        check(any(("수정됨" in c or "수정 ·" in c) and "키" in c for c in chip), f"edited chip {chip}")   # v34.1: '수정 · 곡 키 A → Bb'
         check(await pg.locator(".cv-key.chg").count() == 1, "changed key highlighted")
         check(await pg.locator(".cv-memo").count() == 1, "memo shown")
         check(await pg.locator("[data-cv-edit]").count() == 0, "member no edit")
@@ -250,7 +268,8 @@ async def main():
         check(cw2 and cw2 > 300, "offline viewer from cache")
         await pg.go_back(); await ctx.set_offline(False); await pg.wait_for_timeout(300)
         # 곡 상세
-        await pg.locator(".cv-st").first.click(); await pg.wait_for_timeout(1500)
+        await pg.locator(".cv-st").first.click(); await pg.wait_for_timeout(800)
+        if await pg.locator("[data-cv-detail]").count(): await pg.click("[data-cv-detail]"); await pg.wait_for_timeout(1500)   # v34.1: 곡 서랍 → '곡 자세히'
         check(await pg.locator(".cv-sheetpage").count() == 1 and await pg.locator(".cv-sheetpage .cv-sheet").count() >= 1, "song detail sheets")
         check(await pg.locator("#sdOrig").count() == 0, "member no original upload")
         await pg.screenshot(path=SHOT + "song_detail.png")
@@ -317,10 +336,10 @@ async def main():
         await pg.locator("[data-ce-file]").set_input_files(FX + "big.pdf"); await pg.wait_for_timeout(4000)
         check("줄여서" in await pg.locator(".ce-upl").text_content(), "big pdf notice")
         # 새로 저장으로 (저장된 악보가 있으면 그걸 고르니까)
-        if await pg.locator(".ce-row [data-ce=sheet-open]").count():
-            await pg.locator(".ce-row [data-ce=sheet-open]").first.click(); await pg.wait_for_timeout(300)
+        await ce_open(pg, 0, "sheet")
+        if await pg.locator("[data-ce=sheet-new]").count():
             await pg.locator("[data-ce=sheet-new]").click(); await pg.wait_for_timeout(300)
-        await pg.click("[data-ce=publish]"); await pg.wait_for_timeout(9000)
+        await pg.click("[data-ce=publish]"); await ce_go(pg); await pg.wait_for_timeout(9000)
         sz = q("select max(size_bytes) from sheet_versions where kind='sheet' and song_id=162")
         check(sz and int(sz) < 5 * 1024 * 1024, f"compressed size {sz}")
         check(pg.errs == [], f"admin errors {pg.errs}")
