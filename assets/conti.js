@@ -133,6 +133,22 @@
     sync: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c.8-3 2.8-4.5 5-4.5s4.2 1.5 5 4.5M11 19c.8-3 2.8-4.5 5-4.5s4.2 1.5 5 4.5"/></svg>`,
   };
 
+  // v34.2: 콘티 쓰기 아이콘 (목업과 같은 선 아이콘)
+  const sv2 = (d, w = 2) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const CEI = {
+    check: sv2('<path d="M5 12l5 5 9-10"/>', 2.4),
+    file: sv2('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>'),
+    bpm: sv2('<path d="M8 21h8l-3-17h-2z"/><path d="M12 14l6-8"/>'),
+    link: sv2('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/>'),
+    chev: sv2('<path d="m6 9 6 6 6-6"/>'),
+    up: sv2('<path d="m18 15-6-6-6 6"/>'),
+    down: sv2('<path d="m6 9 6 6 6-6"/>'),
+    clock: sv2('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    search: sv2('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+    plus: sv2('<path d="M12 5v14M5 12h14"/>', 2.4),
+    pen: sv2('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
+  };
+
   // ------------------------------------------------------------------ 025: BPM · 박자 · 메트로놈 · 화면 켜 두기
   const METERS = ["4/4", "3/4", "6/8", "1/4"];
   const beatsOf = (m) => (m === "3/4" ? 3 : m === "6/8" ? 6 : m === "1/4" ? 1 : 4);
@@ -1676,11 +1692,16 @@
     await loadSongMeta(E, E.items.map((x) => x.song_id));
     await loadMedleyMeta(E, E.items.filter((x) => x.medley_id && !x.join).map((x) => x.medley_id));
     const el = openLayer("cv-editor", `<header class="ce-top"><button type="button" class="cvv-back light" data-ce="close" aria-label="닫기">${ICO.back}</button>
-        <span><span class="small muted">${esc(svcShort(svc))}</span><b>${esc(svcTitle(svc))} ${sheetsOnly ? "악보 고치기" : `콘티 ${E.pub ? "고치기" : "쓰기"}`}${E.past ? ` <span class="chip chip-gray">지난 예배</span>` : ""}</b></span></header>
+        <span><span class="small muted">${esc(svcShort(svc))}${leaderName ? ` · 인도 ${esc(leaderName)}` : ""}</span><b>${esc(svcTitle(svc))} ${sheetsOnly ? "악보 고치기" : `콘티 ${E.pub ? "고치기" : "쓰기"}`}${E.past ? ` <span class="chip chip-gray">지난 예배</span>` : ""}</b></span>
+        <span class="ce2-saved" id="ceSaved" ${restored ? "" : "hidden"}><i></i><span class="l">이 기기에 자동 저장 · </span><em>${restored && saved?.at ? new Date(saved.at).toTimeString().slice(0, 5) : ""}</em></span></header>
       <div class="ce-body" id="ceBody"></div>
       <div class="ce-bar" id="ceBar"></div>`, () => after?.());
     const body = $("#ceBody", el);
-    const persist = () => { E.dirty = true; ls.set(DKEY, { base: E.base, target: E.target, items: E.items.map(({ title, ...x }) => ({ title, ...x })), at: Date.now() }); };
+    const persist = () => {
+      E.dirty = true; const at = Date.now();
+      ls.set(DKEY, { base: E.base, target: E.target, items: E.items.map(({ title, ...x }) => ({ title, ...x })), at });
+      const sv = $("#ceSaved", el); if (sv) { sv.hidden = false; sv.querySelector("em").textContent = new Date(at).toTimeString().slice(0, 5); }   // v34.2: 위 막대 '이 기기에 자동 저장 · 21:14'
+    };
     const target = () => E.target ?? E.targetDefault;
     const songById = (id) => E.songs.find((x) => x.id === id);
     const gnum = (i) => { let n = 0; for (let k = 0; k <= i; k++) if (!(k > 0 && E.items[k].join)) n++; return n; };
@@ -1709,50 +1730,86 @@
       E.items.forEach((x, i) => { if (!(i > 0 && x.join)) flush(); g.push(x); }); flush();
     }
 
-    function rtCard() {
-      const total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), unk = E.items.filter((x) => !x.dur && !x.join).length, tg = target();
-      const pct = tg ? Math.min(100, Math.round(100 * total / Math.max(tg, total || 1))) : 0, tick = tg ? Math.min(100, Math.round(100 * tg / Math.max(tg, total))) : 0;
-      const diff = tg ? tg - total : null;
-      const first = !!svc.communion;
-      return `<section class="ce-rt" id="ceRt"><div class="ce-rt-top"><span><small>예상 RT</small><b>${mmss(total)}</b>${tg ? `<span class="of">/ ${mmss(tg)}</span>` : ""}</span>
-          ${tg ? `<span class="chip ${diff >= 0 ? "chip-ok" : "chip-warn"}">${diff >= 0 ? `${mmss(diff)} 남음` : `${mmss(-diff)} 초과`}</span>` : ""}</div>
-        ${tg ? `<div class="ce-rtbar"><i style="width:${pct}%"></i><span class="tick" style="left:${tick}%"></span></div>` : ""}
-        <span class="small muted">${svc.ministry_id ? "사역" : first ? "성찬식 주일" : "주일"} · ${tg ? `목표 ${Math.round(tg / 60)}분${E.target != null ? " (이번만 바꿈)" : ""}` : "목표 RT 없음"}${unk ? ` · 시간 모르는 곡 ${unk}곡` : ""} · <button type="button" class="linkbtn" data-ce="target">${tg ? "이번만 바꾸기" : "목표 정하기"}</button>
-          ${E.target != null ? ` · <button type="button" class="linkbtn" data-ce="target-reset">기본으로</button>` : ""}</span></section>`;
+    // v34.2: 위 요약 — 마감 · 섬김자 · 예상 RT 막대 · 확인 칩(곡 · 키 · 악보 없는 곡 · BPM)
+    const ppl = () => new Set((svc.lineup || []).map((x) => x.member_id).filter(Boolean)).size;
+    // 이번에 악보 없이 나갈 곡 (메들리 뒷곡은 앞 곡 악보에 함께라 빼요 · 통합본에서 새로 저장할 곡은 있는 걸로)
+    function bareIdx() {
+      const plan = E.up ? planSheets(E) : [];
+      return E.items.map((x, i) => i).filter((i) => { const x = E.items[i]; return !x.join && x.sheet.mode !== "saved" && !(x.sheet.mode === "new" && plan.find((p) => p.i === i)?.state === "new"); });
     }
+    function sumCard() {
+      const total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), unk = E.items.filter((x) => !x.dur && !x.join).length, tg = target();
+      const diff = tg ? tg - total : null, pct = tg ? Math.min(100, Math.round(100 * total / tg)) : 0;
+      const n = E.items.length, nk = E.items.filter((x) => x.key).length, nb = E.items.filter((x) => x.bpm).length, bare = bareIdx();
+      const dl = svc.deadline ? dlLeft(svc.deadline) : null;
+      return `<section class="ce2-card ce2-sum" id="ceRt">
+        ${E.past || sheetsOnly ? "" : `<div class="ce2-dl"><span>${svc.deadline ? `마감 <b>${esc(dlText(svc.deadline))}</b> · <em class="${dl.cls}">${dl.text}</em>` : "마감 없음"}</span><span>섬김자 ${ppl()}명</span></div>`}
+        <div class="ce2-rt"><b>${mmss(total)}</b><span>${tg ? `/ ${mmss(tg)} ` : ""}예상 RT</span>${tg ? `<span class="chip ${diff >= 0 ? "chip-ok" : "chip-bad"}">${diff >= 0 ? `${mmss(diff)} 남음` : `${mmss(-diff)} 초과`}</span>` : ""}</div>
+        ${tg ? `<div class="ce2-bar"><i class="${diff < 0 ? "over" : ""}" style="width:${pct}%"></i></div>` : ""}
+        <div class="ce2-meta">${svc.ministry_id ? "사역" : svc.communion ? "성찬식 주일" : "주일"} · ${tg ? `목표 ${Math.round(tg / 60)}분${E.target != null ? " (이번만 바꿈)" : ""}` : "목표 RT 없음"}${unk ? ` · 시간 모르는 곡 ${unk}곡` : ""}${sheetsOnly ? "" : ` · <button type="button" class="linkbtn" data-ce="target">${tg ? "이번만 바꾸기" : "목표 정하기"}</button>${E.target != null ? ` · <button type="button" class="linkbtn" data-ce="target-reset">기본으로</button>` : ""}`}</div>
+        ${n ? `<div class="ce2-checks">
+          <span class="ce2-ck ok">${CEI.check}곡 ${n}</span>
+          <span class="ce2-ck ${nk === n ? "ok" : "need"}">${CEI.check}키 ${nk}/${n}</span>
+          ${bare.length ? `<button type="button" class="ce2-ck need" data-ce="jump-sheet" aria-label="악보 없는 곡 ${bare.length}곡 · 누르면 그 곡 악보 칸으로">${CEI.file}악보 없는 곡 ${bare.length}</button>` : `<span class="ce2-ck ok">${CEI.file}악보 모두 있음</span>`}
+          <span class="ce2-ck opt">${CEI.bpm}BPM ${nb}/${n} · 선택</span></div>` : ""}</section>`;
+    }
+    // v34.2: 곡 줄 — 번호 · 제목 · 키 · 시간 · 상태 아이콘만. 누르면 펼쳐져서 탭(기본 · 악보 · 레퍼런스 · 이전 연주 / 밴드는 악보 · BPM)
+    const TABS_LEAD = [["basic", "기본"], ["sheet", "악보"], ["ref", "레퍼런스"], ["prev", "이전 연주"]], TABS_BAND = [["sheet", "악보"], ["bpm", "BPM"]];
+    const KEY12 = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+    const tabsOf = () => (sheetsOnly ? TABS_BAND : TABS_LEAD);
+    const curTab = () => (tabsOf().some((t) => t[0] === E.tab) ? E.tab : tabsOf()[0][0]);
+    function sheetState(x, i) { if (x.join) return "off"; if (x.sheet.mode === "saved") return "ok"; if (x.sheet.mode === "new" && E._plan?.find((p) => p.i === i)?.state === "new") return "ok"; return "no"; }
     function rowHTML(x, i) {
-      if (sheetsOnly) return rowSheetHTML(x, i);
-      const s = songById(x.song_id), st = s?.st, list = sheetsOf(E, x);
-      const ref = x.refs?.[0], rng = ref ? E.ranges[`${x.song_id}:${ref[0]}`] : null;
-      const sheet = x.sheet.mode === "saved" ? list.find((v) => v.id === x.sheet.id) : null;
-      const grpHead = !x.join && !!E.items[i + 1]?.join;
+      const ref = x.refs?.[0], grpHead = !x.join && !!E.items[i + 1]?.join, open = E.open === i, shs = sheetState(x, i);
+      const sub = x.join ? "앞 곡에 이어서 · 메들리"
+        : [grpHead ? (x.medley_id ? `메들리 '${esc(x.medley_title || "")}'` : "메들리 시작") : "", x.memo ? esc(x.memo) : "", x.diff ? "음원과 키 다름" : "", shs === "no" ? "악보 없음" : ""].filter(Boolean).join(" · ")
+          || (sheetsOnly ? "" : ref ? "레퍼런스 있음" : "레퍼런스 없음");
+      const conn = !sheetsOnly && i > 0 ? `<div class="ce2-conn"><button type="button" class="ce2-cb ${x.join ? "on" : ""}" data-ce="join" aria-pressed="${!!x.join}" aria-label="${x.join ? "앞 곡과 이어 부르기 끊기" : "앞 곡에 이어서 부르기 (메들리)"}">${CEI.link}<span>${x.join ? "이어짐 · 끊기" : "이어서 부르기"}</span></button></div>` : "";
+      const tab = curTab();
+      return `<div class="ce-row ce2-it${x.join ? " join" : ""}${open ? " open" : ""}${sheetsOnly ? " ro" : ""}" data-i="${i}">${conn}<div class="ce2-box">
+        <div class="ce2-hd" data-ce="toggle" role="button" tabindex="0" aria-expanded="${open}" aria-label="${esc(x.title)} ${open ? "접기" : "펼치기"}">
+          ${sheetsOnly ? `<span></span>` : `<span class="ce-grip" data-grip aria-label="끌어서 순서 바꾸기" role="button" tabindex="-1">${ICO.grip}</span>`}<span class="cv-sn${x.join ? " j" : ""}">${x.join ? "+" : gnum(i)}</span>
+          <span class="ce-t"><b>${esc(x.title)}</b><small>${sub}</small></span>
+          <span class="ce2-key${x.diff ? " diff" : ""}">${esc(x.key || "키")}</span><span class="ce2-dur">${x.join ? "" : x.dur ? mmss(x.dur) : "–"}</span>
+          <span class="ce2-ics"><span class="${shs}" title="${shs === "no" ? "악보 없음" : shs === "off" ? "앞 곡 악보에 함께" : "악보 있음"}">${CEI.file}</span><span class="${x.bpm ? "" : "off"}" title="${x.bpm ? `BPM ${x.bpm}` : "BPM 없음"}">${CEI.bpm}</span></span>
+          <span class="ce2-chev">${CEI.chev}</span></div>
+        ${open ? `<div class="ce2-det"><div class="u-seg ce2-tabs" role="tablist" aria-label="${esc(x.title)} 정할 것">${tabsOf().map(([k, l]) => `<button type="button" role="tab" data-ce="tab" data-tab="${k}" aria-pressed="${k === tab}">${l}${k === "prev" && prevN(x.song_id) ? ` ${prevN(x.song_id)}` : ""}</button>`).join("")}</div>
+          ${tab === "basic" ? basicTab(x, i, grpHead) : tab === "sheet" ? sheetTab(x) : tab === "ref" ? refTab(x, ref) : tab === "prev" ? (prevField(x) || `<p class="small muted" style="margin:0">아직 우리 팀 예배 영상에서 찾은 연주가 없어요.</p>`) : bpmTab(x)}</div>` : ""}
+      </div></div>`;
+    }
+    function basicTab(x, i, grpHead) {
       const srcTag = { manual: ["me", `직접${x.orig ? ` · 원래 ${mmss(x.orig)}` : ""}`], team: ["team", x.medley_id && grpHead ? "메들리 기준" : "팀 기준"], video: ["vid", "영상"], medley: ["team", "메들리 합계"], live: ["live", "실연주"] }[x.src] || ["none", "모름"];
-      const open = E.open === i;
-      return `<div class="ce-row ${x.join ? "join" : ""}" data-i="${i}">
-        <span class="ce-grip" data-grip aria-label="끌어서 순서 바꾸기" role="button" tabindex="0">${ICO.grip}</span><span class="cv-sn">${x.join ? "+" : gnum(i)}</span>
-        <span class="ce-t"><b>${esc(x.title)}</b><small>${x.join ? `<span class="ce-join">앞 곡에 이어서</span> · ` : grpHead ? `<span class="ce-join">메들리${x.medley_id ? ` '${esc(x.medley_title || "")}'` : ""}</span> · ` : ""}${x.diff ? "음원과 키 다름 · " : ""}${ref ? refChip(ref, rng, x.title) : "레퍼런스 없음"}${st?.count ? ` · ${st.count}번` : ""}${st?.last ? ` · 마지막 ${md(st.last)}` : ""}</small></span>
-        <input class="ce-key" list="ceKeys" value="${esc(x.key)}" data-f="key" aria-label="${esc(x.title)} 키" maxlength="12" placeholder="키">
-        ${x.join ? `<span class="ce-tm"><em class="ce-src team">앞 곡 시간에 포함</em></span>` : `<span class="ce-tm"><input value="${x.dur ? mmss(x.dur) : ""}" data-f="dur" inputmode="numeric" aria-label="${esc(x.title)} ${grpHead ? "메들리 전체 시간" : "곡 시간"}" placeholder="0:00"><em class="ce-src ${srcTag[0]}">${srcTag[1]}</em></span>`}
-        ${bpmCell(x)}
-        <button type="button" class="ce-x" data-ce="rm" aria-label="${esc(x.title)} 빼기">${ICO.x}</button>
-        <div class="ce-sh"><span class="ce-lab">악보</span>${x.sheet.mode === "new"
-          ? `<div class="ce-new"><label class="btn btn-soft btn-sm ce-addfile">＋ 파일로 추가<input type="file" accept="application/pdf,image/*" multiple data-ce-add hidden></label><span class="ce-or small muted">또는 통합본에서</span><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button>${list.length ? "" : `<span class="small muted ce-hint">저장된 악보가 아직 없어요 · PDF나 사진을 바로 더하거나, 아래 통합본으로 한 번에 올려요</span>`}</div>`
-          : `<button type="button" class="ce-shsel ${open ? "open" : ""}" data-ce="sheet-open"><span class="nm">${sheet ? esc(sheet.name) : x.sheet.mode === "saved" ? "고른 악보" : "악보 없이"}</span><span class="mt">${sheet ? [sheet.kind === "original" ? "원본 · 필기 없음" : sheet.from_date ? md(sheet.from_date) : "", `${sheet.pages}쪽`, sheet.kind === "sheet" ? `${sheet.used}번 씀` : ""].filter(Boolean).join(" · ") : list.length ? `저장된 악보 ${list.length}개` : ""}</span><span class="cv">▾</span></button>${sheet ? `<button type="button" class="linkbtn ce-unlink" data-ce="sheet-none" aria-label="${esc(x.title)} 악보 이 콘티에서 빼기">빼기</button>` : ""}`}
-          ${open ? sheetList(x, list) : ""}</div>
-        <div class="ce-more"><button type="button" class="linkbtn" data-ce="more">${E.more === i ? "접기" : `메모 · 레퍼런스 · 메들리${x.memo ? " · 메모 있음" : ""}${x.diff ? " · 키 다름*" : ""}`}</button>
-          ${E.more === i ? `<div class="ce-morebox">
-            <label class="field">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" data-f="memo" value="${esc(x.memo)}" maxlength="200" placeholder="예: A → Bb로 올림"></label>
-            <label class="checkrow"><input type="checkbox" data-f="diff" ${x.diff ? "checked" : ""}><span><b>음원과 키 다름</b><small>레퍼런스와 다른 키로 불러요 · 키 뒤에 * 표시</small></span></label>
-            ${i > 0 ? `<label class="checkrow"><input type="checkbox" data-f="join" ${x.join ? "checked" : ""}><span><b>앞 곡에 이어서 (메들리)</b><small>앞 곡 번호 아래로 · 예상 RT는 묶음 전체 시간 하나로</small></span></label>` : ""}
-            ${grpHead ? (x.medley_id ? `<div class="ce-mdl"><span>메들리 <b>'${esc(x.medley_title || "")}'</b>로 넣었어요 · 악보 · 레퍼런스 · 시간은 메들리 기준</span></div>`
-              : `<div class="ce-mdl"><span>이 묶음을 <b>메들리로 저장</b>하면 다음에 한 번에 넣고, 합친 악보 · 레퍼런스 · 시간을 같이 써요</span><button type="button" class="btn btn-soft btn-sm" data-ce="save-medley">메들리로 저장</button></div>`) : ""}
-            ${prevField(x)}
-            <div class="field"><span>레퍼런스 영상 <span class="ce-reftag">음원</span></span>${refCands(x, st, ref)}
-              <input class="input" data-f="refurl" placeholder="유튜브 주소 붙여 넣기" value="${ref ? ytLink(ref[0], ref[1] || 0) : ""}"></div>
-            ${ref ? `<div class="row ce-range"><span class="small" style="font-weight:700">구간</span><input class="input" data-f="rs" value="${mmss(rng?.start_sec ?? ref[1] ?? 0)}" aria-label="시작"> ~ <input class="input" data-f="re" value="${rng?.end_sec ? mmss(rng.end_sec) : ""}" placeholder="끝" aria-label="끝">
-              <span class="small muted">${E.yt[ref[0]]?.duration_sec ? `영상 길이 ${mmss(E.yt[ref[0]].duration_sec)}` : E.ytConfigured ? "" : "영상 길이를 아직 몰라요"}</span></div>` : ""}
-          </div>` : ""}</div>
-      </div>`;
+      return `<div class="ce2-fl"><span class="ce2-lb">키 <small>· 누르면 바로 바뀌어요</small></span>
+          <div class="ce2-keys">${KEY12.map((k) => `<button type="button" data-ce="key" data-k="${k}" aria-pressed="${x.key === k}">${k}</button>`).join("")}</div>
+          <label class="ce2-kl"><span>다른 키</span><input class="ce-key ce2-kin" list="ceKeys" value="${esc(x.key)}" data-f="key" aria-label="${esc(x.title)} 키" maxlength="12" placeholder="예: G-A"></label></div>
+        <label class="ce2-sw"><span class="tx"><b>음원과 키 다름</b><small>레퍼런스와 다른 키로 불러요 · 키 뒤에 * 표시</small></span><input type="checkbox" class="ce2-tog" data-f="diff" ${x.diff ? "checked" : ""}></label>
+        <div class="ce2-g2"><div class="ce2-fl"><span class="ce2-lb">BPM · 박자 <small>· 팀 기준으로 저장돼요</small></span>${bpmCell(x)}</div>
+          <label class="ce2-fl"><span class="ce2-lb">메모 <small>· 팀원에게 보여요</small></span><input class="input" data-f="memo" value="${esc(x.memo)}" maxlength="200" placeholder="예: 후렴 2번 반복"></label></div>
+        <div class="ce2-tm">${CEI.clock}${x.join ? `<span>곡 시간 · <b>앞 곡 시간에 포함</b> · 메들리는 묶음 전체 시간 하나로</span><span class="ce-tm"><em class="ce-src team">앞 곡 시간에 포함</em></span>`
+          : `<span>${grpHead ? "메들리 전체 시간" : "곡 시간"}</span><span class="ce-tm"><input value="${x.dur ? mmss(x.dur) : ""}" data-f="dur" inputmode="numeric" aria-label="${esc(x.title)} ${grpHead ? "메들리 전체 시간" : "곡 시간"}" placeholder="0:00"><em class="ce-src ${srcTag[0]}">${srcTag[1]}</em></span><small>직접 고치기 · 비우면 다시 계산</small>`}</div>
+        ${grpHead ? (x.medley_id ? `<div class="ce-mdl ce2-mdl"><span>메들리 <b>'${esc(x.medley_title || "")}'</b>로 넣었어요 · 악보 · 레퍼런스 · 시간은 메들리 기준</span></div>`
+          : `<div class="ce-mdl ce2-mdl"><span>이 묶음을 <b>메들리로 저장</b>하면 다음에 한 번에 넣고, 합친 악보 · 레퍼런스 · 시간을 같이 써요</span><button type="button" class="u-b u-s u-sm" data-ce="save-medley">메들리로 저장</button></div>`) : ""}
+        <div class="ce2-acts"><button type="button" class="u-b u-o u-sm" data-ce="up" ${i === 0 ? "disabled" : ""}>${CEI.up}위로</button><button type="button" class="u-b u-o u-sm" data-ce="down" ${i === E.items.length - 1 ? "disabled" : ""}>${CEI.down}아래로</button><span class="sp"></span><button type="button" class="u-b u-gh u-sm ce2-rm" data-ce="rm" aria-label="${esc(x.title)} 빼기">빼기</button></div>`;
+    }
+    function sheetTab(x) {
+      const list = sheetsOf(E, x), sheet = x.sheet.mode === "saved" ? list.find((v) => v.id === x.sheet.id) : null;
+      const now = sheet ? `<b>${esc(sheet.name)}</b><small>${[sheet.kind === "original" ? "원본 · 필기 없음" : sheet.from_date ? md(sheet.from_date) : "", `${sheet.pages}쪽`].filter(Boolean).join(" · ")}</small>`
+        : x.sheet.mode === "saved" ? `<b>고른 악보</b>` : x.sheet.mode === "new" ? `<b>새 악보로 저장</b><small>통합본을 올리면 이 곡 쪽을 새 이름으로</small>` : `<b>악보 없이</b><small>${x.join ? "메들리 뒷곡은 앞 곡 악보에 함께 들어가요" : "보기 화면에 빈 쪽으로"}</small>`;
+      return `<div class="ce2-cur"><span class="ce2-cn">${now}</span>${sheet ? `<button type="button" class="linkbtn ce-unlink" data-ce="sheet-none" aria-label="${esc(x.title)} 악보 이 콘티에서 빼기">빼기</button>` : ""}
+          ${sheet && sheet.kind === "sheet" ? `<button type="button" class="u-b u-o u-sm" data-ce="sheet-fix">${CEI.pen}이 악보 고치기 (필기)</button>` : ""}</div>
+        ${x.sheet.mode === "new" ? `<div class="ce-new"><label class="u-b u-s u-sm ce-addfile">＋ 파일로 추가<input type="file" accept="application/pdf,image/*" multiple data-ce-add hidden></label><span class="ce-or small muted">또는 통합본에서</span><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button>${list.length ? "" : `<span class="small muted ce-hint">저장된 악보가 아직 없어요 · PDF나 사진을 바로 더하거나, 아래 '악보 한 번에'로 올려요</span>`}</div>` : ""}
+        ${sheetList(x, list)}`;
+    }
+    function refTab(x, ref) {
+      const st = songById(x.song_id)?.st, rng = ref ? E.ranges[`${x.song_id}:${ref[0]}`] : null;
+      return `<div class="ce2-fl"><span class="ce2-lb">지금 레퍼런스 <span class="ce-reftag">음원</span></span>${ref ? refChip(ref, rng, x.title) : `<span class="small muted">레퍼런스 없음 · 아래에서 고르거나 주소를 붙여 넣어요</span>`}</div>
+        ${refCands(x, st, ref)}
+        <input class="input" data-f="refurl" placeholder="유튜브 주소 붙여 넣기 · 구간은 붙인 뒤에 정해요" value="${ref ? ytLink(ref[0], ref[1] || 0) : ""}" aria-label="${esc(x.title)} 레퍼런스 주소">
+        ${ref ? `<div class="row ce-range"><span class="small" style="font-weight:600">구간</span><input class="input" data-f="rs" value="${mmss(rng?.start_sec ?? ref[1] ?? 0)}" aria-label="시작"> ~ <input class="input" data-f="re" value="${rng?.end_sec ? mmss(rng.end_sec) : ""}" placeholder="끝" aria-label="끝">
+          <span class="small muted">${E.yt[ref[0]]?.duration_sec ? `영상 길이 ${mmss(E.yt[ref[0]].duration_sec)}` : E.ytConfigured ? "" : "영상 길이를 아직 몰라요"}</span></div>` : ""}`;
+    }
+    function bpmTab(x) {
+      return `<div class="ce2-fl"><span class="ce2-lb">BPM · 박자 <small>· 팀 기준으로 저장돼요 · 알림 없음</small></span>${bpmCell(x)}</div>${x.memo ? `<p class="small muted" style="margin:0">메모: ${esc(x.memo)}</p>` : ""}`;
     }
     // 031: 곡 줄의 레퍼런스 = 썸네일 + 제목 칩 (누르면 앱 안에서 재생)
     function refChip(ref, rng, songTitle) {
@@ -1791,18 +1848,6 @@
       return `<span class="ce-bpm"><input value="${x.bpm || ""}" data-f="bpm" inputmode="numeric" maxlength="3" aria-label="${esc(x.title)} BPM" placeholder="BPM">
         <select data-f="meter" aria-label="${esc(x.title)} 박자">${METERS.map((m) => `<option ${(x.meter || "4/4") === m ? "selected" : ""}>${m}</option>`).join("")}</select></span>`;
     }
-    // 밴드: 곡은 읽기만, 악보 · BPM 칸만
-    function rowSheetHTML(x, i) {
-      const list = sheetsOf(E, x), open = E.open === i;
-      const sheet = x.sheet.mode === "saved" ? list.find((v) => v.id === x.sheet.id) : null;
-      return `<div class="ce-row ro" data-i="${i}"><span></span><span class="cv-sn">${i + 1}</span>
-        <span class="ce-t"><b>${esc(x.title)}</b><small>${x.memo ? esc(x.memo) : x.join ? "앞 곡에 이어서" : x.medley ? "메들리" : ""}</small></span>
-        <span class="cv-key">${esc(keyText({ key: x.key, diff_key: x.diff }))}</span><span></span>${bpmCell(x)}<span></span>
-        <div class="ce-sh"><span class="ce-lab">악보</span>${x.sheet.mode === "new"
-          ? `<div class="ce-new"><label class="btn btn-soft btn-sm ce-addfile">＋ 파일로 추가<input type="file" accept="application/pdf,image/*" multiple data-ce-add hidden></label><span class="ce-tag">새로 저장</span><input value="${esc(x.sheet.name)}" data-f="sheetname" aria-label="${esc(x.title)} 악보 이름" maxlength="60"><button type="button" class="linkbtn" data-ce="sheet-cancel">${list.length ? "취소" : "악보 없이"}</button></div>`
-          : `<button type="button" class="ce-shsel ${open ? "open" : ""}" data-ce="sheet-open"><span class="nm">${sheet ? esc(sheet.name) : x.sheet.mode === "saved" ? "고른 악보" : "악보 없이"}</span><span class="mt">${sheet ? [sheet.kind === "original" ? "원본 · 필기 없음" : sheet.from_date ? md(sheet.from_date) : "", `${sheet.pages}쪽`].filter(Boolean).join(" · ") : list.length ? `저장된 악보 ${list.length}개` : ""}</span><span class="cv">▾</span></button>${sheet ? `<button type="button" class="linkbtn ce-unlink" data-ce="sheet-none" aria-label="${esc(x.title)} 악보 이 콘티에서 빼기">빼기</button>` : ""}`}
-          ${open ? sheetList(x, list) : ""}</div></div>`;
-    }
     function sheetList(x, list) {
       const pv = E.preview && E.preview.song === x.song_id ? list.find((v) => v.id === E.preview.id) : null;
       return `<div class="ce-shlist">${list.map((v) => `<button type="button" class="ce-opt ${x.sheet.mode === "saved" && x.sheet.id === v.id ? "on" : ""} ${pv?.id === v.id ? "pv" : ""}" data-ce="sheet-pv" data-id="${v.id}">
@@ -1816,23 +1861,50 @@
         <button type="button" class="ce-opt new" data-ce="sheet-new"><span class="cv-thumb sm plus">+</span><b>새 악보로 저장</b><span>통합본을 올리면 이 곡 쪽을 새 이름으로</span><i></i></button>
         <button type="button" class="ce-opt" data-ce="sheet-none"><span class="cv-thumb sm none"></span><b>악보 없이</b><span>보기 화면에 빈 쪽으로</span><i>${x.sheet.mode === "none" ? "✓" : ""}</i></button></div>`;
     }
+    // v34.2: 함께 부른 곡 — 기록 › 콘티에서 '같은 날 콘티에 함께 들어간 횟수'를 셈해요 (한 번만 계산)
+    function coSuggest() {
+      if (!E.items.length || !E.H?.plays) return [];
+      if (!E.co) {
+        const by = new Map();
+        E.H.plays.forEach((p) => { let s = by.get(p[0]); if (!s) by.set(p[0], (s = new Set())); s.add(p[2]); });
+        E.co = new Map();
+        by.forEach((set) => { const a = [...set]; a.forEach((u) => { let m = E.co.get(u); if (!m) E.co.set(u, (m = new Map())); a.forEach((v) => { if (v !== u) m.set(v, (m.get(v) || 0) + 1); }); }); });
+      }
+      const have = new Set(E.items.map((x) => x.song_id)), score = new Map(), best = new Map();
+      E.items.forEach((x) => (E.co.get(x.song_id) || new Map()).forEach((n, v) => {
+        if (have.has(v)) return;
+        score.set(v, (score.get(v) || 0) + n);
+        const b = best.get(v); if (!b || n > b[1]) best.set(v, [x.title, n]);
+      }));
+      return [...score.entries()].map(([id, sc]) => ({ s: songById(id), sc, top: best.get(id) })).filter((r) => r.s)
+        .sort((a, b) => b.sc - a.sc || (b.s.st?.count || 0) - (a.s.st?.count || 0)).slice(0, 5);
+    }
+    const josa = (w) => { const c = String(w).charCodeAt(String(w).length - 1) - 44032; return c >= 0 && c < 11172 && c % 28 ? "과" : "와"; };
+    function songRow(s, sub, total, tg) {
+      const d = guessDur(E, s, null), after = total + (d || 0);
+      const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-bad">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
+      const r0 = s.st?.refs?.[0], rg = r0 ? E.ranges[`${s.id}:${r0[0]}`] : null;
+      const pn = prevN(s.id), pvo = E.pvOpen === s.id;
+      return `<div class="ce-orow"><button type="button" class="ce-o" data-add="${s.id}"><b>${esc(s.title)}</b><small>${sub(d)}</small><span class="r">${chip}</span></button>${r0 ? `<button type="button" class="ce-oplay" ${playAttrs(r0[0], rg?.start_sec ?? r0[3] ?? 0, rg?.end_sec || null, s.title)} aria-label="${esc(s.title)} 레퍼런스 미리 보기"><img src="${ytThumb(r0[0])}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}${pn ? `<button type="button" class="ce-oprev" data-ce-prev="${s.id}" aria-expanded="${pvo}" aria-label="${esc(s.title)} 이전 연주 ${pn}번">연주 ${pn}</button>` : ""}<button type="button" class="ce-oadd" data-add="${s.id}" aria-label="${esc(s.title)} 넣기">${CEI.plus}</button></div>
+        ${pvo ? `<div class="ce-pvbox">${prevList(s.id, "", s.title)}</div>` : ""}`;
+    }
     function searchHTML() {
       const q = E.q.trim().toLowerCase().replace(/\s/g, ""), total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), tg = target();
-      const hits = q ? E.songs.filter((s) => KO.match(s.title, q)).sort((a, b) => (b.st?.count || 0) - (a.st?.count || 0)).slice(0, 8) : [];
+      const usual = (s) => (d) => `${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}`;
+      if (!q) {
+        // 비어 있으면: 지금 곡들과 자주 같이 부른 곡 (이미 넣은 곡은 빼요)
+        const sug = coSuggest();
+        return sug.length ? `<div class="ce-drop ce2-res" id="ceDrop"><span class="ce2-lab">지금 곡들과 자주 같이 부른 곡</span>${sug.map(({ s, top }) =>
+          songRow(s, (d) => `'${esc(top[0])}'${josa(top[0])} ${top[1]}번 같이${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}`, total, tg)).join("")}</div>` : "";
+      }
+      const hits = E.songs.filter((s) => KO.match(s.title, q)).sort((a, b) => (b.st?.count || 0) - (a.st?.count || 0)).slice(0, 8);
       const exact = E.songs.some((s) => s.title.toLowerCase().replace(/\s/g, "") === q);
       // 026: 메들리도 찾아요 (메들리 이름 · 안에 든 곡 이름)
-      const mh = q ? (E.medleys || []).filter((m) => KO.match(m.title, E.q) || m.songs.some((x) => KO.match(x.title, E.q))).slice(0, 4) : [];
+      const mh = (E.medleys || []).filter((m) => KO.match(m.title, E.q) || m.songs.some((x) => KO.match(x.title, E.q))).slice(0, 4);
       const mHTML = mh.map((m) => { const d = m.team_sec, after = total + (d || 0);
-        const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-warn">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
-        return `<div class="ce-orow"><button type="button" class="ce-o" data-addm="${m.id}"><b><span class="tag-m">메들리</span>${esc(m.title)}</b><small>${m.songs.map((x) => esc(x.title) + (x.key ? " " + esc(x.key) : "")).join(" + ")}${m.used ? ` · ${m.used}번` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>${m.ref_yt ? `<button type="button" class="ce-oplay" ${playAttrs(m.ref_yt, m.ref_start || 0, m.ref_end || null, m.title)} aria-label="${esc(m.title)} 레퍼런스 미리 보기"><img src="${ytThumb(m.ref_yt)}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}</div>`; }).join("");
-      return q ? `<div class="ce-drop" id="ceDrop">${mHTML}${hits.map((s) => {
-          const d = guessDur(E, s, null), after = total + (d || 0);
-          const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-warn">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
-          const r0 = s.st?.refs?.[0], rg = r0 ? E.ranges[`${s.id}:${r0[0]}`] : null;
-          const pn = prevN(s.id), pvo = E.pvOpen === s.id;
-          return `<div class="ce-orow"><button type="button" class="ce-o" data-add="${s.id}"><b>${esc(s.title)}</b><small>${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>${r0 ? `<button type="button" class="ce-oplay" ${playAttrs(r0[0], rg?.start_sec ?? r0[3] ?? 0, rg?.end_sec || null, s.title)} aria-label="${esc(s.title)} 레퍼런스 미리 보기"><img src="${ytThumb(r0[0])}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}${pn ? `<button type="button" class="ce-oprev" data-ce-prev="${s.id}" aria-expanded="${pvo}" aria-label="${esc(s.title)} 이전 연주 ${pn}번">연주 ${pn}</button>` : ""}</div>
-            ${pvo ? `<div class="ce-pvbox">${prevList(s.id, "", s.title)}</div>` : ""}`;
-        }).join("")}${!exact ? `<button type="button" class="ce-o add" data-ce="newsong">+ '${esc(E.q.trim())}'으로 새 곡 추가</button>` : ""}</div>` : "";
+        const chip = !d ? "" : tg ? (after <= tg ? `<span class="chip chip-ok">넣으면 ${mmss(after)}</span>` : `<span class="chip chip-bad">넣으면 ${mmss(after - tg)} 초과</span>`) : `<span class="chip chip-gray">${mmss(d)}</span>`;
+        return `<div class="ce-orow"><button type="button" class="ce-o" data-addm="${m.id}"><b><span class="tag-m">메들리</span>${esc(m.title)}</b><small>${m.songs.map((x) => esc(x.title) + (x.key ? " " + esc(x.key) : "")).join(" + ")}${m.used ? ` · ${m.used}번` : ""}${d ? ` · ${mmss(d)}` : ""}</small><span class="r">${chip}</span></button>${m.ref_yt ? `<button type="button" class="ce-oplay" ${playAttrs(m.ref_yt, m.ref_start || 0, m.ref_end || null, m.title)} aria-label="${esc(m.title)} 레퍼런스 미리 보기"><img src="${ytThumb(m.ref_yt)}" alt="" loading="lazy"><span class="pl">${ICO.play}</span></button>` : ""}<button type="button" class="ce-oadd" data-addm="${m.id}" aria-label="메들리 ${esc(m.title)} 넣기">${CEI.plus}</button></div>`; }).join("");
+      return `<div class="ce-drop ce2-res" id="ceDrop"><span class="ce2-lab">'${esc(E.q.trim())}' 찾은 곡 ${hits.length + mh.length}</span>${mHTML}${hits.map((s) => songRow(s, usual(s), total, tg)).join("")}${!exact ? `<button type="button" class="ce-o add ce2-new" data-ce="newsong">${CEI.plus}'${esc(E.q.trim())}'(으)로 새 곡 추가</button>` : ""}</div>`;
     }
     function pdfHTML() {
       const U = E.up, n = E.items.length;
@@ -1851,10 +1923,10 @@
       }
       // 030: 통합본 보며 고치기 (확정 전에도) · 노트 앱 통합본은 접어서 보조로
       const fixWho = sheetsOnly ? "이 예배 밴드도 고칠 수 있어요" : E.pub ? "올린 콘티 · 고친 필기는 바로 저장 · 알림 없음" : "확정 전에도 고칠 수 있어요 · 고친 필기는 바로 저장 · 팀원에게는 콘티를 올린 뒤 보여요";
-      return `<section class="panel ce-view"><h2>악보 <small>곡마다 위에서 고르거나 파일로 더해요</small></h2>
-        <div class="ce-draft ce-viewall"><span><b>통합본 보며 고치기</b><span class="small muted">곡 순서대로 이어서 보면서 '악보 고치기'로 바로 필기해요 · ${n}곡 중 ${haveSheets}곡 악보 · ${fixWho}</span></span>
-          <button type="button" class="btn btn-primary btn-sm" data-ce="viewall" ${haveSheets ? "" : "disabled"}>통합본 보며 고치기</button></div></section>
-      <details class="panel ce-pdf" ${U ? "open" : ""}><summary><b>노트 앱으로 한 번에 (통합본 PDF)</b><small>초안을 받아 노트 앱에서 고친 뒤 통째로 올리는 예전 방식</small></summary>
+      return `<section class="ce2-card ce2-bulk ce-view"><div class="ce2-ch"><b>악보 한 번에</b><small>곡마다 고른 악보를 콘티 순서대로 이어서</small></div>
+        <div class="ce2-bk"><span class="ce2-ic">${CEI.pen}</span><span class="tx"><b>통합본 보며 고치기</b><small>곡 순서대로 넘기며 바로 필기 · ${n}곡 중 ${haveSheets}곡 악보 · ${fixWho}</small></span>
+          <button type="button" class="u-b u-o u-sm" data-ce="viewall" ${haveSheets ? "" : "disabled"}>열기</button></div>
+      <details class="ce-pdf ce2-bk2" ${U ? "open" : ""}><summary><span class="ce2-ic">${CEI.file}</span><span class="tx"><b>노트 앱으로 (통합본 PDF)</b><small>초안 PDF 받기 → 노트 앱에서 고쳐 통째로 올리기 · 예전 방식</small></span><span class="u-b u-gh u-sm ce2-op">열기</span></summary>
         <div class="ce-draft"><span><b>① 초안 받기</b><span class="small muted">곡마다 고른 악보(저장된 악보 · 원본)를 콘티 순서대로 이어 붙인 PDF · ${n}곡 중 ${haveSheets}곡 있음${n > haveSheets ? ", 없는 곡은 빈 쪽" : ""}</span></span>
           <button type="button" class="btn btn-soft btn-sm" data-ce="draft" ${n ? "" : "disabled"}>초안 PDF 받기</button></div>
         <span class="ce-step">② 노트 앱에서 고친 통합본 올리기</span>
@@ -1862,42 +1934,90 @@
           : `<span class="cv-pdfic">PDF</span><span class="ce-upl-t"><b>${E.pub && E.items.some((x) => x.sheet.mode === "saved") ? "지금 악보를 그대로 써요" : "아직 올린 통합본이 없어요"}</b><span class="small muted">${E.pub ? "PDF를 바꿀 때만 새로 올려 주세요" : "올리면 곡별로 나눠서 저장해요"}</span></span>`}
           <label class="btn btn-ghost btn-sm">${U ? "다른 파일" : "PDF 고르기"}<input type="file" accept="application/pdf" data-ce-file hidden></label></div>
         ${U ? `<span class="small" style="font-weight:700">곡별 페이지 <span class="muted" style="font-weight:500">· 곡 순서대로 나눠 뒀어요. 틀린 쪽만 눌러 고쳐 주세요</span></span>${pages}${sum}` : ""}
-      </details>`;
+      </details></section>`;
     }
     function draw() {
       E.items.forEach((x) => { if (x.sheet.mode === "new" && x.sheet.name == null) x.sheet.name = defaultName(x); if (x.sheet.mode === "new" && x.sheet.name === "" && !x.sheet.touched) x.sheet.name = defaultName(x); });
-      const dl = dlLeft(svc.deadline);
+      E._plan = E.up ? planSheets(E) : null;
+      if (E.open != null && !E.items[E.open]) E.open = null;
       body.innerHTML = `${restored ? `<div class="notice ok ce-restored">이 기기에서 쓰던 내용을 불러왔어요. <button type="button" class="linkbtn" data-ce="discard">처음 상태로</button></div>` : ""}
-        ${E.past ? `<div class="notice warn ce-past" style="margin:0"><b>지난 예배 콘티예요</b> · 고쳐도 알림을 보내지 않아요. 고치면 기록 · 통계에 바로 반영되고, 이전 버전은 남아요.</div>`
-          : sheetsOnly ? "" : `<div class="ce-dl ${dl.cls}">${dl.text} · ${esc(dlText(svc.deadline))}<span class="sp"></span><small>섬김자 ${new Set((svc.lineup || []).map((x) => x.member_id).filter(Boolean)).size}명 · 올리면 바로 알림</small></div>`}
-        ${sheetsOnly ? `<div class="notice" style="margin:0">이 예배 밴드라서 <b>악보만</b> 고칠 수 있어요. 곡 · 키 · 순서 · 메모는 인도자 · 밴드 마스터가 고쳐요. 악보만 바뀌면 알림 없이 콘티에 '악보 바뀜'으로 보여요.</div>` : rtCard()}
-        <section class="panel"><h2>곡 <small>${sheetsOnly ? "곡마다 쓸 악보" : "손잡이를 끌어서 순서 바꾸기"}</small></h2>
-          ${sheetsOnly ? "" : `<div class="ce-search"><input class="input" id="ceQ" placeholder="곡 이름으로 찾기" aria-label="곡 검색" autocomplete="off" value="${esc(E.q)}">${searchHTML()}</div>`}
+        ${E.past ? `<div class="notice warn ce-past" style="margin:0"><b>지난 예배 콘티예요</b> · 고쳐도 알림을 보내지 않아요. 고치면 기록 · 통계에 바로 반영되고, 이전 버전은 남아요.</div>` : ""}
+        ${sheetsOnly ? `<p class="ce2-note">이 예배 밴드라서 <b>악보 · BPM</b>만 고칠 수 있어요. 곡 · 키 · 순서는 인도자 · 밴드 마스터가 정해요. 악보만 바뀌면 알림 없이 '악보 바뀜'으로 보여요.</p>` : ""}
+        ${sumCard()}
+        <section class="ce2-card ce2-songs"><div class="ce2-ch"><b>곡 순서</b><small>${sheetsOnly ? "줄을 누르면 쓸 악보와 BPM을 정해요" : "줄을 누르면 키 · 악보 · 레퍼런스를 정해요 · 손잡이로 끌어서 순서 바꾸기"}</small></div>
           <datalist id="ceKeys">${KEYS.map((k) => `<option value="${k}">`).join("")}</datalist>
-          <div class="ce-list" id="ceList">${E.items.map(rowHTML).join("") || `<p class="muted small" style="margin:6px 0">위에서 곡을 찾아 넣어 주세요.</p>`}</div></section>
+          <div class="ce-list ce2-list" id="ceList">${E.items.map(rowHTML).join("") || `<p class="muted small ce2-empty">아래에서 곡을 찾아 넣어 주세요.</p>`}</div>
+          ${sheetsOnly ? "" : `<div class="ce-search ce2-srch"><div class="ce2-sbox">${CEI.search}<input class="input" id="ceQ" placeholder="곡 추가 — 이름이나 초성 (예: ㅇㅎ)" aria-label="곡 찾기" autocomplete="off" value="${esc(E.q)}"></div>${searchHTML()}</div>`}
+        </section>
         ${pdfHTML()}`;
       drawBar();
     }
-    // 031: 이번에 악보 없이 나갈 곡 수 (메들리 뒷곡은 앞 곡 악보에 함께라 빼요)
-    function sheetlessCount() {
-      const plan = E.up ? planSheets(E) : [];
-      return E.items.filter((x, i) => !x.join && x.sheet.mode !== "saved" && !(x.sheet.mode === "new" && plan.find((p) => p.i === i)?.state === "new")).length;
-    }
     function drawBar() {
-      const ppl = new Set((svc.lineup || []).map((x) => x.member_id).filter(Boolean)).size;
+      const P = ppl();
       if (sheetsOnly) {
-        $("#ceBar", el).innerHTML = `<span class="ce-who small muted">${E.past ? "지난 예배 · " : ""}악보 · BPM만 바뀌면 알림을 보내지 않아요</span><button type="button" class="btn btn-primary ce-go" data-ce="sheets">악보 저장</button>`;
+        $("#ceBar", el).innerHTML = `<span class="ce-who">${E.past ? "지난 예배 · " : ""}악보 · BPM만 바뀌면 알림을 보내지 않아요</span><button type="button" class="u-b u-p ce2-lg ce-go" data-ce="sheets">악보 저장</button>`;
         return;
       }
       if (E.past) {
-        $("#ceBar", el).innerHTML = `<span class="ce-who small muted">지난 예배 · ${sl ? `마지막 저장 ${fmtDateTime(sl.updated_at)}` : "콘티가 없던 예배"} · 알림 없음</span>
-          <button type="button" class="btn btn-primary ce-go" data-ce="publish">${E.pub ? "고친 콘티 저장" : "콘티 기록 남기기"} · 알림 없음</button>`;
+        $("#ceBar", el).innerHTML = `<span class="ce-who">지난 예배 · 알림 없음<small>${sl ? `마지막 저장 ${fmtDateTime(sl.updated_at)}` : "콘티가 없던 예배"}</small></span>
+          <button type="button" class="u-b u-p ce2-lg ce-go" data-ce="publish">${E.pub ? "고친 콘티 저장" : "콘티 기록 남기기"} · 알림 없음</button>`;
         return;
       }
-      const bare = sheetlessCount();
-      $("#ceBar", el).innerHTML = `<span class="ce-who small muted">${bare ? `<b class="ce-bare">악보 없는 곡 ${bare}곡</b> · 나중에 더해도 돼요${E.pub ? "" : " · 처음 채우면 알림"}<br>` : ""}${E.pub ? `${sl?.changes ? "수정한 적 있음 · " : ""}올라온 콘티예요 · 고치면 '수정됨'으로 알려요` : sl ? `마지막 저장 ${fmtDateTime(sl.updated_at)} · 임시 저장은 팀원에게 안 보여요` : "임시 저장은 팀원에게 안 보여요"}</span>
-        ${E.pub ? "" : `<button type="button" class="btn btn-ghost" data-ce="save">임시 저장</button>`}
-        <button type="button" class="btn btn-primary ce-go" data-ce="publish">${E.pub ? "수정 올리기" : "올리기"} · ${ppl}명에게 알림</button>`;
+      const bare = bareIdx().length;
+      $("#ceBar", el).innerHTML = `<span class="ce-who">${bare ? `<span><b class="ce-bare">악보 없는 곡 ${bare}곡</b> · 나중에 더해도 돼요${E.pub ? "" : " (처음 채우면 알림)"}</span>` : `<span>${E.pub ? "올라온 콘티 · 고치면 '수정됨'으로 알려요" : `올리면 섬김자 ${P}명에게 알림`}</span>`}
+          <small>${E.pub ? (sl?.changes ? "수정한 적 있음 · " : "") + "올라온 콘티예요" : sl ? `마지막 저장 ${fmtDateTime(sl.updated_at)} · 임시 저장은 팀원에게 안 보여요` : "임시 저장은 팀원에게 안 보여요"}</small></span>
+        ${E.pub ? "" : `<button type="button" class="u-b u-o ce2-lg" data-ce="save">임시 저장</button>`}
+        <button type="button" class="u-b u-p ce2-lg ce-go" data-ce="publish">${E.pub ? "수정 올리기" : "올리기"}</button>`;
+    }
+    // v34.2: 순서 바꾸기 (위로 · 아래로 · 끌기 같이) — 통합본 쪽 표시도 따라가요
+    function moveItem(from, to) {
+      if (to < 0 || to >= E.items.length || to === from) return false;
+      const prev = E.items.slice(); const [it] = E.items.splice(from, 1); E.items.splice(to, 0, it);
+      if (E.up) E.up.tags = E.up.tags.map((t) => (t == null ? null : E.items.indexOf(prev[t])));
+      regroup(); persist(); E.prevOrder = E.items.slice();
+      return true;
+    }
+    // 앞 곡에 이어서 부르기 켜기 · 끄기 (예전 체크 상자와 같은 규칙)
+    function setJoin(x, on) {
+      x.join = on;
+      if (!on) { x.medley_id = null; x.medley_title = null; Object.assign(x, recompute(E, x)); const l = sheetsOf(E, x); if (x.sheet.mode === "none" && l[0]) x.sheet = { mode: "saved", id: l[0].id }; }
+      else if (x.sheet.mode === "new" && !E.up) x.sheet = { mode: "none" };
+      regroup(); persist();
+    }
+    // 탭을 열 때 필요한 것만 더 불러와요 (레퍼런스 후보 영상 제목)
+    async function afterOpen(i) {
+      const x = E.items[i]; if (!x || curTab() !== "ref") return;
+      const ids = (songById(x.song_id)?.st?.refs || []).slice(0, 4).map((r) => r[0]).filter((id) => !E.yt[id]);
+      if (ids.length) { await loadYt(E, ids); if (E.open === i && curTab() === "ref") redrawList(); }
+    }
+    // 올리기 전에 막아야 하는 것 (달라 보이는 악보 · 새 악보 이름)
+    function precheck() {
+      if (!E.items.length) { toast("곡을 하나 이상 넣어 주세요"); return false; }
+      const plan = E.up ? planSheets(E) : [];
+      if (plan.some((p) => p.state === "ask")) { $("#ceSum", el)?.scrollIntoView({ block: "center" }); toast("달라 보이는 악보를 새로 저장할지 먼저 골라 주세요", 4000); return false; }
+      if (E.up && plan.some((p) => p.state === "new" && !String(E.items[p.i].sheet.name || "").trim())) { toast("새로 저장할 악보 이름을 적어 주세요"); return false; }
+      return true;
+    }
+    // v34.2: 올리기 전 확인 창 — 곡 · RT · 키 · 악보 없는 곡 · BPM, 카톡 문구 복사
+    const COPY_KEY = "pole2.conti.copyafter";
+    function pubDialog(btn) {
+      const total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), tg = target(), diff = tg ? tg - total : null;
+      const n = E.items.length, noKey = E.items.filter((x) => !x.key), nb = E.items.filter((x) => x.bpm).length, bare = bareIdx(), P = ppl();
+      const copyOn = ls.get(COPY_KEY) !== false;
+      const line = (cls, ic, t, s) => `<div class="ce2-cl ${cls}">${ic}<span>${t}${s ? `<small>${s}</small>` : ""}</span></div>`;
+      const sh = UI.sheet({ title: E.pub ? "수정 올리기 전에 확인" : "올리기 전에 확인", desc: E.pub ? `고친 내용을 섬김자 ${P}명에게 '수정됨'으로 알려요` : `올리면 섬김자 ${P}명에게 바로 알림이 가요`, cls: "ce2-pub", closeText: "취소",
+        html: `<div class="ce2-cls">${line("ok", CEI.check, `곡 ${n}개 · 예상 RT ${mmss(total)}`, tg ? (diff >= 0 ? `목표까지 ${mmss(diff)} 남음` : `목표보다 ${mmss(-diff)} 초과`) : "")}
+            ${line(noKey.length ? "need" : "ok", CEI.check, `키 ${n - noKey.length}/${n}`, noKey.length ? `키 없는 곡 · ${noKey.map((x) => esc(x.title)).join(", ")}` : "")}
+            ${line(bare.length ? "need" : "ok", CEI.file, bare.length ? `악보 없는 곡 ${bare.length}곡 · ${bare.map((i) => esc(E.items[i].title)).join(", ")}` : "모든 곡에 악보 있음", bare.length ? (E.pub ? "그대로 올려도 돼요" : "그대로 올려도 돼요 · 악보를 처음 채우면 그때 다시 알림") : "")}
+            ${line("opt", CEI.bpm, `BPM ${nb}/${n}`, "선택 · 밴드가 나중에 채워도 돼요")}</div>
+          <label class="ce2-chk"><input type="checkbox" data-pub-copy ${copyOn ? "checked" : ""}><span>올린 뒤 카톡 콘티 문구도 복사</span></label>
+          <div class="ce2-dacts"><button type="button" class="u-b u-o ce2-lg" data-u-close>취소</button><button type="button" class="u-b u-p ce2-lg" data-pub="go">${E.pub ? "수정 올리기" : "올리기"} · ${P}명에게 알림</button></div>` });
+      sh.el.addEventListener("click", async (e) => {
+        if (!e.target.closest("[data-pub=go]")) return;
+        const copy = !!sh.el.querySelector("[data-pub-copy]")?.checked;
+        ls.set(COPY_KEY, copy); sh.close("go");
+        await submit(true, btn, false, { copy });
+      });
     }
     const redrawList = () => { const y = window.scrollY, sc = body.scrollTop; draw(); body.scrollTop = sc; window.scrollTo(0, y); };
     draw();
@@ -1919,19 +2039,14 @@
       const row = t.closest(".ce-row"); if (!row) return;
       const x = E.items[+row.dataset.i], f = t.dataset.f;
       // 032: 키를 바꾸면 '이전 연주'를 다시 정렬 (같은 키 먼저)
-      if (f === "key" && E.more === +row.dataset.i && row.querySelector(".ce-prevf")) { x.key = t.value.trim(); persist(); return redrawList(); }
+      if (f === "key") { x.key = t.value.trim(); persist(); return redrawList(); }   // v34.2: 위 줄 키 · 키 단추도 바꿔요
       if (f === "dur") {
         const v = parseMmss(t.value);
         if (t.value.trim() && v == null) { toast("곡 시간은 4:30처럼 적어 주세요"); t.value = x.dur ? mmss(x.dur) : ""; return; }
         if (v !== x.dur) { if (x.src !== "manual") x.orig = x.dur; x.dur = v; x.src = v ? "manual" : null; if (!v) Object.assign(x, recompute(E, x)); persist(); redrawList(); }
       }
       if (f === "diff") { x.diff = t.checked; persist(); return redrawList(); }
-      if (f === "join") {
-        x.join = t.checked;
-        if (!x.join) { x.medley_id = null; x.medley_title = null; Object.assign(x, recompute(E, x)); const l = sheetsOf(E, x); if (x.sheet.mode === "none" && l[0]) x.sheet = { mode: "saved", id: l[0].id }; }
-        else if (x.sheet.mode === "new" && !E.up) x.sheet = { mode: "none" };
-        regroup(); persist(); return redrawList();
-      }
+      if (f === "join") { setJoin(x, t.checked); return redrawList(); }
       if (f === "bpm") {
         const v = t.value.trim(), n = v ? +v : null;
         if (v && !(Number.isInteger(n) && n >= 20 && n <= 320)) { toast("BPM은 20~320 사이 숫자로 적어 주세요"); t.value = x.bpm || ""; return; }
@@ -1972,6 +2087,23 @@
       const a = b.dataset.ce, row = b.closest(".ce-row"), i = row ? +row.dataset.i : null, x = i != null ? E.items[i] : null;
       if (a === "close") return closeLayer();
       if (a === "discard") { ls.del(DKEY); return openEditor(sid, { after }); }
+      // v34.2: 곡 줄 펼치기 · 탭 · 키 단추 · 이어서 부르기 · 위로/아래로 · '악보 없는 곡' 칩
+      if (a === "toggle") { if (e.target.closest("[data-grip]")) return; E.open = E.open === i ? null : i; E.preview = null; redrawList(); if (E.open === i) afterOpen(i); return; }
+      if (a === "tab") { E.tab = b.dataset.tab; E.preview = null; redrawList(); afterOpen(i); return; }
+      if (a === "key") { x.key = b.dataset.k; persist(); return redrawList(); }
+      if (a === "join") { setJoin(x, !x.join); return redrawList(); }
+      if (a === "up" || a === "down") { const to = i + (a === "up" ? -1 : 1); if (moveItem(i, to)) E.open = to; return redrawList(); }
+      if (a === "jump-sheet") {
+        const k = bareIdx()[0]; if (k == null) return;
+        E.open = k; E.tab = "sheet"; E.preview = null; redrawList();
+        $(`.ce-row[data-i="${k}"]`, el)?.scrollIntoView({ block: "center", behavior: window.UI?.reduced?.() ? "auto" : "smooth" });
+        return;
+      }
+      if (a === "sheet-fix") {
+        const v = sheetsOf(E, x).find((q) => q.id === x.sheet.id); if (!v) return;
+        return overLayer(() => openViewer(null, { single: { title: `${x.title} · ${v.name}`, key: x.key, path: v.path, pages: v.pages,
+          ink: { key: `s:${v.id}`, song: x.song_id }, shared: { sheet: v.id, date: svc.date, svc: svc.id, canEdit: true, canEraseAll: !!svc.can_edit, kind: "sheet", name: v.name } }, startFix: true }));
+      }
       if (a === "target") {
         const v = prompt(`이번 예배 목표 RT를 분으로 적어 주세요${E.targetDefault ? ` (기본 ${Math.round(E.targetDefault / 60)}분)` : ""}`, target() ? String(Math.round(target() / 60)) : "");
         if (v === null) return; const n = +String(v).trim(); if (!(n >= 1 && n <= 120)) return toast("1~120분으로 적어 주세요");
@@ -1985,22 +2117,17 @@
         return addSong(data);
       }
       if (a === "rm") { if (!x.join && E.items[i + 1]?.join) { E.items[i + 1].join = false; E.items[i + 1].medley_id = null; } E.items.splice(i, 1); regroup(); if (E.up) E.up.tags = E.up.tags.map((t) => (t == null ? null : t === i ? null : t > i ? t - 1 : t)); E.open = E.more = null; persist(); return redrawList(); }
-      if (a === "more") {
-        E.more = E.more === i ? null : i; redrawList();
-        // 031: 후보 영상 제목 (한 번 가져오면 저장돼요)
-        if (E.more === i) { const ids = (songById(x.song_id)?.st?.refs || []).slice(0, 4).map((r) => r[0]).filter((id) => !E.yt[id]); if (ids.length) { await loadYt(E, ids); if (E.more === i) redrawList(); } }
-        return;
-      }
+      if (a === "more") { E.open = i; E.tab = "basic"; return redrawList(); }
       if (a === "ref-use") {
         const id = b.dataset.yt; x.refs = [[id, +b.dataset.t || 0, ""]]; delete x.ref_range;
         await loadYt(E, [id]); if (x.src !== "manual") Object.assign(x, recompute(E, x)); persist(); return redrawList();
       }
-      if (a === "sheet-open") { E.open = E.open === i ? null : i; E.preview = null; return redrawList(); }
+      if (a === "sheet-open") { E.open = i; E.tab = "sheet"; E.preview = null; return redrawList(); }
       if (a === "sheet-pv") { E.preview = { song: x.song_id, id: +b.dataset.id }; return redrawList(); }
-      if (a === "sheet-use") { x.sheet = { mode: "saved", id: +b.dataset.id }; x.cmp = null; E.open = null; E.preview = null; await checkSame(E); persist(); return redrawList(); }
+      if (a === "sheet-use") { x.sheet = { mode: "saved", id: +b.dataset.id }; x.cmp = null; E.preview = null; await checkSame(E); persist(); return redrawList(); }
       if (a === "sheet-big") { const v = sheetsOf(E, x).find((s) => s.id === +b.dataset.id); if (v) openViewerOver(x.title, v, svc.date); return; }
-      if (a === "sheet-new") { x.sheet = { mode: "new", name: defaultName(x) }; x.cmp = null; E.open = null; persist(); return redrawList(); }
-      if (a === "sheet-none") { x.sheet = { mode: "none" }; x.cmp = null; E.open = null; E.preview = null; persist(); return redrawList(); }
+      if (a === "sheet-new") { x.sheet = { mode: "new", name: defaultName(x) }; x.cmp = null; persist(); return redrawList(); }
+      if (a === "sheet-none") { x.sheet = { mode: "none" }; x.cmp = null; E.preview = null; persist(); return redrawList(); }
       // v34.1: 저장된 악보를 아예 지우기 — 이 콘티 · 다른 콘티에서 쓰던 곳은 '악보 없이'로
       if (a === "sheet-del") {
         const id = +b.dataset.id; b.disabled = true;
@@ -2016,8 +2143,13 @@
       if (a === "viewall") return viewAll();
       if (a === "draft") return downloadDraft(E, svc);
       if (a === "save") return submit(false, b);
-      if (a === "publish") return submit(true, b);
+      if (a === "publish") { if (E.past) return submit(true, b); if (!precheck()) return; return pubDialog(b); }
       if (a === "sheets") return submit(true, b, true);
+    });
+    // v34.2: 곡 줄 머리는 키보드로도 펼쳐요 (Enter · Space)
+    el.addEventListener("keydown", (e) => {
+      const hd = e.target.closest?.(".ce2-hd"); if (!hd || e.target !== hd || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault(); hd.click();
     });
     // 끌어서 순서 바꾸기
     el.addEventListener("pointerdown", (e) => {
@@ -2035,9 +2167,7 @@
         g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up);
         row.classList.remove("drag"); row.style.transform = "";
         if (to !== from) {
-          const [it] = E.items.splice(from, 1); E.items.splice(to, 0, it);
-          if (E.up) { const map = E.items.map((x) => x); E.up.tags = E.up.tags.map((t) => (t == null ? null : map.indexOf(E.prevOrder[t]))); }
-          E.open = E.more = null; regroup(); persist();
+          moveItem(from, to); E.open = null;
         }
         E.prevOrder = E.items.slice(); redrawList();
       };
@@ -2113,7 +2243,7 @@
         if (error) throw new Error(error.message || "악보를 저장하지 못했어요");
         const k = head ? "m" + x.medley_id : x.song_id;
         (E.sheets[k] = E.sheets[k] || []).unshift(data);
-        x.sheet = { mode: "saved", id: data.id }; x.cmp = null; E.open = null; E.preview = null;
+        x.sheet = { mode: "saved", id: data.id }; x.cmp = null; E.preview = null;
         if (E.up) await checkSame(E);
         persist(); redrawList();
         document.querySelectorAll(".toast").forEach((t) => t.remove());
@@ -2152,7 +2282,7 @@
         $(".ce-pdf", el)?.scrollIntoView({ block: "start" });
       } catch (err) { toast(err.message || "PDF를 읽지 못했어요", 4000); }
     }
-    async function submit(publish, btn, sheetsSave = false) {
+    async function submit(publish, btn, sheetsSave = false, opt = {}) {
       if (!E.items.length && publish) return toast("곡을 하나 이상 넣어 주세요");
       const plan = E.up ? planSheets(E) : [];
       if (publish && plan.some((p) => p.state === "ask")) { $("#ceSum", el)?.scrollIntoView({ block: "center" }); return toast("달라 보이는 악보를 새로 저장할지 먼저 골라 주세요", 4000); }
@@ -2220,6 +2350,8 @@
         if (window.HISTORY) HISTORY.reset();
         toast(msg, 4000);
         closeLayer();
+        // v34.2: 확인 창에서 '카톡 콘티 문구도 복사'를 켜 두면 올린 콘티로 복사 창을 바로 열어요
+        if (publish && opt.copy && !(E.past || data.past)) { try { copyPop(await loadOne(sid)); } catch {} }
       } catch (err) { toast(err.message || "저장하지 못했어요", 5000); btn.disabled = false; btn.textContent = label; }
     }
     return el;

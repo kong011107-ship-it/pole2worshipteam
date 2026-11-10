@@ -127,7 +127,7 @@
     new MutationObserver(() => placeThumb(bar)).observe(bar, { subtree: true, attributes: true, attributeFilter: ["aria-pressed", "class", "hidden"], childList: true });
     segs.add(bar);
   }
-  //  하단 탭: .on 버튼 위로 옅은 알약이 움직여요
+  //  하단 탭: .on 버튼 칸 전체를 옅은 보라 칸이 덮고 움직여요
   function placeInd(box) {
     const ind = box.querySelector(":scope > .u-ind"); if (!ind) return;
     const on = box.querySelector(":scope > .on");

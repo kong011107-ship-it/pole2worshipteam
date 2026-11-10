@@ -2518,10 +2518,10 @@ body { background: var(--background); font-size: var(--fs-body); }
 .tabbar a, .tabbar button { position: relative; z-index: 1; color: var(--muted-foreground); font-size: var(--fs-cap); font-weight: var(--fw-m); gap: 3px; transition: color var(--d1); }
 .tabbar svg { width: 22px; height: 22px; }
 .tabbar .on { color: var(--primary); font-weight: var(--fw-s); }
-/* 선택 표시(움직이는 알약): ui.js가 .u-ind를 넣어요 */
-.u-ind { position: absolute; top: 4px; left: 0; height: 30px; display: flex; justify-content: center; pointer-events: none; z-index: 0;
+/* 선택 표시(칸 전체를 옅은 보라로 · B안): ui.js가 .u-ind를 넣어요 */
+.u-ind { position: absolute; top: 0; bottom: 0; left: 0; padding: 0 3px; display: flex; justify-content: center; pointer-events: none; z-index: 0;
   transition: transform 240ms var(--e-out), width var(--d2) var(--e-out); }
-.u-ind i { width: 56px; height: 30px; border-radius: 15px; background: var(--accent); }
+.u-ind i { flex: 1; max-width: 120px; border-radius: var(--radius); background: var(--accent); }
 
 .m-subnav { background: rgba(255, 255, 255, .96); padding: 10px 16px 8px; }
 .segbar, .u-seg { position: relative; display: inline-flex; background: var(--muted-bg); border: 0; border-radius: var(--radius); padding: 3px; overflow: visible; gap: 0; }
@@ -2892,3 +2892,212 @@ body { background: var(--background); font-size: var(--fs-body); }
 .shv-body .cv-bpm { min-height: 24px; font-size: 11px; }
 .shv-body .u-b, .shv-body .u-ar { transition: none; }
 .shv-body .u-b:active, .shv-body .u-ar:active { transform: none; }
+
+/* =====================================================================
+   v34.2 콘티 쓰기 · 고치기 (목업 '콘티 쓰기 · 고치기') — 요약 카드 · 곡 줄 펼침(탭) · 이어서 부르기 · 곡 추가(함께 부른 곡) · 악보 한 번에 · 올리기 전 확인
+   ce2- 접두어. 예전 .ce-row 격자는 .cv-editor 안에서 덮어써요. 데이터 속성(data-ce · data-f)은 예전 그대로
+   ===================================================================== */
+.cv-editor { background: #FBFAFD; }
+.cv-editor .ce-top { gap: 8px; }
+/* 예전 휴대폰 격자(grid-area: g · n · t · k …)가 새 줄에 걸리지 않게 */
+.cv-editor .ce2-hd > *, .cv-editor .ce2-det .ce-bpm, .cv-editor .ce2-det .ce-tm, .cv-editor .ce2-det .ce-key { grid-area: auto; }
+.cv-editor .ce-top > .ce2-saved { flex-direction: row; align-items: center; }
+.ce2-saved { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); white-space: nowrap; }
+.ce2-saved[hidden] { display: none; }
+.ce2-saved i { width: 6px; height: 6px; border-radius: 3px; background: var(--ok); }
+.ce2-saved em { font-style: normal; font-variant-numeric: tabular-nums; }
+.cv-editor .ce-body { max-width: 760px; padding: 16px 16px 32px; gap: 14px; }
+.ce2-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 1px 2px rgba(23, 9, 46, .05); display: flex; flex-direction: column; min-width: 0; }
+.ce2-ch { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 10px; }
+.ce2-ch b { font-size: var(--fs-card, 15px); font-weight: 600; }
+.ce2-ch small { font-size: 12px; color: var(--muted-foreground); }
+.ce2-note { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--secondary); font-size: 12px; color: var(--primary); }
+.ce2-note b { font-weight: 600; }
+/* 위 요약 */
+.ce2-sum { padding: 14px 16px; gap: 10px; }
+.ce2-dl { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted-foreground); }
+.ce2-dl b { color: var(--foreground); font-weight: 600; }
+.ce2-dl em { font-style: normal; font-weight: 500; }
+.ce2-dl em.warn { color: var(--warn); } .ce2-dl em.bad { color: var(--bad); }
+.ce2-rt { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ce2-rt b { font-size: 24px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ce2-rt > span:not(.chip) { font-size: 13px; color: var(--muted-foreground); }
+.ce2-rt .chip { margin-left: auto; align-self: center; }
+.cv-editor .chip-bad { background: #FBE7E5; color: #B3261E; }
+.ce2-bar { height: 8px; border-radius: 999px; background: #E9E0F4; overflow: hidden; }
+.ce2-bar i { display: block; height: 100%; border-radius: 999px; background: var(--primary); transition: width 240ms var(--e-out); }
+.ce2-bar i.over { background: #C2352B; }
+.ce2-meta { font-size: 12px; color: var(--muted-foreground); }
+.ce2-meta .linkbtn { font-size: 12px; padding: 2px 4px; margin: 0 -4px; }
+.ce2-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.ce2-ck { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font: inherit; font-size: 12px; font-weight: 500; color: var(--foreground); }
+.ce2-ck svg { width: 14px; height: 14px; }
+.ce2-ck.ok svg { color: var(--ok); }
+.ce2-ck.need { border-color: #F2C9A8; background: #FFF8F1; color: #A3420A; }
+.ce2-ck.opt svg { color: var(--muted-foreground); }
+button.ce2-ck { cursor: pointer; transition: transform var(--d1) var(--e-out), background-color var(--d1); }
+button.ce2-ck:active { transform: scale(.97); }
+/* 곡 줄 */
+.cv-editor .ce2-list { padding: 0 8px 8px; gap: 0; }
+.ce2-empty { margin: 4px 8px 8px; }
+.cv-editor .ce-row.ce2-it { display: block; padding: 0; border: 0; background: none; }
+.cv-editor .ce-row.ce2-it.drag { position: relative; z-index: 5; }
+.cv-editor .ce-row.ce2-it.drag .ce2-box { background: #fff; box-shadow: 0 8px 24px rgba(23, 9, 46, .18); }
+.ce2-conn { position: relative; display: flex; align-items: center; height: 16px; padding-left: 52px; }
+.ce2-conn::before { content: ""; position: absolute; left: 46px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.ce2-cb { position: relative; height: 16px; padding: 0 6px; border-radius: 999px; border: 0; background: #fff; font: inherit; font-size: 10.5px; font-weight: 500; color: #A39BB4;
+  display: inline-flex; align-items: center; gap: 3px; line-height: 1; cursor: pointer; transition: color var(--d1), background-color var(--d1); }
+.ce2-cb::before { content: ""; position: absolute; inset: -10px -6px; }
+.ce2-cb svg { width: 11px; height: 11px; }
+.ce2-cb:hover { color: var(--primary); background: var(--accent); }
+.ce2-cb.on { background: var(--secondary); color: var(--primary); }
+.ce2-cb:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(134, 84, 203, .45); }
+.ce2-box { border-radius: 12px; border: 1px solid transparent; transition: background-color 160ms, border-color 160ms, box-shadow 160ms; }
+.ce-row.open > .ce2-box { border-color: var(--border); background: #fff; box-shadow: 0 4px 12px -4px rgba(23, 9, 46, .08); }
+.ce-row.join > .ce2-box { margin-left: 22px; }
+.ce2-hd { display: grid; grid-template-columns: 20px 28px minmax(0, 1fr) auto auto auto 20px; gap: 10px; align-items: center; min-height: 56px; padding: 6px 8px;
+  border-radius: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color var(--d1); }
+.ce2-hd:hover { background: var(--muted-bg); }
+.ce-row.open .ce2-hd:hover { background: transparent; }
+.ce2-hd:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(134, 84, 203, .45); }
+.cv-editor .ce2-hd .ce-grip { height: 32px; color: #B4ABC4; }
+.cv-editor .ce2-hd .ce-grip svg { width: 16px; height: 16px; }
+.cv-editor .ce2-hd .cv-sn { width: 28px; height: 28px; box-sizing: border-box; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--muted-foreground); font-size: 12px; font-weight: 600; }
+.cv-editor .ce2-hd .cv-sn.j { background: var(--secondary); border-color: transparent; color: var(--primary); }
+.cv-editor .ce2-hd .ce-t { line-height: 1.35; }
+.cv-editor .ce2-hd .ce-t b { font-size: 14px; font-weight: 500; }
+.cv-editor .ce2-hd .ce-t small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted-foreground); }
+.ce2-key { min-width: 34px; height: 28px; box-sizing: border-box; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; background: #fff; white-space: nowrap; }
+.ce2-key.diff::after { content: "*"; color: var(--primary); margin-left: 1px; }
+.ce2-dur { font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+.ce2-ics { display: flex; gap: 4px; }
+.ce2-ics > span { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; background: #E3F3EB; color: #1F7A55; }
+.ce2-ics > span.no { background: #FFF1E6; color: #A3420A; }
+.ce2-ics > span.off { background: var(--muted-bg); color: #B4ABC4; }
+.ce2-ics svg { width: 13px; height: 13px; }
+.ce2-chev { display: flex; width: 16px; height: 16px; color: var(--muted-foreground); transition: transform var(--d2) var(--e-out); }
+.ce2-chev svg { width: 16px; height: 16px; }
+.ce-row.open .ce2-chev { transform: rotate(180deg); }
+/* 펼침 */
+.ce2-det { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 12px; animation: ce2in var(--d2) var(--e-out) both; }
+@keyframes ce2in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.cv-editor .ce2-tabs { display: flex; width: 100%; box-sizing: border-box; }
+.cv-editor .ce2-tabs button { flex: 1; min-width: 0; padding: 0 6px; }
+.ce2-fl { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; }
+.ce2-lb { font-size: 12px; font-weight: 500; color: var(--foreground); }
+.ce2-lb small { font-size: 12px; font-weight: 400; color: var(--muted-foreground); }
+.ce2-keys { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; }
+.ce2-keys button { height: 38px; padding: 0; border-radius: 8px; border: 1px solid var(--border); background: #fff; font: inherit; font-size: 13px; font-weight: 600; color: var(--foreground); cursor: pointer;
+  transition: transform var(--d1) var(--e-out), background-color var(--d1), color var(--d1); }
+.ce2-keys button:hover { background: var(--accent); }
+.ce2-keys button:active { transform: scale(.97); }
+.ce2-keys button[aria-pressed=true] { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ce2-kl { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted-foreground); }
+.cv-editor .ce2-kin { width: 130px; min-height: 36px; font-size: 16px; font-weight: 500; text-align: left; padding: 0 10px; border-color: var(--input); }
+.ce2-sw { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; cursor: pointer; }
+.ce2-sw .tx { display: flex; flex-direction: column; min-width: 0; }
+.ce2-sw b { font-size: 13px; font-weight: 500; }
+.ce2-sw small { font-size: 12px; color: var(--muted-foreground); }
+.ce2-tog { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 40px; height: 24px; margin: 0; border: 0; border-radius: 12px; background: #DCD2EC; cursor: pointer; transition: background-color 160ms; }
+.ce2-tog::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 9px; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); transition: transform 160ms var(--e-out); }
+.ce2-tog:checked { background: var(--primary); }
+.ce2-tog:checked::after { transform: translateX(16px); }
+.ce2-tog:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(134, 84, 203, .45); }
+.ce2-g2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cv-editor .ce2-det .ce-bpm { flex-direction: row; gap: 6px; }
+.cv-editor .ce2-det .ce-bpm input { flex: 1; min-width: 0; min-height: 40px; font-size: 16px; font-weight: 500; border-color: var(--input); }
+.cv-editor .ce2-det .ce-bpm select { width: 84px; flex: none; min-height: 40px; border: 1px solid var(--input); border-radius: 8px; background: #fff; font-size: 14px; font-weight: 500; color: var(--foreground); }
+.cv-editor .ce2-det .input { min-height: 40px; font-size: 16px; }
+.ce2-tm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted-foreground); }
+.ce2-tm > svg { width: 16px; height: 16px; }
+.ce2-tm b { color: var(--foreground); font-weight: 600; }
+.cv-editor .ce2-tm .ce-tm { flex-direction: row; align-items: center; gap: 6px; }
+.cv-editor .ce2-tm .ce-tm input { width: 72px; min-height: 36px; font-size: 16px; font-weight: 600; }
+.ce2-tm small { font-size: 11px; }
+.ce2-mdl { background: var(--secondary); border-color: transparent; color: var(--primary); }
+.ce2-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-top: 2px; }
+.ce2-acts .sp { flex: 1; }
+.ce2-acts .u-b svg { width: 16px; height: 16px; }
+.cv-editor .ce2-rm { color: #B3261E; }
+.cv-editor .ce2-rm:hover { background: #FBE7E5; }
+.ce2-cur { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius); background: var(--muted-bg); }
+.ce2-cn { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; }
+.ce2-cn b { font-weight: 600; } .ce2-cn small { font-size: 12px; color: var(--muted-foreground); }
+.ce2-cur .u-b svg { width: 14px; height: 14px; }
+.cv-editor .ce2-det .ce-shlist { border-color: var(--border); }
+/* 곡 추가 · 함께 부른 곡 */
+.ce2-srch { padding: 4px 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+.ce2-sbox { position: relative; }
+.ce2-sbox > svg { position: absolute; left: 12px; top: 14px; width: 16px; height: 16px; color: var(--muted-foreground); pointer-events: none; }
+.cv-editor .ce2-sbox .input { padding-left: 36px; min-height: 44px; font-size: 16px; }
+.cv-editor .ce2-srch .ce-drop { position: static; display: flex; flex-direction: column; gap: 6px; max-height: none; overflow: visible; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.ce2-lab { font-size: 12px; font-weight: 500; color: var(--muted-foreground); padding: 4px 2px 0; }
+.cv-editor .ce2-srch .ce-orow { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
+.cv-editor .ce2-srch .ce-orow > .ce-o { flex: 1; min-width: 0; padding: 6px 0; border: 0; background: none; }
+.cv-editor .ce2-srch .ce-orow > .ce-o:hover { background: none; }
+.cv-editor .ce2-srch .ce-o b { font-weight: 500; font-size: 14px; }
+.cv-editor .ce2-srch .ce-oplay { margin: 0; width: 64px; height: 36px; }
+.cv-editor .ce2-srch .ce-orow > .ce-oprev { margin: 0; }
+.ce-oadd { flex: none; width: 36px; height: 36px; border-radius: var(--radius); border: 0; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: transform var(--d1) var(--e-out), background-color var(--d1); }
+.ce-oadd:hover { background: #4F1A94; }
+.ce-oadd:active { transform: scale(.97); }
+.ce-oadd svg { width: 16px; height: 16px; }
+.cv-editor .ce2-srch .ce2-new { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px dashed var(--input); border-radius: var(--radius); background: #fff; font-size: 13px; color: var(--muted-foreground); }
+.ce2-new svg { width: 16px; height: 16px; }
+.cv-editor .ce2-srch .ce-pvbox { margin: -2px 0 2px; }
+/* 악보 한 번에 */
+.ce2-bk, .cv-editor details.ce-pdf > summary { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.ce2-ic { flex: none; width: 36px; height: 36px; border-radius: 9px; background: var(--muted-bg); display: flex; align-items: center; justify-content: center; color: var(--foreground); }
+.ce2-ic svg { width: 18px; height: 18px; }
+.ce2-bk .tx, .cv-editor details.ce-pdf > summary .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ce2-bk .tx b, .cv-editor details.ce-pdf > summary .tx b { font-size: 14px; font-weight: 500; }
+.ce2-bk .tx small, .cv-editor details.ce-pdf > summary .tx small { font-size: 12px; color: var(--muted-foreground); font-weight: 400; }
+.cv-editor details.ce-pdf { margin: 0; padding: 0; border: 0; border-radius: 0 0 14px 14px; background: none; box-shadow: none; display: flex; flex-direction: column; gap: 10px; }
+.cv-editor details.ce-pdf > summary { list-style: none; cursor: pointer; }
+.cv-editor details.ce-pdf > summary::-webkit-details-marker { display: none; }
+.cv-editor details.ce-pdf > summary b::before { content: none; }
+.cv-editor details.ce-pdf > summary { flex-wrap: nowrap; justify-content: flex-start; align-items: center; }
+.cv-editor details.ce-pdf > summary small { font-weight: 400; }
+.cv-editor details.ce-pdf[open] > summary .ce2-op { visibility: hidden; }
+.cv-editor details.ce-pdf > :not(summary) { margin-left: 16px; margin-right: 16px; }
+.cv-editor details.ce-pdf[open] { padding-bottom: 14px; }
+/* 아래 막대 */
+.cv-editor .ce-bar { gap: 10px; padding: 12px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom)); background: rgba(255, 255, 255, .97); border-top-color: var(--border); }
+.cv-editor .ce-who { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; color: var(--muted-foreground); line-height: 1.35; }
+.cv-editor .ce-who small { font-size: 11px; }
+.cv-editor .ce-bare { color: #A3420A; font-weight: 600; }
+.ce2-lg { height: 44px; padding: 0 18px; font-size: 14px; }
+/* 올리기 전 확인 */
+.ce2-cls { display: flex; flex-direction: column; }
+.ce2-cl { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.ce2-cl:first-child { border-top: 0; }
+.ce2-cl > svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.ce2-cl.ok > svg { color: var(--ok); } .ce2-cl.need > svg { color: #A3420A; } .ce2-cl.opt > svg { color: var(--muted-foreground); }
+.ce2-cl small { display: block; font-size: 12px; color: var(--muted-foreground); }
+.ce2-chk { display: flex; align-items: center; gap: 10px; padding: 10px 0 4px; font-size: 13px; cursor: pointer; }
+.ce2-chk input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+.ce2-dacts { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; }
+.ce2-pub .u-shh > [data-u-close] { display: none; }   /* 아래 '취소'와 겹쳐서 · 배경 · Esc로도 닫혀요 */
+@media (max-width: 699px) {
+  .cv-editor .ce-body { padding: 12px 10px 28px; }
+  .cv-editor .ce2-list { padding: 0 4px 8px; }
+  .ce2-hd { grid-template-columns: 18px 26px minmax(0, 1fr) auto auto 16px; gap: 8px; padding: 6px; }
+  .cv-editor .ce2-hd .cv-sn { width: 26px; height: 26px; }
+  .ce2-dur { display: none; }
+  .ce2-conn { padding-left: 44px; } .ce2-conn::before { left: 38px; }
+  .ce2-cb span { display: none; }
+  .ce-row.join > .ce2-box { margin-left: 14px; }
+  .ce2-det { padding: 4px 10px 12px; }
+  .ce2-keys { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .ce2-g2 { grid-template-columns: 1fr; }
+  .ce2-saved .l { display: none; }
+  .ce2-srch { padding: 4px 12px 12px; }
+  .cv-editor .ce2-srch .ce-oplay { display: none; }
+  .ce2-dacts .u-b { flex: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ce2-det { animation: none; }
+  .ce2-chev, .ce2-bar i, .ce2-tog, .ce2-tog::after, .ce2-box, .ce2-keys button, .ce-oadd, button.ce2-ck { transition: none; }
+}
