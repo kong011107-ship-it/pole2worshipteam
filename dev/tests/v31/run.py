@@ -37,12 +37,20 @@ async def page(p, mobile=False, ua=None, w=None):
 HIST = """window.HISTORY.load = async () => ({ songs: [
   { id: 1, count: 12, last: '2026-10-25', refs: [['AAAAAAAAAAA', 8, '', 30, '2026-10-25'], ['BBBBBBBBBBB', 3, '', 0, '2025-06-01']] },
   { id: 2, count: 2, last: '2026-09-01', refs: [] } ], plays: [] }); 0;"""
+# v34.2: 콘티 쓰기 — 함께 부른 곡 추천용 기록(plays)을 더한 것 (다른 시험은 HIST 그대로)
+HISTE = HIST.replace("plays: [] }", """plays: [['2026-10-25', 1, 1, '은혜', 'G', [], 0, null], ['2026-10-25', 2, 2, '주님의 마음', 'A', [], 0, null], ['2026-09-01', 1, 1, '은혜', 'G', [], 0, null], ['2026-09-01', 2, 2, '주님의 마음', 'A', [], 0, null], ['2026-08-01', 1, 3, '예수 피를 힘입어', 'D', [], 0, null], ['2026-08-01', 2, 1, '은혜', 'G', [], 0, null]] }""")
+# v34.2: 곡 줄을 펼치고 탭 고르기
+async def open_row(pg, i, tab):
+    r = pg.locator(".ce-row").nth(i)
+    if await r.locator(".ce2-det").count() == 0: await r.locator(".ce2-hd").click(); await pg.wait_for_timeout(250)
+    await r.locator(f'[data-ce="tab"][data-tab="{tab}"]').click(); await pg.wait_for_timeout(400)
+    return r
 
 async def editor_tests(p):
     print("== 콘티 쓰기: 악보 없이 올리기 · 레퍼런스")
     b, pg = await page(p)
     await pg.goto(BASE + "/dev/tests/v31/harness.html"); await pg.wait_for_timeout(500)
-    await pg.evaluate(HIST)
+    await pg.evaluate(HISTE)
     dialogs = []
     pg.on("dialog", lambda d: dialogs.append(d.message))
     await pg.evaluate("CONTI.openEditor('s1')"); await pg.wait_for_timeout(800)
@@ -51,10 +59,20 @@ async def editor_tests(p):
     await pg.click(".ce-oplay"); await pg.wait_for_timeout(300)
     src = await pg.get_attribute(".ytp iframe", "src") or ""
     check("embed/AAAAAAAAAAA" in src and "start=30" in src and "autoplay=1" in src, "넣기 전 미리 보기 = 앱 안 재생 " + src[:90])
-    check(await pg.locator("[data-add]").count() == 1, "미리 보기를 눌러도 곡은 안 들어감")
+    check(await pg.locator(".ce-row").count() == 0, "미리 보기를 눌러도 곡은 안 들어감")
     await pg.click(".ytp-x"); await pg.wait_for_timeout(200)
     check(await pg.locator(".ytp").count() == 0, "닫기")
     await pg.click("[data-add='1']"); await pg.wait_for_timeout(700)
+    # v34.2: 줄은 접혀 있고 (번호 · 제목 · 키 · 시간 · 상태 아이콘), 누르면 탭
+    check(await pg.locator(".ce-row .ce2-hd").count() == 1 and await pg.locator(".ce-row .ce2-det").count() == 0, "곡 줄은 접혀서 들어감")
+    check((await pg.inner_text(".ce-row .ce2-key")).strip() == "G" and await pg.locator(".ce-row .ce2-ics .no").count() == 1, "줄에 키 · 악보 없음 아이콘")
+    # 함께 부른 곡 추천 (곡 추가 칸이 비어 있으면)
+    lab = await pg.inner_text("#ceDrop .ce2-lab") if await pg.locator("#ceDrop .ce2-lab").count() else ""
+    sug = [x.strip() for x in await pg.locator("#ceDrop .ce-o b").all_text_contents()]
+    check("자주 같이 부른 곡" in lab and sug == ["주님의 마음", "예수 피를 힘입어"], f"함께 부른 곡 추천 (많이 같이 부른 순 · 넣은 곡 빼고) {sug}")
+    sub = await pg.locator("#ceDrop .ce-o small").first.inner_text()
+    check("'은혜'와 2번 같이" in sub, "추천 이유 " + sub)
+    await open_row(pg, 0, "ref")
     chip = pg.locator(".ce-row .ce-refchip")
     check(await chip.count() == 1, "곡 줄에 레퍼런스 칩")
     txt = await chip.inner_text()
@@ -65,7 +83,6 @@ async def editor_tests(p):
     check("마커스워십" in await pg.inner_text(".ytp-hd"), "재생 창에 제목")
     await pg.keyboard.press("Escape"); await pg.wait_for_timeout(200)
     check(await pg.locator(".ytp").count() == 0, "Esc로 닫기")
-    await pg.click("[data-ce='more']"); await pg.wait_for_timeout(600)
     cards = pg.locator(".ce-rc")
     check(await cards.count() == 2, "후보 영상 카드 2개")
     t2 = await cards.nth(1).inner_text()
@@ -82,15 +99,76 @@ async def editor_tests(p):
     await pg.click("[data-add='2']"); await pg.wait_for_timeout(600)
     bar = await pg.inner_text("#ceBar")
     check("악보 없는 곡 2곡" in bar, "올리기 위에 '악보 없는 곡 N곡' " + bar.replace("\n", " "))
+    sug = [x.strip() for x in await pg.locator("#ceDrop .ce-o b").all_text_contents()]
+    check(sug == ["예수 피를 힘입어"], f"이미 넣은 곡은 추천에서 빠짐 {sug}")
+    # 위 요약: 확인 칩
+    cks = await pg.inner_text(".ce2-checks")
+    check("곡 2" in cks and "키 2/2" in cks and "악보 없는 곡 2" in cks and "BPM 0/2" in cks, "확인 칩 " + cks.replace("\n", " "))
+    await pg.click("[data-ce='jump-sheet']"); await pg.wait_for_timeout(400)
+    check(await pg.locator('.ce-row[data-i="0"] [data-ce="tab"][data-tab="sheet"][aria-pressed="true"]').count() == 1, "'악보 없는 곡' 칩 → 그 곡 악보 탭")
+    # 기본 탭: 키 단추 · 위로/아래로 · 이어서 부르기
+    r1 = await open_row(pg, 1, "basic")
+    check(await r1.locator(".ce2-keys button").count() == 12, "키 단추 12개")
+    await r1.locator('[data-ce="key"][data-k="Bb"]').click(); await pg.wait_for_timeout(300)
+    check((await pg.locator(".ce-row").nth(1).locator(".ce2-key").inner_text()).strip() == "Bb", "키 단추 → 줄 키 바로 바뀜")
+    await pg.locator(".ce-row").nth(1).locator('[data-ce="up"]').click(); await pg.wait_for_timeout(300)
+    names = [x.strip() for x in await pg.locator(".ce-row .ce-t b").all_text_contents()]
+    check(names == ["주님의 마음", "은혜"] and await pg.locator('.ce-row[data-i="0"].open').count() == 1, f"위로 → 순서 바뀌고 펼친 채로 {names}")
+    await pg.locator(".ce-row").nth(1).locator('[data-ce="join"]').click(); await pg.wait_for_timeout(300)
+    sn = [x.strip() for x in await pg.locator(".ce-row .cv-sn").all_text_contents()]
+    check(sn == ["1", "+"] and "이어짐" in await pg.locator(".ce-row").nth(1).locator(".ce2-cb").inner_text(), f"이어서 부르기 → 앞 번호 아래로 {sn}")
+    await pg.locator(".ce-row").nth(1).locator('[data-ce="join"]').click(); await pg.wait_for_timeout(300)
+    await pg.locator(".ce-row").nth(0).locator('[data-ce="down"]').click(); await pg.wait_for_timeout(300)
+    names = [x.strip() for x in await pg.locator(".ce-row .ce-t b").all_text_contents()]
+    check(names == ["은혜", "주님의 마음"], f"끊고 아래로 → 처음 순서 {names}")
+    await r1.locator('[data-ce="key"][data-k="A"]').click() if await r1.locator('[data-ce="key"][data-k="A"]').count() else None
+    await pg.wait_for_timeout(200)
+    saved_at = await pg.locator("#ceSaved:not([hidden]) em").inner_text() if await pg.locator("#ceSaved:not([hidden])").count() else ""
+    check(re.match(r"\d\d:\d\d", saved_at or ""), "위 막대 '이 기기에 자동 저장 · 시각' " + saved_at)
     await pg.screenshot(path="/tmp/v31_editor.png")
-    await pg.click("[data-ce='publish']"); await pg.wait_for_timeout(900)
-    check(not dialogs, f"확인 창 없이 올라감 {dialogs}")
+    await pg.click("[data-ce='publish']"); await pg.wait_for_timeout(400)
+    # v34.2: 올리기 전 확인 창 (곡 · RT · 키 · 악보 없는 곡 · BPM · 카톡 문구 복사)
+    dlg = await pg.inner_text(".ce2-pub") if await pg.locator(".ce2-pub").count() else ""
+    check("올리기 전에 확인" in dlg and "곡 2개" in dlg and "악보 없는 곡 2곡" in dlg and "BPM 0/2" in dlg and "카톡" in dlg, "올리기 전 확인 창 " + dlg.replace("\n", " ")[:120])
+    calls0 = await pg.evaluate("CALLS.filter(c => c.kind === 'rpc' && c.name === 'save_setlist').length")
+    check(calls0 == 0, "확인 창에서는 아직 안 올라감")
+    await pg.click("[data-pub='go']"); await pg.wait_for_timeout(1200)
+    check(not dialogs, f"브라우저 확인 창 없음 {dialogs}")
+    check(await pg.locator(".cp-modal").count() == 1, "올린 뒤 카톡 복사 창 (기본 켜짐)")
     calls = await pg.evaluate("CALLS.filter(c => c.kind === 'rpc' && c.name === 'save_setlist')")
     check(len(calls) == 1 and calls[0]["args"]["p_publish"] is True, "save_setlist 올리기")
     its = calls[0]["args"]["p_data"]["items"] if calls else []
     check(len(its) == 2 and all(not x.get("sheet_id") and not x.get("new_sheet") for x in its), "두 곡 모두 악보 없이")
     check(its and its[0]["refs"][0][0] == "BBBBBBBBBBB", "바꾼 레퍼런스로 저장")
     check(any(a.get("action") == "notify" for a in pg.api), "올리기 알림 호출")
+    check(not pg.errs, f"오류 없음 {pg.errs}")
+    await b.close()
+
+async def draft_tests(p):
+    print("== v34.2: 개편 전에 이 기기에 쓰던 내용(임시 저장 데이터) 그대로 읽기")
+    b, pg = await page(p)
+    await pg.goto(BASE + "/dev/tests/v31/harness.html"); await pg.wait_for_timeout(400)
+    await pg.evaluate(HISTE)
+    # v33 편집기가 남긴 모양 그대로 (base = 콘티 버전 · 없으면 null)
+    await pg.evaluate("""(() => { const it = (o) => Object.assign({ medley: false, join: false, medley_id: null, medley_title: null, diff: false, refs: [], dur: null, src: null, memo: '', sheet: { mode: 'none' }, page_from: null, page_to: null, bpm: null, meter: null, bpm0: null, meter0: null }, o);
+      localStorage.setItem('pole2.conti.draft.s1', JSON.stringify({ base: (window.FIX.setlist && window.FIX.setlist.version) ?? null, target: 1500, at: Date.now() - 60000,
+        items: [it({ song_id: 1, title: '은혜', key: 'A', diff: true, dur: 300, src: 'manual', memo: '옛 메모' }), it({ song_id: 2, title: '주님의 마음', key: 'B', join: true, dur: 0, src: 'medley' }), it({ song_id: 3, title: '예수 피를 힘입어', key: 'D', bpm: 72, meter: '4/4', sheet: { mode: 'new', name: '인도자 D' } })] })); })()""")
+    await pg.evaluate("CONTI.openEditor('s1')"); await pg.wait_for_timeout(900)
+    check(await pg.locator(".ce-restored").count() == 1, "'이 기기에서 쓰던 내용을 불러왔어요'")
+    names = [x.strip() for x in await pg.locator(".ce-row .ce-t b").all_text_contents()]
+    sn = [x.strip() for x in await pg.locator(".ce-row .cv-sn").all_text_contents()]
+    keys = [x.strip() for x in await pg.locator(".ce-row .ce2-key").all_text_contents()]
+    check(names == ["은혜", "주님의 마음", "예수 피를 힘입어"] and sn == ["1", "+", "2"] and keys == ["A", "B", "D"], f"곡 · 메들리 묶음 · 키 그대로 {names} {sn} {keys}")
+    check("옛 메모" in await pg.locator(".ce-row").nth(0).inner_text() and await pg.locator(".ce-row").nth(0).locator(".ce2-key.diff").count() == 1, "메모 · 키 다름(*) 그대로")
+    check("25:00" in await pg.inner_text(".ce2-rt") and await pg.locator(".ce-row").nth(2).locator(".ce2-ics span:not(.off)").count() == 2, "목표 RT · BPM 그대로")
+    r = await open_row(pg, 2, "sheet")
+    check(await r.locator("input[data-f=sheetname]").input_value() == "인도자 D", "'새 악보로 저장' 이름 그대로")
+    check(await pg.locator("#ceSaved:not([hidden])").count() == 1, "자동 저장 시각 보임")
+    await pg.click("[data-ce='save']"); await pg.wait_for_timeout(600)
+    calls = await pg.evaluate("CALLS.filter(c => c.kind === 'rpc' && c.name === 'save_setlist')")
+    its = calls[-1]["args"]["p_data"]["items"] if calls else []
+    check(len(its) == 3 and its[0]["memo"] == "옛 메모" and its[0]["diff_key"] is True and its[0]["duration_sec"] == 300 and its[1]["join_prev"] is True and its[2]["bpm"] == 72 and calls[-1]["args"]["p_publish"] is False,
+          f"임시 저장도 예전 내용 그대로 {its[:1]}")
     check(not pg.errs, f"오류 없음 {pg.errs}")
     await b.close()
 
@@ -326,7 +404,7 @@ async def main():
     time.sleep(1)
     try:
         async with async_playwright() as p:
-            for t in [editor_tests, band_tests, ios_tests, backup_tests, ink_tests, links_tests]:
+            for t in [editor_tests, draft_tests, band_tests, ios_tests, backup_tests, ink_tests, links_tests]:
                 try: await t(p)
                 except Exception as e: check(False, f"{t.__name__} 예외: {e}")
     finally: srv.kill()
