@@ -38,14 +38,15 @@ async def editor(p):
         await pg.fill("#ceQ", q); await pg.wait_for_timeout(300)
         await pg.click(f"[data-add='{sid}']"); await pg.wait_for_timeout(600)
     R.check(await pg.locator(".ce-row").count() == 2, "곡 2개")
-    durs = await pg.locator(".ce-row [data-f='dur']").evaluate_all("(xs) => xs.map((x) => x.value)")
-    R.check(durs == ["", ""], f"따로 넣으면 메들리에서만 부른 곡이라 실연주 시간 없음 {durs}")
-    await pg.locator(".ce-row").nth(1).locator("[data-ce='more']").click(); await pg.wait_for_timeout(400)
-    await pg.locator(".ce-row").nth(1).locator("[data-f='join']").check(); await pg.wait_for_timeout(600)
+    durs = [x.strip() for x in await pg.locator(".ce-row .ce2-dur").all_text_contents()]   # v34.2: 접힌 줄의 시간
+    R.check(durs == ["–", "–"], f"따로 넣으면 메들리에서만 부른 곡이라 실연주 시간 없음 {durs}")
+    await pg.locator(".ce-row").nth(1).locator("[data-ce='join']").click(); await pg.wait_for_timeout(600)   # v34.2: 곡 사이 '이어서 부르기'
     head = pg.locator(".ce-row").first
+    await head.locator(".ce2-hd").click(); await pg.wait_for_timeout(300)
     v = await head.locator("[data-f='dur']").input_value()
     R.check(v == "7:10" and "실연주" in await head.locator(".ce-src").inner_text(), f"이어서 켜면 묶음 시간 = 메들리 실연주 7:10 (출처 '실연주') {v}")
-    await pg.click("[data-ce='publish']"); await pg.wait_for_timeout(900)
+    await pg.click("[data-ce='publish']"); await pg.wait_for_timeout(400)
+    await pg.locator(".ce2-pub [data-pub-copy]").uncheck(); await pg.click("[data-pub='go']"); await pg.wait_for_timeout(900)   # v34.2: 올리기 전 확인
     calls = await pg.evaluate("CALLS.filter(c => c.kind === 'rpc' && c.name === 'save_setlist')")
     its = calls[-1]["args"]["p_data"]["items"] if calls else []
     R.check(len(its) == 2 and its[0].get("duration_sec") == 430 and its[0].get("duration_src") == "live" and its[1].get("duration_src") == "medley", f"저장: 머리 430 'live' · 뒤 곡 'medley' {[(i.get('duration_sec'), i.get('duration_src')) for i in its]}")
