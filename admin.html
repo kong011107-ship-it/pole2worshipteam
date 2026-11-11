@@ -5,75 +5,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#410A85">
   <title>관리 · Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=37" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=37" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=37" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=38" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=38" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=38" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=37">
-  <link rel="stylesheet" href="assets/ui.css?v=37">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=38">
+  <link rel="stylesheet" href="assets/ui.css?v=38">
 </head>
-<body>
-<div class="shell">
-  <aside class="side">
-    <div class="side-top"><img src="assets/logo-violet.png" alt="Pole2"><a href="me.html" class="switch-btn">팀원 화면</a></div>
-    <nav aria-label="관리 메뉴">
-      <a href="#dashboard" data-nav="dashboard">대시보드</a>
-      <div class="nav-sec" data-sec="people">
-        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-people"><span>사람</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        <div class="nav-items" id="navSec-people"><div>
-          <a href="#members" data-nav="members">멤버</a>
-          <a href="#pipeline" data-nav="pipeline">모집·수습 <span class="badge-count hidden" id="todoCount"></span></a>
-          <a href="#forecast" data-nav="forecast">인원 전망</a>
-        </div></div>
-      </div>
-      <div class="nav-sec" data-sec="serve">
-        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-serve"><span>섬김</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        <div class="nav-items" id="navSec-serve"><div>
-          <a href="#schedule" data-nav="schedule">섬김 일정·응답</a>
-          <a href="#lineup" data-nav="lineup">배치표</a>
-          <a href="#attendance" data-nav="attendance">출석</a>
-        </div></div>
-      </div>
-      <div class="nav-sec" data-sec="worship">
-        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-worship"><span>찬양</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        <div class="nav-items" id="navSec-worship"><div>
-          <a href="#conti" data-nav="conti">콘티</a>
-          <a href="#songs" data-nav="songs">곡</a>
-          <a href="#history" data-nav="history">기록</a>
-        </div></div>
-      </div>
-      <div class="nav-sec" data-sec="comm">
-        <button type="button" class="nav-group" aria-expanded="false" aria-controls="navSec-comm"><span>소통</span><i class="nav-dot" aria-hidden="true"></i><svg class="nav-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        <div class="nav-items" id="navSec-comm"><div>
-          <a href="#notify" data-nav="notify">공지 · 알림</a>
-          <a href="#sharing" data-nav="sharing">나눔 관리</a>
-          <a href="#templates" data-nav="templates">안내 문구·서약서</a>
-        </div></div>
-      </div>
-      <span class="nav-div" aria-hidden="true"></span>
-      <a href="#settings" data-nav="settings">설정</a>
-      <a href="me.html#lineup" class="nav-switch">내 섬김 · 찬양</a>
+<body class="ad-body">
+<!-- v34.3 리더십 메뉴 B안: 왼쪽 아이콘 레일(영역) + 메뉴 칸(접기) · 휴대폰은 하단 영역 탭 + 위 세그먼트. 메뉴 항목은 admin.js가 그려요. -->
+<div class="shell ad-shell">
+  <nav class="ad-rail" id="adRail" aria-label="영역">
+    <a class="ad-logo" href="#dashboard" aria-label="대시보드"><img src="assets/logo-violet.png" alt="Pole2"></a>
+    <div class="ad-rail-areas" id="adRailAreas"></div>
+    <span class="ad-sp"></span>
+    <button type="button" class="ad-rb" data-area="settings" aria-label="설정"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></i>설정</button>
+    <button type="button" class="ad-rb ad-rb-me" id="adMe" aria-label="내 계정" aria-haspopup="true" aria-expanded="false"><i><span class="ad-avt" id="adAvt"></span></i>나</button>
+    <div class="ad-fly" id="adFly" hidden></div>
+  </nav>
+  <div class="ad-pw" id="adPw">
+    <nav class="ad-panel" aria-label="메뉴">
+      <div class="ad-phd"><h2 id="adAreaTitle">홈</h2><button type="button" class="ad-ib" id="adShut" aria-label="메뉴 접기" title="메뉴 접기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M16 15l-3-3 3-3"/></svg></button></div>
+      <div class="ad-items" id="adItems"></div>
+      <span class="ad-sp"></span>
+      <a class="u-b u-o u-sm ad-switch" href="me.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"/></svg>팀원 화면으로</a>
     </nav>
-    <div class="me"><span id="whoName"></span><button type="button" onclick="logout()">로그아웃</button></div>
-  </aside>
-  <main class="content" id="content" aria-live="polite"></main>
+  </div>
+  <div class="ad-main">
+    <header class="ad-mtop" id="adMtop">
+      <b id="adMtopTitle">홈</b>
+      <button type="button" class="ad-ib" data-area="settings" aria-label="설정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></button>
+      <button type="button" class="ad-ib" id="adMeM" aria-label="내 계정"><span class="ad-avt" id="adAvtM"></span></button>
+    </header>
+    <div class="ad-seg" id="adSeg" hidden></div>
+    <div class="ad-strip" id="adStrip" hidden>
+      <button type="button" class="ad-ib" id="adOpen" aria-label="메뉴 펼치기" title="메뉴 펼치기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M14 9l3 3-3 3"/></svg></button>
+      <nav class="ad-crumb" aria-label="위치"><span id="adCrumbArea"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><b id="adCrumbPage"></b></nav>
+    </div>
+    <main class="content" id="content" aria-live="polite"></main>
+  </div>
+  <nav class="ad-tabbar" id="adTab" aria-label="영역"></nav>
 </div>
+<span id="whoName" class="u-sr"></span>
 <div id="modalRoot"></div>
 
-<script src="assets/config.js?v=37"></script>
-<script src="assets/ytp.js?v=37"></script><script src="assets/pedal.js?v=37"></script>
+<script src="assets/config.js?v=38"></script>
+<script src="assets/ytp.js?v=38"></script><script src="assets/pedal.js?v=38"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/ui.js?v=37"></script>
-<script src="assets/common.js?v=37"></script>
-<script src="assets/history.js?v=37"></script>
-<script src="assets/conti.js?v=37"></script>
-<script src="assets/ink.js?v=37"></script>
-<script src="assets/backup.js?v=37"></script>
-<script src="assets/guide.js?v=37"></script>
-<script src="assets/admin.js?v=37"></script>
+<script src="assets/ui.js?v=38"></script>
+<script src="assets/common.js?v=38"></script>
+<script src="assets/history.js?v=38"></script>
+<script src="assets/conti.js?v=38"></script>
+<script src="assets/ink.js?v=38"></script>
+<script src="assets/backup.js?v=38"></script>
+<script src="assets/guide.js?v=38"></script>
+<script src="assets/admin.js?v=38"></script>
 </body>
 </html>

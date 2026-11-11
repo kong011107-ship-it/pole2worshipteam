@@ -33,13 +33,25 @@ async def login(ctx, email, pw, dest="admin.html"):
     await pg.wait_for_timeout(1200)
     pg.errs = errs
     return pg
-# 021.1: 관리자 메뉴 서랍 — 닫힌 묶음이면 묶음 제목부터 누르고 메뉴를 누름
+# v34.3: 리더십 메뉴 B안 — 레일(영역)을 누른 뒤 메뉴 칸의 메뉴를 눌러요. 휴대폰 폭이면 하단 탭 + 위 세그먼트
+AD_AREA = {"dashboard": "home", "schedule": "serve", "lineup": "serve", "attendance": "serve", "conti": "worship", "songs": "worship", "history": "worship",
+           "members": "people", "pipeline": "people", "forecast": "people", "notify": "comm", "sharing": "comm", "settings": "settings"}
 async def navclick(pg, key):
-    a = pg.locator(f'.side nav a[data-nav="{key}"]')
-    if not await a.is_visible():
-        g = pg.locator(f'.side .nav-sec:has(a[data-nav="{key}"]) > button.nav-group')
-        if await g.count(): await g.click(); await pg.wait_for_timeout(300)
-    await a.click()
+    area = AD_AREA.get(key, "home")
+    a = pg.locator(f'#adItems a[data-nav="{key}"]')
+    if await a.count() and await a.is_visible():
+        await a.click(); return
+    rail = pg.locator(f'#adRail [data-area="{area}"]')
+    if await rail.is_visible():
+        await rail.click(); await pg.wait_for_timeout(300)
+        a = pg.locator(f'#adItems a[data-nav="{key}"]')
+        if await a.is_visible(): await a.click(); return
+        fly = pg.locator(f'#adFly a[data-nav="{key}"]')
+        if await fly.count(): await fly.click(); return
+        await pg.click("#adOpen"); await pg.wait_for_timeout(300); await pg.click(f'#adItems a[data-nav="{key}"]'); return
+    await pg.click(f'#adTab [data-area="{area}"]'); await pg.wait_for_timeout(300)
+    seg = pg.locator(f'#adSeg [data-nav-m="{key}"]')
+    if await seg.count(): await seg.click()
 
 # 029: 테스트 날짜와 상관없이 다가오는 주일 라인업을 LINEUPS[0]으로 고정 (demo.js 순서가 날짜마다 달라져서)
 def fix_lineup(q, sid):

@@ -66,8 +66,11 @@ async def editor_tests(p):
     # v34.2: 줄은 접혀 있고 (번호 · 제목 · 키 · 시간 · 상태 아이콘), 누르면 탭
     check(await pg.locator(".ce-row .ce2-hd").count() == 1 and await pg.locator(".ce-row .ce2-det").count() == 0, "곡 줄은 접혀서 들어감")
     check((await pg.inner_text(".ce-row .ce2-key")).strip() == "G" and await pg.locator(".ce-row .ce2-ics .no").count() == 1, "줄에 키 · 악보 없음 아이콘")
-    # 함께 부른 곡 추천 (곡 추가 칸이 비어 있으면)
+    # 함께 부른 곡 추천 (곡 추가 칸이 비어 있으면) — v34.3: 서랍처럼 기본은 닫혀 있고, 머리를 누르면 펼쳐요
     lab = await pg.inner_text("#ceDrop .ce2-lab") if await pg.locator("#ceDrop .ce2-lab").count() else ""
+    check(await pg.locator("#ceDrop .ce2-sugh[aria-expanded=false]").count() == 1 and await pg.locator("#ceDrop .ce-o").count() == 0 and "2곡" in lab, "추천 서랍은 기본 닫힘 " + lab)
+    await pg.click("#ceDrop .ce2-sugh"); await pg.wait_for_timeout(300)
+    check(await pg.locator("#ceDrop .ce2-sugh[aria-expanded=true]").count() == 1, "머리를 누르면 펼쳐짐")
     sug = [x.strip() for x in await pg.locator("#ceDrop .ce-o b").all_text_contents()]
     check("자주 같이 부른 곡" in lab and sug == ["주님의 마음", "예수 피를 힘입어"], f"함께 부른 곡 추천 (많이 같이 부른 순 · 넣은 곡 빼고) {sug}")
     sub = await pg.locator("#ceDrop .ce-o small").first.inner_text()

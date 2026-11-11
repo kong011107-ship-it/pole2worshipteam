@@ -94,14 +94,14 @@ async def main():
         # ---------------- 관리자
         b, ctx = await browser(p)
         pg = await login(ctx, "admin@x.com", "adminpass")
-        groups = await pg.eval_on_selector_all(".side nav .nav-group", "e => e.map(x => x.textContent.trim())")
-        check(groups[:4] == ["사람", "섬김", "찬양", "소통"], f"nav groups {groups}")
+        groups = await pg.eval_on_selector_all("#adRailAreas .ad-rb", "e => e.map(x => x.textContent.trim())")
+        check(groups == ["홈", "섬김", "찬양", "사람", "소통"], f"nav areas {groups}")
         await navclick(pg, "schedule"); await pg.wait_for_timeout(1500)
         check(await pg.locator("#content > .page-tabs").count() == 1, "schedule page tabs")
         await pg.click('[data-ptab="respond"]'); await pg.wait_for_timeout(1500)
         check(pg.url.endswith("#respond"), f"tab -> respond {pg.url}")
-        check(await pg.locator('.side nav a.on').get_attribute("data-nav") == "schedule", "respond highlights schedule nav")
-        check(await pg.locator('#content > .page-tabs [aria-selected=true]').text_content() == "섬김 응답", "respond tab selected")
+        check(await pg.locator('#adItems a.on').get_attribute("data-nav") == "schedule", "respond highlights schedule nav")
+        check(await pg.locator('#content > .page-tabs [aria-selected=true]').text_content() == "응답", "respond tab selected")
         await pg.screenshot(path=SHOT + "respond_tabs.png")
         # 다른 메뉴로 가면 탭 사라짐
         await navclick(pg, "members"); await pg.wait_for_timeout(1500)

@@ -187,9 +187,9 @@
     const box = document.createElement("div"); box.className = "modal-back cp-back";
     box.innerHTML = `<div class="modal cp-modal" role="dialog" aria-label="카톡으로 복사"><div class="modal-head"><b>카톡으로 복사</b><button type="button" class="ce-x" data-cp="close" aria-label="닫기">${ICO.x}</button></div>
       ${links.length ? `<div class="field">섬김이 팀 링크 <span class="hint">· 붙일 팀만 골라요</span><div class="chips2" id="cpLinks">${links.map((l) => `<button type="button" data-cp-link="${l.id}" aria-pressed="${on.has(l.id)}">${esc(l.label)}</button>`).join("")}</div></div>`
-        : `<p class="small muted" style="margin:0">섬김이 팀 링크가 아직 없어요 · 리더십이 찬양 › 콘티 › 섬김이 팀 링크에서 만들어요</p>`}
+        : `<p class="small muted x-m0">섬김이 팀 링크가 아직 없어요 · 리더십이 찬양 › 콘티 › 섬김이 팀 링크에서 만들어요</p>`}
       <textarea class="input cp-text" id="cpText" rows="12" readonly></textarea>
-      <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm" data-cp="close">닫기</button><button type="button" class="btn btn-primary btn-sm" data-cp="copy">복사</button></div></div>`;
+      <div class="row x-je"><button type="button" class="btn btn-ghost btn-sm" data-cp="close">닫기</button><button type="button" class="btn btn-primary btn-sm" data-cp="copy">복사</button></div></div>`;
     document.body.appendChild(box);
     const draw = () => { box.querySelector("#cpText").value = contiText(svc, links.filter((l) => on.has(l.id))); };
     draw();
@@ -371,7 +371,7 @@
     el.innerHTML = `<b>BPM · 박자</b><div class="row"><input class="input" id="bpmIn" inputmode="numeric" maxlength="3" value="${cur.bpm || ""}" placeholder="예: 72" aria-label="BPM">
       <span class="chips2" id="bpmMeter">${METERS.map((m) => `<button type="button" data-m="${m}" aria-pressed="${m === meter}">${m}</button>`).join("")}</span></div>
       <span class="small muted">팀 기준으로 저장돼요 · 다음에 이 곡을 넣으면 자동으로 채워져요 · 알림 없음</span>
-      <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost btn-sm" data-bp="cancel">취소</button><button type="button" class="btn btn-primary btn-sm" data-bp="save">저장</button></div>`;
+      <div class="row x-je"><button type="button" class="btn btn-ghost btn-sm" data-bp="cancel">취소</button><button type="button" class="btn btn-primary btn-sm" data-bp="save">저장</button></div>`;
     document.body.appendChild(el);
     const r = anchor.getBoundingClientRect(), w = Math.min(320, window.innerWidth - 24);
     Object.assign(el.style, { width: `${w}px`, left: `${Math.max(12, Math.min(window.innerWidth - w - 12, r.left))}px`, top: `${Math.min(window.innerHeight - 200, r.bottom + 6)}px` });
@@ -723,7 +723,7 @@
           <span class="u-cd">${[leads.length && `인도 ${leads.map(esc).join(", ")}`, bm && `밴마 ${esc(bm.name)}`, pub ? (sl.changes ? `${shortDT(sl.updated_at)} 수정됨` : `${shortDT(sl.published_at)} 올라옴`) : "임시 저장 · 팀원에게는 안 보여요"].filter(Boolean).join(" · ")}</span>
           <span class="u-ca">${pub ? `<span class="u-badge ${changed ? "u-mid" : "u-ok"}" ${changed ? `title="${esc(changed.text.join(" · "))}"` : ""}>${changed ? "수정됨" : "올라옴"}</span>` : `<span class="u-badge u-out">임시 저장</span>`}</span></div>
         ${changed || shChg ? `<div class="cvw-chg">${changed ? `<span class="u-badge u-mid">수정 · ${esc(changed.text.slice(0, 2).join(" · "))}${changed.text.length > 2 ? " 외" : ""}</span>` : ""}${shChg ? `<span class="u-badge" title="${esc(fmtDateTime(shChg.at))}${shChg.by ? " · " + esc(shChg.by) : ""}">악보 바뀜 · ${esc(fmtDateTime(shChg.at))}</span>` : ""}</div>` : ""}
-        <div class="cvw-slist cv-slist u-stag">${items.map(songRow).join("") || `<p class="muted small" style="margin:0">곡이 아직 없어요.</p>`}</div>
+        <div class="cvw-slist cv-slist u-stag">${items.map(songRow).join("") || `<p class="muted small x-m0">곡이 아직 없어요.</p>`}</div>
         ${items.some((x) => x.diff_key) ? `<p class="small muted cvw-note cv-dk">* 음원(레퍼런스)과 키가 달라요</p>` : ""}
         ${items.length ? `<div class="u-rtl"><span>RT <b>${mmss(rt)}</b>${tgt ? ` / ${mmss(tgt)}` : ""}</span><span class="u-pg">${tgt ? `<i class="${rt > tgt ? "u-over" : ""}" style="width:${pct}%"></i>` : ""}</span><span>${pages ? `악보 <b>${pages}</b>쪽` : "악보 준비 중"}</span></div>` : ""}
         <div class="u-cf ${editBtn ? "" : "u-one"}">${pub ? `<button type="button" class="u-b u-p cv-pdfbar" data-cv-open="${f.id}">${IC.file}악보 열기</button>` : ""}${editBtn}</div>
@@ -802,7 +802,7 @@
         return `<div class="u-lur cvw-rec"><span class="u-ic"><span class="u-it">${md(p[0])} <small class="muted">· ${p[0].slice(0, 4)}</small></span><span class="u-id">${[p[4] && esc(p[4]), esc((H.svc[p[0]]?.[0] || []).join(" · ")) && `인도 ${esc((H.svc[p[0]]?.[0] || []).join(" · "))}`, p[6] ? "메들리" : ""].filter(Boolean).join(" · ")}</span></span>
           ${pf ? (pf.located ? `<button type="button" class="u-badge u-ok cvw-lv" ${playAttrs(pf.vid, pf.start, pf.end || null, t)}>${IC.play} ${pf.end ? mmss(pf.end - pf.start) : "우리 연주"}</button>` : `<button type="button" class="u-badge u-out cvw-lv" ${playAttrs(pf.vid, 0, null, t)} title="곡 위치를 몰라 처음부터">${IC.play} 예배 영상</button>`) : `<small class="muted">영상 없음</small>`}</div>`; }).join("")
         + (log.length > 30 ? `<p class="small muted" style="margin:8px 0 0">${log.length - 30}번 더 · '곡 자세히'에서 모두 봐요</p>` : "")
-      : `<p class="small muted" style="margin:0">아직 부른 기록이 없어요.</p>`;
+      : `<p class="small muted x-m0">아직 부른 기록이 없어요.</p>`;
     const body = s.el.querySelector(".cvw-dbody");
     const show = (t) => { body.innerHTML = `<div class="u-vin">${t ? rec : info}</div><button type="button" class="u-b u-gh u-sm cvw-more" data-cv-detail>곡 자세히 · 악보 · 레퍼런스 모두</button>`;
       s.el.querySelectorAll(".cvw-dseg [data-tab]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.tab === t))); };
@@ -819,7 +819,7 @@
     const ed = list.length && f.applied_meta?.edited_at ? f.applied_meta : null;
     return `<section class="card"><div class="card-title cv-ct">적용찬양 <small>${list.length ? `${list.length}곡` : "아직 없어요"}</small>${ed ? `<span class="chip chip-mid cv-aped" title="${esc(ed.edited_by || "")}">수정됨 · ${esc(fmtDateTime(ed.edited_at))}</span>` : ""}</div>
       ${list.map((x) => `<button type="button" class="cv-prow" data-cv-at="a:${x.id}"><span class="cv-ptag">적용</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</small></span><span class="cv-go">보기</span></button>`).join("")}
-      ${f.can_applied ? `<button type="button" class="btn btn-soft btn-sm" data-cv-applied style="align-self:flex-start">${list.length ? "적용찬양 고치기" : "+ 적용찬양 올리기"}</button>` : ""}</section>`;
+      ${f.can_applied ? `<button type="button" class="btn btn-soft btn-sm x-ss" data-cv-applied>${list.length ? "적용찬양 고치기" : "+ 적용찬양 올리기"}</button>` : ""}</section>`;
   }
   // 029: 예배 순서 카드 — 본 콘티 · 축복송 · 등단송 · 적용찬양 · 백업찬양 · 성찬 · 봉헌 · 축도 · 특별순서 (예배마다 순서)
   //  누르면 그 순서부터 악보 보기. 인도자 · 밴드 마스터 · 리더십은 '순서 · 특별순서'로 끌어서 바꿔요
@@ -833,7 +833,7 @@
         if (!f.applied?.length) return f.can_applied ? `<div class="u-acc-i"><div class="u-acc-t cvw-dim"><span class="u-tag">적용</span><span class="u-ic"><b>적용찬양</b><small>아직 없어요</small></span><button type="button" class="u-b u-s u-sm" data-cv-applied>+ 올리기</button></div></div>` : "";
         const ed = f.applied_meta?.edited_at ? f.applied_meta : null;
         return acc(`a:${f.applied[0].id}`, "적용", "적용찬양", f.applied.map((x) => esc(x.title)).join(" · "),
-          `${f.applied.map((x) => `<span>${esc(x.title)} · ${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</span>`).join("")}${ed ? `<span class="cv-aped">수정됨 · ${esc(fmtDateTime(ed.edited_at))}</span>` : ""}${f.can_applied ? `<button type="button" class="u-lnk" data-cv-applied style="align-self:flex-start">적용찬양 고치기</button>` : ""}`,
+          `${f.applied.map((x) => `<span>${esc(x.title)} · ${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</span>`).join("")}${ed ? `<span class="cv-aped">수정됨 · ${esc(fmtDateTime(ed.edited_at))}</span>` : ""}${f.can_applied ? `<button type="button" class="u-lnk x-ss" data-cv-applied>적용찬양 고치기</button>` : ""}`,
           ed ? `<span class="u-badge u-mid">수정됨</span>` : "");
       }
       if (k === "backup") return f.past ? "" : acc("backup", "백업", "백업찬양", `<span class="cv-bkst">기도회 때</span>`, `<span>기도회 때 · 인도자가 진행하면 따라가요</span>`);
@@ -879,25 +879,25 @@
     const draw = () => {
       const keys = flowOf(svc), ex = svc.extras || [];
       const procE = (svc.proc || []).find((x) => x.kind === "entrance");
-      body.innerHTML = `<p class="small muted" style="margin:0">끌어서(☰) 순서를 바꿔요. 바꾸면 바로 저장돼요 · 알림 없이 팀원 화면 · 악보 보기 · 섬김이 링크에 그대로 보여요${svc.setlist?.status === "published" ? " · 콘티를 올린 뒤에 바꾸면 '순서 바뀜'이 보여요" : ""}</p>
+      body.innerHTML = `<p class="small muted x-m0">끌어서(☰) 순서를 바꿔요. 바꾸면 바로 저장돼요 · 알림 없이 팀원 화면 · 악보 보기 · 섬김이 링크에 그대로 보여요${svc.setlist?.status === "published" ? " · 콘티를 올린 뒤에 바꾸면 '순서 바뀜'이 보여요" : ""}</p>
         <section class="card"><div class="card-title cv-ct">예배 순서 <small>${esc(svcShort(svc))}</small></div>
           <div class="fo-list" id="foList">${keys.map((k, i) => { const off = k !== "conti" && !flowAvail(svc, k, true) && !(k === "backup");
             return `<div class="fo-row ${off ? "off" : ""}" data-fo-k="${esc(k)}"><span class="fo-grip" data-fo-grip aria-hidden="true">${ICO.grip}</span><span class="fo-n">${i + 1}</span>
               <span class="fo-t"><b>${esc(nameOf(k))}</b><small>${esc(subOf(k))}</small></span>
               <span class="fo-mv"><button type="button" data-fo-up ${i ? "" : "disabled"} aria-label="${esc(nameOf(k))} 위로">↑</button><button type="button" data-fo-down ${i < keys.length - 1 ? "" : "disabled"} aria-label="${esc(nameOf(k))} 아래로">↓</button></span></div>`; }).join("")}</div>
-          <div class="row" style="justify-content:space-between"><span class="small muted">${svc.flow_at ? `${esc(fmtDateTime(svc.flow_at))} ${esc(svc.flow_by || "")} 바꿈` : "기본 순서"}</span><button type="button" class="btn btn-ghost btn-sm" data-fo="reset" ${svc.flow ? "" : "disabled"}>기본 순서로</button></div></section>
+          <div class="row x-sb"><span class="small muted">${svc.flow_at ? `${esc(fmtDateTime(svc.flow_at))} ${esc(svc.flow_by || "")} 바꿈` : "기본 순서"}</span><button type="button" class="btn btn-ghost btn-sm" data-fo="reset" ${svc.flow ? "" : "disabled"}>기본 순서로</button></div></section>
         <section class="card"><label class="checkrow"><input type="checkbox" id="foEnt" ${svc.entrance ? "checked" : ""} ${procE ? "" : "disabled"}><span><b>등단송 쓰기</b><small>${procE ? `${esc(procE.title)}${procE.key ? ` · ${esc(procE.key)}` : ""} · ` : "리더십이 등단송을 아직 올리지 않았어요 · "}${svc.ministry_id ? "사역은 기본으로 켜져 있어요" : "주일은 기본으로 꺼져 있어요"}</small></span></label></section>
         <section class="card"><div class="card-title cv-ct">특별순서 <small>예: 파송식 · 이 예배에만 · RT · 카톡 복사에는 넣지 않아요</small></div>
           ${ex.map((x) => `<div class="cv-sheet" data-fx="${x.id}"><span class="cv-ptag">특별</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, bpmText(x.bpm, x.meter), x.images?.length ? `사진 ${x.images.length}장` : x.pages ? `PDF ${x.pages}쪽` : "악보 없음", x.memo].filter(Boolean).map(esc).join(" · ")}</small></span>
-            <span class="row" style="gap:6px"><button type="button" class="btn btn-ghost btn-sm" data-fxa="edit">고치기</button><button type="button" class="btn btn-ghost btn-sm" data-fxa="del">지우기</button></span></div>`).join("") || `<p class="small muted" style="margin:0">아직 없어요.</p>`}
-          ${edit ? formHTML(edit) : `<button type="button" class="btn btn-soft btn-sm" data-fo="add" style="align-self:flex-start">+ 특별순서</button>`}</section>`;
+            <span class="row" style="gap:6px"><button type="button" class="btn btn-ghost btn-sm" data-fxa="edit">고치기</button><button type="button" class="btn btn-ghost btn-sm" data-fxa="del">지우기</button></span></div>`).join("") || `<p class="small muted x-m0">아직 없어요.</p>`}
+          ${edit ? formHTML(edit) : `<button type="button" class="btn btn-soft btn-sm x-ss" data-fo="add">+ 특별순서</button>`}</section>`;
     };
     const formHTML = (x) => `<div class="ap-form fx-form" id="fxForm"><b>${x.id ? "특별순서 고치기" : "특별순서 더하기"}</b>
       <label class="field">이름<input class="input" id="fxT" maxlength="60" value="${esc(x.title || "")}" placeholder="예: 파송식"></label>
       <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:0 0 100px">키<input class="input" id="fxK" maxlength="12" value="${esc(x.key || "")}" placeholder="선택"></label>
         <label class="field" style="flex:0 0 110px">BPM<input class="input" id="fxB" inputmode="numeric" maxlength="3" value="${x.bpm || ""}" placeholder="선택"></label>
-        <label class="field" style="flex:1">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" id="fxM" maxlength="300" value="${esc(x.memo || "")}" placeholder="예: 파송 기도 후 · 1절만"></label></div>
-      <label class="btn btn-soft btn-sm cv-upl" style="align-self:flex-start">${x.id && (x.path || x.images?.length) ? "악보 바꾸기" : "악보 고르기"} (PDF 1개 또는 사진 여러 장 · 선택)<input type="file" accept="application/pdf,image/*" multiple id="fxF" hidden></label>
+        <label class="field x-f1">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" id="fxM" maxlength="300" value="${esc(x.memo || "")}" placeholder="예: 파송 기도 후 · 1절만"></label></div>
+      <label class="btn btn-soft btn-sm cv-upl x-ss">${x.id && (x.path || x.images?.length) ? "악보 바꾸기" : "악보 고르기"} (PDF 1개 또는 사진 여러 장 · 선택)<input type="file" accept="application/pdf,image/*" multiple id="fxF" hidden></label>
       <span class="small muted" id="fxP">${x.id && (x.path || x.images?.length) ? "고르지 않으면 지금 악보를 그대로 써요" : "악보 없이도 순서에 넣을 수 있어요"}</span>
       <div class="row"><button type="button" class="btn btn-primary btn-sm" data-fo="save">${x.id ? "저장" : "더하기"}</button><button type="button" class="btn btn-ghost btn-sm" data-fo="cancel">취소</button></div></div>`;
     const el = openLayer("cv-sheetpage", `<div class="cvs-top"><button type="button" class="cvv-back light" data-fo-close aria-label="닫기">${ICO.back}</button><b>예배 순서 · ${esc(svcShort(svc))}</b></div><div class="cvs-body" id="foBody"></div>`, () => after?.());
@@ -1443,19 +1443,19 @@
     let SUG = await appliedNames().catch(() => []);
     const draw = () => {
       const list = svc.applied || [];
-      body.innerHTML = `<p class="small muted" style="margin:0">교역자님께 받은 적용찬양 악보를 사진 · 그림으로 올려요. 콘티 악보 다음, 백업찬양 앞에 이어서 보여요.</p>
+      body.innerHTML = `<p class="small muted x-m0">교역자님께 받은 적용찬양 악보를 사진 · 그림으로 올려요. 콘티 악보 다음, 백업찬양 앞에 이어서 보여요.</p>
         <section class="card"><div class="card-title cv-ct">올린 곡 <small>${list.length}곡</small></div>
           ${list.map((x, i) => `<div class="cv-sheet" data-ap="${x.id}"><span class="cv-thumb ap" data-ap-thumb="${esc(x.images[0])}"></span>
             <span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</small></span>
-            <span class="row" style="gap:6px">${i ? `<button type="button" class="btn btn-ghost btn-sm" data-apa="up">위로</button>` : ""}<label class="btn btn-ghost btn-sm cv-upl">사진 바꾸기<input type="file" accept="image/*" multiple data-apa-img hidden></label><button type="button" class="btn btn-ghost btn-sm" data-apa="del">지우기</button></span></div>`).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}</section>
-        <p class="small muted" style="margin:0">${svc.applied_meta?.notified_at ? "처음 올릴 때 라인업에 알렸어요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요" : "처음 올리면 이 예배 라인업에 알림이 가요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요"}</p>
+            <span class="row" style="gap:6px">${i ? `<button type="button" class="btn btn-ghost btn-sm" data-apa="up">위로</button>` : ""}<label class="btn btn-ghost btn-sm cv-upl">사진 바꾸기<input type="file" accept="image/*" multiple data-apa-img hidden></label><button type="button" class="btn btn-ghost btn-sm" data-apa="del">지우기</button></span></div>`).join("") || `<p class="muted small x-m0">아직 없어요.</p>`}</section>
+        <p class="small muted x-m0">${svc.applied_meta?.notified_at ? "처음 올릴 때 라인업에 알렸어요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요" : "처음 올리면 이 예배 라인업에 알림이 가요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요"}</p>
         <section class="card ap-form"><div class="card-title cv-ct">곡 더하기</div>
           <label class="field">곡 이름 <span class="hint">· 전에 쓴 이름을 고르면 같은 곡으로 묶여 기록에 쌓여요</span><input class="input" id="apTitle" maxlength="80" list="apSug" autocomplete="off" placeholder="예: 주의 손에 나의 손을 포개고"></label>
           <datalist id="apSug">${SUG.map((x) => `<option value="${esc(x.title)}">${x.n}번</option>`).join("")}</datalist>
           <div class="ap-sug" id="apHint"></div>
           <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:0 0 110px">키<input class="input" id="apKey" maxlength="12" placeholder="G"></label>
-            <label class="field" style="flex:1">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" id="apNote" maxlength="200" placeholder="예: 설교 후 · 1절만"></label></div>
-          <label class="btn btn-soft btn-sm cv-upl" style="align-self:flex-start">악보 사진 고르기 (여러 장)<input type="file" accept="image/*" multiple id="apFiles" hidden></label>
+            <label class="field x-f1">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" id="apNote" maxlength="200" placeholder="예: 설교 후 · 1절만"></label></div>
+          <label class="btn btn-soft btn-sm cv-upl x-ss">악보 사진 고르기 (여러 장)<input type="file" accept="image/*" multiple id="apFiles" hidden></label>
           <span class="small muted" id="apPicked">고른 사진 없음 · 순서대로 이어서 보여요</span>
           <button type="button" class="btn btn-primary" id="apSave">올리기</button></section>`;
       body.querySelectorAll("[data-ap-thumb]").forEach(async (t) => { try { const im = await sheetImage(t.dataset.apThumb); t.innerHTML = ""; const c = im.cloneNode(); c.alt = ""; t.appendChild(c); } catch {} });
@@ -1568,13 +1568,13 @@
         <div class="cvs-kpis"><div><span>부른 횟수</span><b>${st?.count || 0}</b></div><div><span>최근 1년</span><b>${st?.last12 || 0}</b></div><div><span>마지막</span><b>${st?.last ? md(st.last) : "–"}</b><small>${st?.last ? `${st.days_since}일 전` : ""}</small></div><div><span>곡 시간</span><b>${song.team_sec ? mmss(song.team_sec) : "–"}</b><small>${song.team_sec ? "팀 기준" : ""}</small></div>${H?.V?.live?.[songId] ? `<div><span>실연주</span><b>${mmss(H.V.live[songId].sec)}</b><small>단독 연주 ${H.V.live[songId].n}번 중간값</small></div>` : ""}<div><span>BPM</span><b>${song.team_bpm || "–"}</b><small>${song.team_bpm ? `${esc(song.team_meter || "4/4")} · 팀 기준` : ""}</small></div></div>
         ${inMd.length ? `<section class="card"><div class="card-title cv-ct">메들리 <small>이 곡이 든 메들리 · 합친 악보는 메들리에</small></div>${inMd.map((m) => `<button type="button" class="cv-prow" data-sd-md="${m.id}"><span class="cv-ptag">메들리</span><span class="cv-st2"><b>${esc(m.title)}</b><small>${m.used || 0}번 · 악보 ${m.sheets || 0}</small></span><span class="cv-go">보기</span></button>`).join("")}</section>` : ""}
         <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 깨끗한 악보 · 키별</small></div>
-          ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
+          ${orig.map(sheetRow).join("") || `<p class="muted small x-m0">아직 없어요.</p>`}
           ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf,image/*" multiple id="sdOrig" hidden></label>` : ""}</section>
         <section class="card"><div class="card-title cv-ct">저장된 악보 <small>콘티에서 이름을 붙여 저장한 것</small></div>
-          ${saved.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요. 콘티에 이 곡을 넣고 파일로 더하거나 통합본을 올리면 쌓여요.</p>`}</section>
+          ${saved.map(sheetRow).join("") || `<p class="muted small x-m0">아직 없어요. 콘티에 이 곡을 넣고 파일로 더하거나 통합본을 올리면 쌓여요.</p>`}</section>
         ${myParts.length ? `<section class="card" id="sdParts"><div class="card-title cv-ct">파트 악보 <small>일렉 · 드럼처럼 포지션마다 · 같은 포지션 팀원끼리 봐요</small></div>
-          ${parts.map(partRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
-          <div class="row" style="gap:6px">${isAdm ? `<select class="select" id="sdPartSel" style="width:auto;min-height:36px" aria-label="올릴 파트">${myParts.map((p) => `<option value="${p}">${esc(partName(p))}</option>`).join("")}</select><label class="btn btn-soft btn-sm cv-upl" style="margin-top:0">+ 파트 악보 올리기<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="?" hidden></label>`
+          ${parts.map(partRow).join("") || `<p class="muted small x-m0">아직 없어요.</p>`}
+          <div class="row" style="gap:6px">${isAdm ? `<select class="select x-wa" id="sdPartSel" aria-label="올릴 파트">${myParts.map((p) => `<option value="${p}">${esc(partName(p))}</option>`).join("")}</select><label class="btn btn-soft btn-sm cv-upl" style="margin-top:0">+ 파트 악보 올리기<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="?" hidden></label>`
             : myParts.map((p) => `<label class="btn btn-soft btn-sm cv-upl">+ ${esc(partName(p))} 악보<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="${p}" hidden></label>`).join("")}</div></section>` : ""}
         ${st?.refs?.length ? `<section class="card"><div class="card-title cv-ct">레퍼런스 <small>${st.refs.length}개</small></div>
           ${st.refs.slice(0, 6).map((r, i) => `<div class="cv-ref"><a class="hx-yt" href="${ytLink(r[0], r[3])}" ${playAttrs(r[0], r[3], null, song.title + ` · 영상 ${i + 1}`)} target="_blank" rel="noopener">▶ 영상 ${i + 1}</a><span class="small muted">${r[1]}번 사용 · 마지막 ${r[4] ? r[4].slice(2).replace(/-/g, ".") : ""}${r[2] ? ` · ${esc(r[2])}` : ""}</span></div>`).join("")}</section>` : ""}
@@ -1636,10 +1636,10 @@
           ${m.songs.map((x) => `<button type="button" class="cv-prow" data-md-song="${x.song_id}"><span class="cv-ptag">${x.key ? esc(x.key) : "곡"}</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${x.team_bpm ? esc(bpmText(x.team_bpm, x.team_meter)) : ""}</small></span><span class="cv-go">곡 보기</span></button>`).join("")}</section>
         ${m.ref_yt ? `<section class="card"><div class="card-title cv-ct">레퍼런스</div><div class="cv-ref"><a class="hx-yt" href="${ytLink(m.ref_yt, m.ref_start)}" ${playAttrs(m.ref_yt, m.ref_start, m.ref_end, m.title)} target="_blank" rel="noopener">▶ 영상</a></div></section>` : ""}
         <section class="card"><div class="card-title cv-ct">원본 악보 <small>필기 없는 합친 악보</small></div>
-          ${orig.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요.</p>`}
+          ${orig.map(sheetRow).join("") || `<p class="muted small x-m0">아직 없어요.</p>`}
           ${up ? `<label class="btn btn-soft btn-sm cv-upl">+ 원본 악보 올리기<input type="file" accept="application/pdf,image/*" multiple id="mdOrig" hidden></label>` : ""}</section>
         <section class="card"><div class="card-title cv-ct">저장된 악보 <small>콘티에서 메들리로 저장한 것</small></div>
-          ${saved.map(sheetRow).join("") || `<p class="muted small" style="margin:0">아직 없어요. 콘티에 이 메들리를 넣고 통합본을 올리면 쌓여요.</p>`}</section>
+          ${saved.map(sheetRow).join("") || `<p class="muted small x-m0">아직 없어요. 콘티에 이 메들리를 넣고 통합본을 올리면 쌓여요.</p>`}</section>
       </div>`);
     el.addEventListener("click", (e) => {
       if (e.target.closest("[data-md=close]")) return closeLayer();
@@ -1774,7 +1774,7 @@
           <span class="ce2-ics"><span class="${shs}" title="${shs === "no" ? "악보 없음" : shs === "off" ? "앞 곡 악보에 함께" : "악보 있음"}">${CEI.file}</span><span class="${x.bpm ? "" : "off"}" title="${x.bpm ? `BPM ${x.bpm}` : "BPM 없음"}">${CEI.bpm}</span></span>
           <span class="ce2-chev">${CEI.chev}</span></div>
         ${open ? `<div class="ce2-det"><div class="u-seg ce2-tabs" role="tablist" aria-label="${esc(x.title)} 정할 것">${tabsOf().map(([k, l]) => `<button type="button" role="tab" data-ce="tab" data-tab="${k}" aria-pressed="${k === tab}">${l}${k === "prev" && prevN(x.song_id) ? ` ${prevN(x.song_id)}` : ""}</button>`).join("")}</div>
-          ${tab === "basic" ? basicTab(x, i, grpHead) : tab === "sheet" ? sheetTab(x) : tab === "ref" ? refTab(x, ref) : tab === "prev" ? (prevField(x) || `<p class="small muted" style="margin:0">아직 우리 팀 예배 영상에서 찾은 연주가 없어요.</p>`) : bpmTab(x)}</div>` : ""}
+          ${tab === "basic" ? basicTab(x, i, grpHead) : tab === "sheet" ? sheetTab(x) : tab === "ref" ? refTab(x, ref) : tab === "prev" ? (prevField(x) || `<p class="small muted x-m0">아직 우리 팀 예배 영상에서 찾은 연주가 없어요.</p>`) : bpmTab(x)}</div>` : ""}
       </div></div>`;
     }
     function basicTab(x, i, grpHead) {
@@ -1805,11 +1805,11 @@
       return `<div class="ce2-fl"><span class="ce2-lb">지금 레퍼런스 <span class="ce-reftag">음원</span></span>${ref ? refChip(ref, rng, x.title) : `<span class="small muted">레퍼런스 없음 · 아래에서 고르거나 주소를 붙여 넣어요</span>`}</div>
         ${refCands(x, st, ref)}
         <input class="input" data-f="refurl" placeholder="유튜브 주소 붙여 넣기 · 구간은 붙인 뒤에 정해요" value="${ref ? ytLink(ref[0], ref[1] || 0) : ""}" aria-label="${esc(x.title)} 레퍼런스 주소">
-        ${ref ? `<div class="row ce-range"><span class="small" style="font-weight:600">구간</span><input class="input" data-f="rs" value="${mmss(rng?.start_sec ?? ref[1] ?? 0)}" aria-label="시작"> ~ <input class="input" data-f="re" value="${rng?.end_sec ? mmss(rng.end_sec) : ""}" placeholder="끝" aria-label="끝">
+        ${ref ? `<div class="row ce-range"><span class="small x-b">구간</span><input class="input" data-f="rs" value="${mmss(rng?.start_sec ?? ref[1] ?? 0)}" aria-label="시작"> ~ <input class="input" data-f="re" value="${rng?.end_sec ? mmss(rng.end_sec) : ""}" placeholder="끝" aria-label="끝">
           <span class="small muted">${E.yt[ref[0]]?.duration_sec ? `영상 길이 ${mmss(E.yt[ref[0]].duration_sec)}` : E.ytConfigured ? "" : "영상 길이를 아직 몰라요"}</span></div>` : ""}`;
     }
     function bpmTab(x) {
-      return `<div class="ce2-fl"><span class="ce2-lb">BPM · 박자 <small>· 팀 기준으로 저장돼요 · 알림 없음</small></span>${bpmCell(x)}</div>${x.memo ? `<p class="small muted" style="margin:0">메모: ${esc(x.memo)}</p>` : ""}`;
+      return `<div class="ce2-fl"><span class="ce2-lb">BPM · 박자 <small>· 팀 기준으로 저장돼요 · 알림 없음</small></span>${bpmCell(x)}</div>${x.memo ? `<p class="small muted x-m0">메모: ${esc(x.memo)}</p>` : ""}`;
     }
     // 031: 곡 줄의 레퍼런스 = 썸네일 + 제목 칩 (누르면 앱 안에서 재생)
     function refChip(ref, rng, songTitle) {
@@ -1894,8 +1894,11 @@
       if (!q) {
         // 비어 있으면: 지금 곡들과 자주 같이 부른 곡 (이미 넣은 곡은 빼요)
         const sug = coSuggest();
-        return sug.length ? `<div class="ce-drop ce2-res" id="ceDrop"><span class="ce2-lab">지금 곡들과 자주 같이 부른 곡</span>${sug.map(({ s, top }) =>
-          songRow(s, (d) => `'${esc(top[0])}'${josa(top[0])} ${top[1]}번 같이${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}`, total, tg)).join("")}</div>` : "";
+        // v34.3: 서랍처럼 기본은 닫혀 있어요. 머리를 누르면 펼쳐요 (이 콘티를 여는 동안만 기억)
+        if (!sug.length) return "";
+        const open = !!E.sugOpen;
+        return `<div class="ce-drop ce2-res ce2-sug" id="ceDrop"><button type="button" class="ce2-sugh" data-ce="sug" aria-expanded="${open}" aria-controls="ceSugList"><span class="ce2-lab">지금 곡들과 자주 같이 부른 곡 <small>${sug.length}곡</small></span>${CEI.chev}</button>${open ? `<div class="ce2-sugl" id="ceSugList">${sug.map(({ s, top }) =>
+          songRow(s, (d) => `'${esc(top[0])}'${josa(top[0])} ${top[1]}번 같이${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}`, total, tg)).join("")}</div>` : ""}</div>`;
       }
       const hits = E.songs.filter((s) => KO.match(s.title, q)).sort((a, b) => (b.st?.count || 0) - (a.st?.count || 0)).slice(0, 8);
       const exact = E.songs.some((s) => s.title.toLowerCase().replace(/\s/g, "") === q);
@@ -1941,7 +1944,7 @@
       E._plan = E.up ? planSheets(E) : null;
       if (E.open != null && !E.items[E.open]) E.open = null;
       body.innerHTML = `${restored ? `<div class="notice ok ce-restored">이 기기에서 쓰던 내용을 불러왔어요. <button type="button" class="linkbtn" data-ce="discard">처음 상태로</button></div>` : ""}
-        ${E.past ? `<div class="notice warn ce-past" style="margin:0"><b>지난 예배 콘티예요</b> · 고쳐도 알림을 보내지 않아요. 고치면 기록 · 통계에 바로 반영되고, 이전 버전은 남아요.</div>` : ""}
+        ${E.past ? `<div class="notice warn ce-past x-m0"><b>지난 예배 콘티예요</b> · 고쳐도 알림을 보내지 않아요. 고치면 기록 · 통계에 바로 반영되고, 이전 버전은 남아요.</div>` : ""}
         ${sheetsOnly ? `<p class="ce2-note">이 예배 밴드라서 <b>악보 · BPM</b>만 고칠 수 있어요. 곡 · 키 · 순서는 인도자 · 밴드 마스터가 정해요. 악보만 바뀌면 알림 없이 '악보 바뀜'으로 보여요.</p>` : ""}
         ${sumCard()}
         <section class="ce2-card ce2-songs"><div class="ce2-ch"><b>곡 순서</b><small>${sheetsOnly ? "줄을 누르면 쓸 악보와 BPM을 정해요" : "줄을 누르면 키 · 악보 · 레퍼런스를 정해요 · 손잡이로 끌어서 순서 바꾸기"}</small></div>
@@ -2088,6 +2091,7 @@
       if (a === "close") return closeLayer();
       if (a === "discard") { ls.del(DKEY); return openEditor(sid, { after }); }
       // v34.2: 곡 줄 펼치기 · 탭 · 키 단추 · 이어서 부르기 · 위로/아래로 · '악보 없는 곡' 칩
+      if (a === "sug") { E.sugOpen = !E.sugOpen; return redrawList(); }
       if (a === "toggle") { if (e.target.closest("[data-grip]")) return; E.open = E.open === i ? null : i; E.preview = null; redrawList(); if (E.open === i) afterOpen(i); return; }
       if (a === "tab") { E.tab = b.dataset.tab; E.preview = null; redrawList(); afterOpen(i); return; }
       if (a === "key") { x.key = b.dataset.k; persist(); return redrawList(); }
@@ -2521,7 +2525,7 @@
   async function mountAdmin(root) {
     CA.month = CA.month || todayISO().slice(0, 8) + "01";
     root.innerHTML = `<div class="tabs ca-tabs" role="tablist">${[["up", "다가오는 예배"], ["past", "지난 예배"], ["share", "섬김이 팀 링크"]].map(([k, l]) => `<button type="button" role="tab" data-catab="${k}" aria-selected="${CA.tab === k}">${l}</button>`).join("")}</div>
-      <div id="caBody" style="display:flex;flex-direction:column;gap:16px"></div>`;
+      <div class="x-col x-g16" id="caBody"></div>`;
     root.querySelector(".ca-tabs").onclick = (e) => { const b = e.target.closest("[data-catab]"); if (b && b.dataset.catab !== CA.tab) { CA.tab = b.dataset.catab; mountAdmin(root); } };
     const body = root.querySelector("#caBody");
     if (CA.tab === "past") return mountPast(body, root);
@@ -2539,7 +2543,7 @@
     }
     const cur = today.slice(0, 8) + "01";
     root.innerHTML = `<section class="panel" id="caPast"><div class="ca-mnav"><button type="button" class="btn btn-ghost btn-sm" data-capm="-1">이전 달</button><h2>${monthLabel(m)} 지난 예배</h2><button type="button" class="btn btn-ghost btn-sm" data-capm="1" ${m >= cur ? "disabled" : ""}>다음 달</button></div>
-        <p class="small muted" style="margin:0">지난 예배 콘티 · 적용찬양을 고칠 수 있어요. <b>알림은 보내지 않고</b>, 고치면 찬양 › 기록 통계에 바로 반영돼요. 이전 버전은 남아요. 그 예배 인도자 · 밴드 마스터도 팀원 화면 찬양 › 기록에서 고칠 수 있어요.</p>
+        <p class="small muted x-m0">지난 예배 콘티 · 적용찬양을 고칠 수 있어요. <b>알림은 보내지 않고</b>, 고치면 찬양 › 기록 통계에 바로 반영돼요. 이전 버전은 남아요. 그 예배 인도자 · 밴드 마스터도 팀원 화면 찬양 › 기록에서 고칠 수 있어요.</p>
         <div class="song-wrap"><table class="hx-lead ca-table"><thead><tr><th>예배</th><th>인도</th><th>콘티</th><th>적용찬양</th><th></th></tr></thead><tbody>
         ${rows.map((s) => { const sl = s.setlist, p = sl?.status === "published", items = sl?.items || [];
           return `<tr data-sid="${s.id}"><td><b>${esc(svcShort(s, rows))}</b>${s.ministry_id ? ` <span class="chip chip-violet">사역</span>` : ""}</td>
@@ -2566,15 +2570,15 @@
     if (error) { root.innerHTML = `<div class="empty">링크를 불러오지 못했어요. migration_024를 실행했는지 확인해 주세요.</div>`; return; }
     const list = data || [];
     root.innerHTML = `<section class="panel" id="caShare"><h2>섬김이 팀 링크 <small>자막팀 · 방송팀처럼 팀마다 고정 링크</small></h2>
-        <p class="small muted" style="margin:0">로그인 없이 링크로 열어요. 열 때마다 <b>다가오는 예배</b>의 콘티(곡 순서 · 키 · BPM · 악보) · 적용찬양 · 예배 진행곡(성찬식 주일엔 성찬 찬양) · 백업찬양 후보를 보여 주고, 기도회 중에는 지금 곡 · 다음 곡이 실시간으로 바뀌어요. 라인업 · 멤버 정보 · 내 메모 · 고치기는 보이지 않아요. 홈 화면에 추가하면 앱처럼 쓸 수 있어요.</p>
-        <p class="notice warn" style="margin:0">링크는 누구에게나 전달될 수 있어요. 팀이 바뀌거나 링크가 퍼졌으면 '새 링크로 바꾸기'나 '끊기'를 눌러 주세요.</p>
+        <p class="small muted x-m0">로그인 없이 링크로 열어요. 열 때마다 <b>다가오는 예배</b>의 콘티(곡 순서 · 키 · BPM · 악보) · 적용찬양 · 예배 진행곡(성찬식 주일엔 성찬 찬양) · 백업찬양 후보를 보여 주고, 기도회 중에는 지금 곡 · 다음 곡이 실시간으로 바뀌어요. 라인업 · 멤버 정보 · 내 메모 · 고치기는 보이지 않아요. 홈 화면에 추가하면 앱처럼 쓸 수 있어요.</p>
+        <p class="notice warn x-m0">링크는 누구에게나 전달될 수 있어요. 팀이 바뀌거나 링크가 퍼졌으면 '새 링크로 바꾸기'나 '끊기'를 눌러 주세요.</p>
         <div class="bk-alist" id="shList">${list.map((x) => `<div class="devrow lk-row ${x.active ? "" : "off"}" data-id="${x.id}"><span style="display:flex;flex-direction:column;gap:2px;min-width:0">
             <span><b>${esc(x.label)}</b> ${x.active ? `<span class="chip chip-ok">켜짐</span>` : `<span class="chip chip-gray">끊김</span>`}</span>
             <span class="small muted lk-url">${x.active ? esc(shareUrl(x.token)) : "이 링크로는 열리지 않아요"}</span>
             <span class="small muted">${fmtDateTime(x.created_at)} 만듦${x.last_seen_at ? ` · 마지막으로 연 때 ${fmtDateTime(x.last_seen_at)}` : " · 아직 안 열어 봄"}</span></span>
           <div class="row" style="gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end">${x.active ? `<button type="button" class="btn btn-soft btn-sm" data-sh="copy">링크 복사</button><a class="btn btn-ghost btn-sm" href="${esc(shareUrl(x.token))}" target="_blank" rel="noopener">열기</a>` : ""}
             <button type="button" class="btn btn-ghost btn-sm" data-sh="renew">새 링크로 바꾸기</button><button type="button" class="btn btn-ghost btn-sm" data-sh="toggle">${x.active ? "끊기" : "다시 켜기"}</button><button type="button" class="btn btn-ghost btn-sm" data-sh="del">지우기</button></div></div>`).join("")
-          || `<p class="small muted" style="margin:0">아직 만든 링크가 없어요.</p>`}</div>
+          || `<p class="small muted x-m0">아직 만든 링크가 없어요.</p>`}</div>
         <div class="row"><input class="input" id="shLabel" maxlength="30" placeholder="팀 이름 (예: 자막팀)" style="max-width:240px"><button type="button" class="btn btn-primary btn-sm" data-sh="add">링크 만들기</button></div></section>`;
     root.onclick = async (e) => {
       const b = e.target.closest("[data-sh]"); if (!b) return;
@@ -2615,8 +2619,8 @@
             <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button><button type="button" class="btn btn-ghost btn-sm" data-ca="copy">카톡 복사</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="order">순서${s.extras?.length ? ` · 특별 ${s.extras.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button>${s.ministry_id ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-ca="communion" aria-pressed="${!!s.communion}">${s.communion ? "성찬식 빼기" : "성찬식 넣기"}</button>`}</td></tr>`; }).join("")
           || `<tr><td colspan="6" class="muted">앞으로 8주 안에 배치된 예배가 없어요.</td></tr>`}</tbody></table></div></section>
       <section class="panel" id="caSet"><h2>기본값 <small>예배마다 '마감 · 목표'로 따로 바꿀 수 있어요</small></h2>
-        <div class="row"><span style="font-weight:700">주일 콘티 마감</span><select class="select" id="caDow" style="width:auto">${KDOW.map((w, i) => `<option value="${i}" ${C.deadline_dow === i ? "selected" : ""}>${w}요일</option>`).join("")}</select><select class="select" id="caHour" style="width:auto">${hours(C.deadline_hour)}</select></div>
-        <div class="row"><span style="font-weight:700">사역 콘티 마감</span><select class="select" id="caMin" style="width:auto">${[1, 2, 3, 4, 5, 7].map((n) => `<option value="${n}" ${C.min_days === n ? "selected" : ""}>예배 ${n}일 전</option>`).join("")}</select><span class="small muted">22:00</span></div>
+        <div class="row"><span style="font-weight:700">주일 콘티 마감</span><select class="select x-wa" id="caDow">${KDOW.map((w, i) => `<option value="${i}" ${C.deadline_dow === i ? "selected" : ""}>${w}요일</option>`).join("")}</select><select class="select x-wa" id="caHour">${hours(C.deadline_hour)}</select></div>
+        <div class="row"><span style="font-weight:700">사역 콘티 마감</span><select class="select x-wa" id="caMin">${[1, 2, 3, 4, 5, 7].map((n) => `<option value="${n}" ${C.min_days === n ? "selected" : ""}>예배 ${n}일 전</option>`).join("")}</select><span class="small muted">22:00</span></div>
         <div class="row"><span style="font-weight:700">목표 RT</span><label class="row" style="gap:6px">성찬식 주일<input type="number" class="input" id="caFirst" min="5" max="90" value="${Math.round(C.rt_first / 60)}" style="width:80px;min-height:40px">분</label>
           <label class="row" style="gap:6px">나머지 주일<input type="number" class="input" id="caOther" min="5" max="90" value="${Math.round(C.rt_other / 60)}" style="width:80px;min-height:40px">분</label></div>
         <div class="row"><button type="button" class="btn btn-primary btn-sm" id="caSave">저장</button><span class="small muted">콘티 알림(안내 · 독촉 · 올라옴 · 수정됨)은 공지 · 알림 › 알림 설정에서 바꿔요.</span></div></section>`;

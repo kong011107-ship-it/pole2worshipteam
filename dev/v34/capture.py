@@ -59,16 +59,13 @@ async def admin(p, w, h, tag):
     pg = await login(ctx, "admin@x.com", "adminpass")
     if "admin.html" not in pg.url: await pg.goto(BASE + "/admin.html"); await pg.wait_for_timeout(1500)
     await shot(pg, f"a{tag}_dash")
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests"))
+    from h import navclick
     for key in ["attendance", "lineup", "conti", "members"]:
-        a = pg.locator(f'.side nav a[data-nav="{key}"]')
-        if await a.count():
-            try:
-                if not await a.is_visible():
-                    g = pg.locator(f'.side .nav-sec:has(a[data-nav="{key}"]) > button.nav-group')
-                    if await g.count(): await g.first.click(); await pg.wait_for_timeout(200)
-                await a.first.click(timeout=3000); await pg.wait_for_timeout(1500)
-                await shot(pg, f"a{tag}_{key}")
-            except Exception as e: ERRS.append(f"nav {key}: {e}")
+        try:
+            await navclick(pg, key); await pg.wait_for_timeout(1500)
+            await shot(pg, f"a{tag}_{key}")
+        except Exception as e: ERRS.append(f"nav {key}: {e}")
     await b.close()
 
 async def share(p, w, h, tag):
