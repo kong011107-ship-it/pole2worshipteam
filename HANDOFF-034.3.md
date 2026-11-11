@@ -39,7 +39,9 @@
 - 줄 안 `.btn-sm, .u-b.u-sm`: 32 · 12 · 500 · `::before inset -4px`(터치 -5px)로 누르는 범위 40. svg 14. `.linkbtn` · `.cv-go`도 12 · 500. 곡 상세 `#sdPartSel` 32.
 - 키 `.ce2-keys button` 40 · 14 · 500(고른 키 600). 밑줄 탭 `.tabs button` 40 · 14 · 500(고른 탭 600 · 글자색 foreground · 밑줄 2px primary). 세그먼트 `.segbar/.u-seg/.m-subnav .segbar/.ad-segbar/.ce2-tabs button` 32(터치 34) · 14 · 500. 하단 탭 `.tabbar a/button` · `.ad-tb` 52 · 11 · 500(600) · 아이콘 22.
 - 예외(손대지 않음): `.bk-go` 등 백업찬양 진행 · 악보 보기 · 필기 · 메트로놈 · 페달 · 입력칸 16.
-- 확인 도구 `dev/v34/measure.py`: 콘티 쓰기(태블릿 · 휴대폰) · 리더십 4화면 · 팀원 4화면에서 종류별 '글자/굵기/높이' 조합을 출력해요. 새 화면을 만들면 여기서 조합이 하나씩만 나오는지 보면 돼요.
+- 확인 도구 `dev/v34/measure.py`(가짜 sb · 빠름) · **`dev/v34/audit.py`(실제 스택 · 26화면 × PC · 휴대폰 · 단추 + 입력칸)**. 새 화면을 만들면 audit을 돌려 종류마다 조합이 하나인지 봐요.
+- 점검 2회차(11-12)에 더한 규칙(ui.css 맨 끝): 칩 `.seg/.bk-tchips/.hx-seg/.pillbtn/.a-btn` 12 · 500 · 36 · 백업찬양 키 `.bk-kchips` = 키 단추 · 상태 `.cv-bpm/.lu-pub/.todo/.tm` 12 · 500 · 28 · 글자 `.linkbtn/.rs/.ce-refchip` 12 · 500 · **`.song-name` 14 · 500**(1회차에 `.linkbtn` 12로 곡 이름까지 작아졌던 것 되돌림) · 아이콘 `.u-ar/.app-banner .x/.cv-vnews .x/.cvv-back/.ce-oadd/.bk-slot-x` 40/44 · **입력칸 16 · 40/44**(`.input/.select/.search/.hx-search/.field …/.pos-set .select/.ce-bpm/.ce-tm/.ce2-kin/#sdPartSel`) · admin.js 인라인 입력 글자 4곳 16. 1회차에 넣은 `#sdPartSel` 13px · `.ce2-cur .u-b` 30 · `.linkbtn` 12 규칙은 지웠어요.
+- '악보 한 번에'의 두 '열기'를 같은 모양(outline)으로.
 
 ### 추천 서랍 (conti.js `searchHTML` · `data-ce="sug"` · ui.css `.ce2-sug*`)
 - `E.sugOpen`(기본 false · 편집기를 여는 동안만). 머리 `button.ce2-sugh[aria-expanded]` + `.ce2-sugl#ceSugList`. 검색어가 있으면 예전처럼 결과 목록.
@@ -54,7 +56,24 @@
 - `dev/v34/measure.py`: 모든 종류가 표의 값 한 가지로만 나와요(주 행동 40/44 · 줄 안 32 · 키 40 · 탭 40 · 세그먼트 32/34 · 하단 탭 52).
 - `dev/v34/shell_shots.py`: PC 1280(펼침 · 접힘 · 뜨는 메뉴 · 나) · 태블릿 820(접힘 기본) · 휴대폰 390(하단 탭 · 세그먼트 · 내 계정 시트) — 가로 넘침 없음 · 오류 없음. 리더십 15개 화면 PC · 휴대폰 캡처로 깨진 곳 없음 확인.
 - 하네스 전체(Opus 서브에이전트로 실행): v31 unit 16/16 · v32 unit_video 50/50 · sync_video 21/21 · run_video 46 + **1 실패**(날짜 고정 fixture `2026-11-02` · 7일이 지나서 '새 영상'이 안 붙음 · v34.1 때부터 같은 것) · run_bk 29/29 · run_pedal 22/22 · v33 unit_seg 22/22 · sync_rule 4/4 · run_seg 12/12 · run_songs 17/17
-- **실제 스택 e2e(v21~v29 · v34 db_delete · e2e_ui)는 못 돌렸어요.** 이 세션 환경엔 PostgREST가 없고 내려받기가 막혔어요. 다음 세션에서 `/home/claude/pgrst/postgrest`(v12.2 정적 바이너리)를 둔 뒤 `dev/v34/reset_stack.sh`로 돌려요. 시험 파일을 코드로 읽어 본 범위에서는 옛 선택자(`.side nav a`)는 남아 있지 않고, 추천 목록이 열려 있다고 가정한 e2e도 없어요. **실행해야 알 수 있는 위험**: 화면을 바꿀 때 뼈대 로딩이 먼저 들어가서, `navclick` 뒤 짧게 기다리고 내용을 읽는 시험은 타이밍 실패가 날 수 있어요(기다리는 시간을 늘리면 돼요).
+- **실제 스택 e2e** (PG16 + PostgREST 12.2.3 + dev/server.mjs · 마이그레이션 033까지 · 시험마다 새로 만듦 · 2026-11-11)
+
+| 시험 | v34.2 기준 | v34.3 |
+|---|---|---|
+| e2e v26 | 110/110 | **110/110** |
+| e2e v28 | 136/136 | **136/136** |
+| e2e v29 | 148/148 | **148/148** |
+| e2e v22 | 108/108 | **108/108** |
+| e2e v21 | 기록 hero 숫자 3개(v33부터) | **같은 3개만** |
+| e2e v23 | FAIL 4 + 백업찬양 진행에서 멈춤 | 낡은 기대값 3개 고침 → **FAIL 0 · 팀원 따라가기(408줄)에서 멈춤** |
+| e2e v24 | 백업찬양 진행 `_iv` 멈춤 | **같은 곳** |
+| e2e v25 | FAIL 1(원본 지우기 shared file) + 536줄 멈춤 | **같은 것만** |
+
+  - v34.3 때문에 새로 생긴 실패는 **없어요.**
+  - v23에서 고친 것(시험만 · 제품은 맞게 동작): ① 027부터 '확정 없이 시작'에 확인 창이 떠요 → 시험이 수락하게 ② 027부터 확정 · 시작 전 후보는 팀원에게 안 보여요 → 기대값 0 ③ 031부터 밴드 '악보 저장'은 처음 채워진 곡만 '악보 올라옴' 알림 → 그것만 허용 ④ 후보 세 곡을 200ms 간격으로 누르면 저장 디바운스에 하나가 빠지는 시험 타이밍 → 700ms.
+  - **남은 멈춤(v23 408줄 · v24 310줄 · v25 536줄)은 모두 v33 개편 때문이에요.** 팀원이 진행 중인 백업찬양에 들어가면 이제 따로 `.bk-live` 화면이 아니라 **악보 보기 안에서 백업 곡이 탭으로 붙고 '기도회 따라가는 중' 막대**로 따라가요(실제 화면 캡처로 확인 · 지금 곡 g40을 따라감). 시험은 예전 `.bk-live`를 찾아서 멈춰요. 이 세 구간을 새 화면 기준으로 다시 쓰면 돼요(제품 버그 아님).
+  - v25 '원본 지우기 shared file'은 v34.1부터 그대로예요(같은 파일을 쓰는 행이 남을 때 파일을 지우지 않는다는 기대 · `delete_sheet`가 `path`를 돌려줌).
+- 스택 세우기: `/home/claude/pgrst/`에 `postgrest`(v12.2.3 `linux-static-x64`) · `pgrst.conf`(프로젝트 `dev/pgrst.conf`) · `server.mjs`(저장소 dev/ · `SITE`를 환경변수로 받게 한 줄 고침) · `npm i pg`, `/home/claude/shim.sql` = `dev/v34/shim.sql`, 저장소에서 `npm i`(api가 web-push · supabase-js를 씀), `python3 dev/tests/mkfx.py`(시험 파일), 그다음 `SITE=<저장소> bash dev/v34/reset_stack.sh`.
 - 못 한 것: 실제 Supabase · 실기기(아이폰 사파리 하단 탭 safe-area · backdrop-filter · hover 없는 기기에서 접힌 메뉴).
 
 ## 다음에 볼 것
