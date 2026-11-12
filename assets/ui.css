@@ -3252,3 +3252,31 @@ button.ce2-ck:active { transform: scale(.97); }
 @media (pointer: coarse) { .ce-oadd { width: 44px; height: 44px; } }
 .bk-slot-x { width: 40px; height: 40px; font-size: var(--fs-body); font-weight: var(--fw-m); }
 .hx-more { font-weight: var(--fw-m); }
+
+/* =====================================================================
+   v34.4 촘촘한 크기 — 휴대폰에서 단추 · 입력칸이 화면에 비해 컸던 것 줄임
+   기준: 줄 안 단추(보기 · 바꾸기 · 지우기) 32
+   | 종류       | 글자 · 굵기   | 높이 (마우스 · 터치 같음) |
+   | 주 행동    | 14 · 500      | 36                        |
+   | 키 단추    | 14 · 500(600) | 32                        |
+   | 입력칸     | 14 · 400      | 34 · 여러 줄은 높이 그대로 |
+   입력칸 글자를 16 아래로 내려서 아이폰 확대는 viewport(ui.js · share.html)로 막아요.
+   ===================================================================== */
+/* 주 행동 */
+.btn:not(.btn-sm), .u-b:not(.u-sm), .btn-block, .bk-foot .btn, .bk-foot .btn-soft, .praybar .btn, .ce-bar .btn, .cv-editor .ce-bar .u-b { min-height: 36px; }
+@media (pointer: coarse) {
+  .btn:not(.btn-sm), .u-b:not(.u-sm), .btn-block, .bk-foot .btn, .bk-foot .btn-soft, .praybar .btn, .ce-bar .btn, .cv-editor .ce-bar .u-b { min-height: 36px; }
+}
+.bk-foot .btn, .bk-foot .btn-soft, .praybar .btn, .ce-bar .btn, .cv-editor .ce-bar .u-b { padding: 0 16px; }
+/* 키 단추 */
+.ce2-keys button, .bk-kchips button { height: 32px; min-height: 32px; }
+/* 입력칸 — 옛 규칙(16 · 40~48)을 모두 덮어요 */
+.input, .select, .search, .hx-search, .hx-sel, .hx-dates input, .field input, .field select, .field textarea, textarea, #sdPartSel, .bk-pw-in .input, .bpm-pop .input, .ce-bpm input, .ce-tm input, .cv-editor .ce2-det .ce-bpm input, .cv-editor .ce2-det .ce-bpm select, .cv-editor .ce2-det .ce-tm input, .cv-editor .ce2-det .input, .cv-editor .ce2-kin, .cv-editor .ce2-sbox .input, .cv-editor .ce2-tm .ce-tm input, .fc-cand .select, .fc-ex .select, .fc-lead-term .select, .hx-vrow .input, .hx-vrow .select, .pcard textarea.input, .pos-set .select, .prerep-form .input, .prow2 .select, .prow2 textarea.input, .sh-filters .select, .subbox .input, .svc .input, .vopt .input, .whenbox .row select { font-size: var(--fs-body); font-weight: var(--fw-n); }
+.input:not(textarea), .select, .search, .hx-search, .hx-sel, .hx-dates input, .field input:not([type=checkbox]):not([type=radio]), .field select, #sdPartSel, .bk-pw-in .input, .bpm-pop .input, .ce-bpm input, .ce-tm input, .cv-editor .ce2-det .ce-bpm input, .cv-editor .ce2-det .ce-bpm select, .cv-editor .ce2-det .ce-tm input, .cv-editor .ce2-det .input, .cv-editor .ce2-kin, .cv-editor .ce2-sbox .input, .cv-editor .ce2-tm .ce-tm input, .fc-cand .select, .fc-ex .select, .fc-lead-term .select, .hx-vrow .input, .hx-vrow .select, .pos-set .select, .prerep-form .input, .prow2 .select, .sh-filters .select, .subbox .input, .svc .input, .vopt .input, .whenbox .row select { min-height: 34px; }
+@media (pointer: coarse) { .input:not(textarea), .select, .search, .hx-search, .hx-sel, .hx-dates input, .field input:not([type=checkbox]):not([type=radio]), .field select, #sdPartSel, .bk-pw-in .input, .bpm-pop .input, .ce-bpm input, .ce-tm input, .cv-editor .ce2-det .ce-bpm input, .cv-editor .ce2-det .ce-bpm select, .cv-editor .ce2-det .ce-tm input, .cv-editor .ce2-det .input, .cv-editor .ce2-kin, .cv-editor .ce2-sbox .input, .cv-editor .ce2-tm .ce-tm input, .fc-cand .select, .fc-ex .select, .fc-lead-term .select, .hx-vrow .input, .hx-vrow .select, .pos-set .select, .prerep-form .input, .prow2 .select, .sh-filters .select, .subbox .input, .svc .input, .vopt .input, .whenbox .row select { min-height: 34px; } }
+.input:not(textarea), .select, .search, .field input:not([type=checkbox]):not([type=radio]), .field select { padding-left: 10px; padding-right: 10px; border-radius: 8px; }
+.cv-editor .ce2-sbox .input { padding-left: 34px; }
+.ce2-sbox > svg { top: 50%; transform: translateY(-50%); left: 11px; }
+.cv-editor .ce2-det .ce-bpm select { width: 72px; }
+.input::placeholder, .search::placeholder, .hx-search::placeholder, textarea::placeholder { font-size: var(--fs-body); }
+.cv-editor .ce-bar .ce2-lg, .ce2-lg { height: 36px; min-height: 36px; }

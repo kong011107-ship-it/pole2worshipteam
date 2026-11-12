@@ -3,6 +3,12 @@
 //  window.UI = { sheet, confirm, leave, vt, skel, saved, seg, ind, reduced, ICON }
 //  모든 HTML이 common.js 앞에서 불러요. 악보 보기 · 필기 · 백업찬양 진행 · 섬김이 링크는 쓰지 않아요.
 // =====================================================================
+// v34.4 아이폰: 입력칸 글자가 16보다 작아도 누를 때 화면이 확대되지 않게(손가락 확대는 그대로 돼요)
+(function () {
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const m = ios && document.querySelector('meta[name=viewport]');
+  if (m && !/maximum-scale/.test(m.content)) m.content += ", maximum-scale=1";
+})();
 (function () {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const mq = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
