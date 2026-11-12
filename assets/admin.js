@@ -890,7 +890,7 @@
       <div class="notes3">
         ${others.map((m) => `<div><b>${esc(m.name)} 메모</b><span style="white-space:pre-wrap">${esc(evals.find((e) => e.interviewer_id === m.id)?.note) || `<span class="muted small">아직 없어요</span>`}</span></div>`).join("")}
         <label style="border-color:var(--violet-soft)"><b style="color:var(--violet)">내 메모</b>
-          <textarea id="myNote" maxlength="1000" placeholder="면접에서 나눈 이야기, 수습 때 함께 볼 점" style="border:0;padding:0;min-height:60px;resize:vertical;outline:none;font-size:14px">${esc(mine.note || "")}</textarea></label>
+          <textarea id="myNote" maxlength="1000" placeholder="면접에서 나눈 이야기, 수습 때 함께 볼 점" style="border:0;padding:0;min-height:60px;resize:vertical;outline:none;font-size:16px">${esc(mine.note || "")}</textarea></label>
       </div></section>`;
 
     const save = async (patch) => {
@@ -941,7 +941,7 @@
             <div class="x-col x-g4"><span class="small muted x-b">주일 9시 참관</span>${attSeg("sun_attended", r.sun_attended)}</div>
           </div>
           <div class="x-col x-g8">
-            <label class="field x-12">${n === 5 ? "커피챗" : "나눔 리더"}<select class="select" data-field="leader_id" style="min-height:40px;font-size:15px">
+            <label class="field x-12">${n === 5 ? "커피챗" : "나눔 리더"}<select class="select" data-field="leader_id" style="min-height:40px;font-size:16px">
               <option value="">선택</option>${leaders.map((m) => `<option value="${m.id}" ${r.leader_id === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select></label>
             <textarea class="input" data-field="note" maxlength="500" placeholder="나눔 후 3줄로 남겨 주세요">${esc(r.note || "")}</textarea>
             <div data-wconflict></div>
@@ -2094,7 +2094,7 @@
         </div>
         <p class="small muted x-m0">고쳐서 저장하면 <b>새 버전</b>이 돼요. 이미 서약한 사람은 서약 당시 문구가 그대로 남고, 새 지원자부터 바뀐 문구로 서약해요.</p>
         <label class="field">제목<input type="text" id="pTitle" maxlength="100" value="${esc(active?.title || "")}"></label>
-        <label class="field">내용<textarea id="pBody" style="min-height:420px;font-size:14px;line-height:1.8">${esc(active?.content || "")}</textarea></label>
+        <label class="field">내용<textarea id="pBody" style="min-height:420px;font-size:16px;line-height:1.8">${esc(active?.content || "")}</textarea></label>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <details><summary class="small" style="cursor:pointer;color:var(--violet);font-weight:600">이전 버전 ${Math.max(pv.length - 1, 0)}개</summary>
             <ul style="margin:8px 0 0;padding-left:18px;font-size:13px">${pv.filter((p) => !p.is_active).map((p) =>
@@ -2112,7 +2112,7 @@
             <h2 class="x-h">${esc(t.title)}</h2>
             <span class="x-row x-wrap x-g6"><span class="chip chip-violet">${esc(t.timing)}</span>${t.sensitive ? `<span class="chip chip-warn">전화 먼저</span>` : ""}</span>
           </div>
-          <textarea class="input" style="min-height:220px;font-size:14px" aria-label="${esc(t.title)} 문구">${esc(t.body)}</textarea>
+          <textarea class="input" style="min-height:220px;font-size:16px" aria-label="${esc(t.title)} 문구">${esc(t.body)}</textarea>
           <div style="display:flex;justify-content:flex-end"><button type="button" class="btn btn-soft btn-sm" data-save>저장</button></div>
         </section>`).join("")}</div>`;
     $("#tplList").onclick = async (e) => {

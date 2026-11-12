@@ -1929,7 +1929,7 @@
       return `<section class="ce2-card ce2-bulk ce-view"><div class="ce2-ch"><b>악보 한 번에</b><small>곡마다 고른 악보를 콘티 순서대로 이어서</small></div>
         <div class="ce2-bk"><span class="ce2-ic">${CEI.pen}</span><span class="tx"><b>통합본 보며 고치기</b><small>곡 순서대로 넘기며 바로 필기 · ${n}곡 중 ${haveSheets}곡 악보 · ${fixWho}</small></span>
           <button type="button" class="u-b u-o u-sm" data-ce="viewall" ${haveSheets ? "" : "disabled"}>열기</button></div>
-      <details class="ce-pdf ce2-bk2" ${U ? "open" : ""}><summary><span class="ce2-ic">${CEI.file}</span><span class="tx"><b>노트 앱으로 (통합본 PDF)</b><small>초안 PDF 받기 → 노트 앱에서 고쳐 통째로 올리기 · 예전 방식</small></span><span class="u-b u-gh u-sm ce2-op">열기</span></summary>
+      <details class="ce-pdf ce2-bk2" ${U ? "open" : ""}><summary><span class="ce2-ic">${CEI.file}</span><span class="tx"><b>노트 앱으로 (통합본 PDF)</b><small>초안 PDF 받기 → 노트 앱에서 고쳐 통째로 올리기 · 예전 방식</small></span><span class="u-b u-o u-sm ce2-op">열기</span></summary>
         <div class="ce-draft"><span><b>① 초안 받기</b><span class="small muted">곡마다 고른 악보(저장된 악보 · 원본)를 콘티 순서대로 이어 붙인 PDF · ${n}곡 중 ${haveSheets}곡 있음${n > haveSheets ? ", 없는 곡은 빈 쪽" : ""}</span></span>
           <button type="button" class="btn btn-soft btn-sm" data-ce="draft" ${n ? "" : "disabled"}>초안 PDF 받기</button></div>
         <span class="ce-step">② 노트 앱에서 고친 통합본 올리기</span>

@@ -6,7 +6,7 @@ import path from "node:path";
 import pg from "pg";
 
 const PORT = 8790, PGRST = "http://127.0.0.1:3001";
-const SITE = "/home/claude/wp";
+const SITE = process.env.SITE || "/home/claude/wp";
 const SECRET = "local-test-secret-local-test-secret-123456";
 const db = new pg.Pool({ host: "127.0.0.1", database: "wt", user: "postgres", password: "pgpw" });
 

@@ -3036,12 +3036,9 @@ button.ce2-ck:active { transform: scale(.97); }
 .btn-sm.btn-block, .u-b.u-sm.u-block { min-height: 40px; }
 .ca-acts .btn + .btn { margin-left: 4px; }
 .cv-upl.btn-sm { margin-top: 6px; }
-.linkbtn { font-weight: var(--fw-m); font-size: var(--fs-meta); }
 .cv-go { font-size: var(--fs-meta); font-weight: var(--fw-m); }
-#sdPartSel.select { min-height: 32px !important; font-size: 13px; padding: 0 28px 0 10px; }
 /* 콘티 쓰기: 위로 · 아래로 · 빼기 */
 .ce2-acts .u-b { min-height: 32px; }
-.ce2-cur .u-b { min-height: 30px; }
 /* 다음 순서 '+ 올리기' · 곡 상세 '+ 원본 악보 올리기' 같은 보조 행동은 secondary 색 그대로 · 크기만 줄 안 규격 */
 
 /* ---------- 콘티 쓰기: 함께 부른 곡 추천 서랍 (기본 닫힘) ---------- */
@@ -3113,7 +3110,7 @@ button.ce2-ck:active { transform: scale(.97); }
 @keyframes ad-fly { from { opacity: 0; transform: translateX(-4px) scale(.98); } to { opacity: 1; transform: none; } }
 /* 본문 */
 .ad-main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
-.ad-main .content { flex: 1 1 auto; width: auto; max-width: 1180px; padding: 20px 32px 48px; }
+.ad-main .content { flex: 1 1 auto; width: auto; max-width: none; padding: 20px 32px 48px; }   /* 메뉴 칸을 접고 펴면 남은 폭을 그대로 다 써요 */
 .ad-shut .ad-main .content { padding-top: 8px; }
 .ad-strip { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 14px 32px 0; animation: u-fade var(--d2) var(--e-out) both; }
 .ad-strip[hidden] { display: none; }
@@ -3190,7 +3187,12 @@ button.ce2-ck:active { transform: scale(.97); }
    | 밑줄 탭     | 14 · 500 (600)       | 40 · 밑줄 2px        |
    | 세그먼트    | 14 · 500             | 32 / 34 (칸 +6)      |
    | 하단 탭     | 11 · 500 (600)       | 칸 52 · 아이콘 22    |
-   예외(그대로): 악보 보기 · 필기 · 백업찬양 진행(.bk-go …) · 메트로놈 · 페달 · 입력칸(16)
+   | 칩(필터)    | 12 · 500 (600)       | 36                   |
+   | 상태 단추   | 12 · 500             | 28 (BPM · 공개 · 단계 · 시간) |
+   | 글자 단추   | 12 · 500 · 곡 이름은 14 · 500 | 줄 높이   |
+   | 아이콘 단추 | 아이콘 18~20         | 40 / 44 (끌기 손잡이 제외) |
+   | 입력칸      | 16 · 400 (아이폰 확대 막기) | 40 / 44 · 여러 줄은 높이 그대로 |
+   예외(그대로): 악보 보기 · 필기 · 백업찬양 진행(.bk-go …) · 메트로놈 · 페달 · '이어서 부르기'(10.5 · 16)
    ===================================================================== */
 /* 주 행동 */
 .btn:not(.btn-sm), .u-b:not(.u-sm), .btn-block, .bk-foot .btn, .bk-foot .btn-soft, .praybar .btn, .ce-bar .btn, .cv-editor .ce-bar .u-b {
@@ -3215,3 +3217,38 @@ button.ce2-ck:active { transform: scale(.97); }
 .tabbar .on, .ad-tb.on { font-weight: var(--fw-s); }
 .tabbar svg, .ad-tb svg { width: 22px; height: 22px; }
 .ad-tabin { min-height: 52px; }
+
+/* 칩(필터 · 고르기) */
+.seg button, .bk-tchips button, .hx-seg button, .pillbtn, .a-btn { min-height: 36px; font-size: var(--fs-meta); font-weight: var(--fw-m); }
+.seg button[aria-pressed=true], .bk-tchips button[aria-pressed=true], .hx-seg button[aria-pressed=true], .pillbtn[aria-pressed=true] { font-weight: var(--fw-s); }
+/* 백업찬양 키 고르기 = 키 단추 */
+.bk-kchips button { min-height: 40px; font-size: var(--fs-body); font-weight: var(--fw-m); }
+.bk-kchips button[aria-pressed=true] { font-weight: var(--fw-s); }
+/* 상태 단추 (상태를 보여 주면서 누르면 바뀌는 것) */
+.cv-bpm, .cvw-so .cv-bpm, .lu-pub, .kcard .todo, .sched .tm { min-height: 28px; font-size: var(--fs-meta); font-weight: var(--fw-m); }
+.cv-bpm.none { font-weight: var(--fw-m); }
+.cv-bpm.sm, .shv-body .cv-bpm { min-height: 24px; font-size: var(--fs-meta); }   /* 섬김이 링크 · 작은 표시는 24 */
+/* 글자 단추 */
+.linkbtn, .rs, .ce-refchip { font-size: var(--fs-meta); font-weight: var(--fw-m); }
+.ce-refchip .tt, .ce-refchip .rg { font-weight: var(--fw-m); }
+.song-name, .linkbtn.song-name { font-size: var(--fs-body); font-weight: var(--fw-m); }
+/* 아이콘 단추 */
+.u-ar, .app-banner .x, .cv-vnews .x, .cvv-back { min-width: 40px; min-height: 40px; display: inline-grid; place-items: center; }
+@media (pointer: coarse) { .u-ar, .app-banner .x, .cv-vnews .x, .cvv-back { min-width: 44px; min-height: 44px; } }
+@media (pointer: fine) { .u-ar { width: 40px; height: 40px; } }
+/* 입력칸 */
+.input, .select, .search, .hx-search, .hx-sel, .hx-dates input, .field input, .field select, .field textarea, textarea, .sh-filters .select, .fc-lead-term .select, .hx-vrow .input, .hx-vrow .select, .pcard textarea.input, .prow2 textarea.input, #sdPartSel {
+  font-size: 16px; font-weight: var(--fw-n); }
+.input:not(textarea), .select, .search, .hx-search, .hx-sel, .hx-dates input, .field input:not([type=checkbox]):not([type=radio]), .field select, .sh-filters .select, .fc-lead-term .select, .hx-vrow .input, .hx-vrow .select, .cv-editor .ce2-det .input, #sdPartSel { min-height: 40px; }
+@media (pointer: coarse) {
+  .input:not(textarea), .select, .search, .hx-search, .hx-sel, .hx-dates input, .field input:not([type=checkbox]):not([type=radio]), .field select, .sh-filters .select, .fc-lead-term .select, .hx-vrow .input, .hx-vrow .select, .cv-editor .ce2-det .input, #sdPartSel { min-height: 44px; }
+}
+/* 남은 것 (점검 2회차) — 더 구체적인 옛 규칙을 덮어요 */
+.pos-set .select, .cv-editor .ce2-det .ce-bpm select, .cv-editor .ce2-det .ce-bpm input, .cv-editor .ce2-det .ce-tm input, .cv-editor .ce2-kin { font-size: 16px; font-weight: var(--fw-n); min-height: 40px; }
+@media (pointer: coarse) { .pos-set .select, .cv-editor .ce2-det .ce-bpm select, .cv-editor .ce2-det .ce-bpm input, .cv-editor .ce2-det .ce-tm input, .cv-editor .ce2-kin { min-height: 44px; } }
+.u-wsw .u-ar { width: 40px; height: 40px; }
+@media (pointer: coarse) { .u-wsw .u-ar { width: 44px; height: 44px; } }
+.ce-oadd { width: 40px; height: 40px; }
+@media (pointer: coarse) { .ce-oadd { width: 44px; height: 44px; } }
+.bk-slot-x { width: 40px; height: 40px; font-size: var(--fs-body); font-weight: var(--fw-m); }
+.hx-more { font-weight: var(--fw-m); }

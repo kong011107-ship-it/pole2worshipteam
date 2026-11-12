@@ -334,7 +334,9 @@ async def main():
         n0 = len(pushlog()); v0 = q(f"select version from setlists where service_id='{sid}'")
         await pg.click("[data-ce=sheets]"); await pg.wait_for_timeout(5000)
         check(await pg.locator(".cv-editor").count() == 0, "band editor closed")
-        check(int(q(f"select version from setlists where service_id='{sid}'")) == int(v0) + 1 and len(pushlog()) == n0, "band save no push")
+        # 031부터: '악보 저장'은 콘티 알림은 없고, 악보 없이 올렸던 곡이 처음 채워지면 그 곡만 한 번 '악보 올라옴' 알림
+        newp = pushlog()[n0:]
+        check(int(q(f"select version from setlists where service_id='{sid}'")) == int(v0) + 1 and all(x.get("body", "").startswith("악보 올라옴") for x in newp), f"band save: only first-fill notice {[x.get('body', '')[:20] for x in newp][:2]}")
         check(q(f"select count(*) from sheet_versions where created_by=(select id from members where email='demo07@pole2.test')") in ("2", "3"), "band sheet versions")
         # 악보 보기: 적용 · 진행곡 칩 이어짐 · 등단송은 주일엔 없음
         await pg.click(".cv-pdfbar"); await pg.wait_for_timeout(2000)
@@ -367,9 +369,9 @@ async def main():
         g54 = q("select s.id from backup_songs s join backup_books b on b.id=s.book_id where b.active and code='g54'")
         x1 = q("select id from backup_songs where code='x1'")
         # 이전 후보(x1) 빼고 g40 · g51 · g54
-        await lp.locator(f'[data-bk-song="{g40}"]').click(); await lp.wait_for_timeout(200)
-        await lp.locator(f'[data-bk-song="{g51}"]').click(); await lp.wait_for_timeout(200)
-        await lp.locator(f'[data-bk-song="{g54}"]').click(); await lp.wait_for_timeout(800)
+        await lp.locator(f'[data-bk-song="{g40}"]').click(); await lp.wait_for_timeout(700)
+        await lp.locator(f'[data-bk-song="{g51}"]').click(); await lp.wait_for_timeout(700)
+        await lp.locator(f'[data-bk-song="{g54}"]').click(); await lp.wait_for_timeout(1500)
         alt = await lp.locator(f'[data-bk-song="{g40}"]').text_content()
         check("다른 키 f40" in alt, f"alt key {alt}")
         check(await lp.locator(".bk-slot:not(.empty)").count() == 3, "3 candidates slots")
@@ -387,9 +389,11 @@ async def main():
         mp = await login(mctx, "demo02@pole2.test", PW, "me.html")
         await mp.goto(BASE + "/me.html#worship"); await mp.wait_for_timeout(1500)
         await mp.click('#worshipNav [data-ws="backup"]'); await mp.wait_for_timeout(2500)
-        check(await mp.locator(".bk-slot:not(.empty)").count() == 4 and await mp.locator(".bk-ck").count() == 0, "member sees candidates read-only")
+        # 027부터: 확정 · 시작 전 후보는 팀원에게 안 보여요
+        check(await mp.locator(".bk-slot:not(.empty)").count() == 0 and await mp.locator(".bk-ck").count() == 0, "member does not see candidates before confirm/start")
         check(await mp.locator("[data-bk=start]").count() == 0, "member no start")
         # 인도자: 기도회 시작
+        lp.once("dialog", lambda d: asyncio.ensure_future(d.accept()))   # 027: '아직 확정 전이에요 · 시작할까요?'
         await lp.click("[data-bk=start]"); await lp.wait_for_timeout(2500)
         check(await lp.locator(".bk-live").count() == 1 and await lp.locator(".bk-tile").count() == 4, "leader live screen")
         check(q("select active::text||'|'||now_ref||'|'||next_ref from backup_live") == f"true|b:{g40}|b:{g51}", "started now/next")
