@@ -683,6 +683,21 @@
     return [s.date <= addDays(todayISO(), 7) && !s.ministry_id ? "이번 주" : "", s.ministry_id ? "사역" : "", st, mineIn(s) ? "나도 섬겨요" : lead && `인도 ${lead}`].filter(Boolean).join(" · ");
   };
   const shortDT = (iso) => { if (!iso) return ""; const k = kst(iso); return `${md(k.date)} ${k.hm}`; };
+  // v35: 키 → 해 본 키 목록(전조 'G-A'는 둘 다) · 같은 소리는 한 이름으로(Db → C#, D# → Eb …) · 단조는 'm'을 붙여 따로
+  const KEY_SP = { C: "C", "C#": "C#", DB: "C#", D: "D", "D#": "Eb", EB: "Eb", E: "E", FB: "E", "E#": "F", F: "F", "F#": "F#", GB: "F#", G: "G", "G#": "Ab", AB: "Ab", A: "A", "A#": "Bb", BB: "Bb", B: "B", CB: "B", "B#": "C" };
+  function keyParts(k) {
+    const out = [];
+    String(k || "").replace(/♯/g, "#").replace(/♭/g, "b").split(/[-~>/,→]+/).forEach((t) => {
+      const m = t.trim().match(/^([A-Ga-g])([#b]?)(m(?!aj))?/); if (!m) return;
+      const root = KEY_SP[(m[1] + m[2]).toUpperCase()]; if (!root) return;
+      const v = root + (m[3] ? "m" : ""); if (!out.includes(v)) out.push(v);
+    });
+    return out;
+  }
+  // v35: 같은 사람 — 멤버면 member_id, 아니면(객원 · 예전 이름) 이름(호칭 뺀)
+  const recPid = (x) => { const id = x.member_id ?? x.mid; return id ? "m:" + id : "n:" + String(x.name || "").replace(/\s*(목사님|전도사님|목사|전도사)$/, "").trim(); };
+  // v35: 얼굴 점(20px)용 한 글자 — 세 글자 이름은 이름 첫 글자(김현우 → 현)
+  const ini1 = (name) => { const n = String(name || "").replace(/\(.*?\)/g, "").trim(); return (n.length >= 3 ? n[1] : n[0]) || "?"; };
   const initials = (name) => { const n = String(name || "").replace(/\(.*?\)/g, "").trim(); return n.length >= 3 ? n.slice(1, 3) : n.slice(-2) || "?"; };
   async function mountWeek(root, opts = {}) {
     const me = opts.me;
@@ -889,13 +904,13 @@
         <section class="card"><label class="checkrow"><input type="checkbox" id="foEnt" ${svc.entrance ? "checked" : ""} ${procE ? "" : "disabled"}><span><b>등단송 쓰기</b><small>${procE ? `${esc(procE.title)}${procE.key ? ` · ${esc(procE.key)}` : ""} · ` : "리더십이 등단송을 아직 올리지 않았어요 · "}${svc.ministry_id ? "사역은 기본으로 켜져 있어요" : "주일은 기본으로 꺼져 있어요"}</small></span></label></section>
         <section class="card"><div class="card-title cv-ct">특별순서 <small>예: 파송식 · 이 예배에만 · RT · 카톡 복사에는 넣지 않아요</small></div>
           ${ex.map((x) => `<div class="cv-sheet" data-fx="${x.id}"><span class="cv-ptag">특별</span><span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, bpmText(x.bpm, x.meter), x.images?.length ? `사진 ${x.images.length}장` : x.pages ? `PDF ${x.pages}쪽` : "악보 없음", x.memo].filter(Boolean).map(esc).join(" · ")}</small></span>
-            <span class="row" style="gap:6px"><button type="button" class="btn btn-ghost btn-sm" data-fxa="edit">고치기</button><button type="button" class="btn btn-ghost btn-sm" data-fxa="del">지우기</button></span></div>`).join("") || `<p class="small muted x-m0">아직 없어요.</p>`}
+            <span class="row x2-4"><button type="button" class="btn btn-ghost btn-sm" data-fxa="edit">고치기</button><button type="button" class="btn btn-ghost btn-sm" data-fxa="del">지우기</button></span></div>`).join("") || `<p class="small muted x-m0">아직 없어요.</p>`}
           ${edit ? formHTML(edit) : `<button type="button" class="btn btn-soft btn-sm x-ss" data-fo="add">+ 특별순서</button>`}</section>`;
     };
     const formHTML = (x) => `<div class="ap-form fx-form" id="fxForm"><b>${x.id ? "특별순서 고치기" : "특별순서 더하기"}</b>
       <label class="field">이름<input class="input" id="fxT" maxlength="60" value="${esc(x.title || "")}" placeholder="예: 파송식"></label>
-      <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:0 0 100px">키<input class="input" id="fxK" maxlength="12" value="${esc(x.key || "")}" placeholder="선택"></label>
-        <label class="field" style="flex:0 0 110px">BPM<input class="input" id="fxB" inputmode="numeric" maxlength="3" value="${x.bpm || ""}" placeholder="선택"></label>
+      <div class="row x2-26"><label class="field" style="flex:0 0 100px">키<input class="input" id="fxK" maxlength="12" value="${esc(x.key || "")}" placeholder="선택"></label>
+        <label class="field x2-27">BPM<input class="input" id="fxB" inputmode="numeric" maxlength="3" value="${x.bpm || ""}" placeholder="선택"></label>
         <label class="field x-f1">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" id="fxM" maxlength="300" value="${esc(x.memo || "")}" placeholder="예: 파송 기도 후 · 1절만"></label></div>
       <label class="btn btn-soft btn-sm cv-upl x-ss">${x.id && (x.path || x.images?.length) ? "악보 바꾸기" : "악보 고르기"} (PDF 1개 또는 사진 여러 장 · 선택)<input type="file" accept="application/pdf,image/*" multiple id="fxF" hidden></label>
       <span class="small muted" id="fxP">${x.id && (x.path || x.images?.length) ? "고르지 않으면 지금 악보를 그대로 써요" : "악보 없이도 순서에 넣을 수 있어요"}</span>
@@ -1447,13 +1462,13 @@
         <section class="card"><div class="card-title cv-ct">올린 곡 <small>${list.length}곡</small></div>
           ${list.map((x, i) => `<div class="cv-sheet" data-ap="${x.id}"><span class="cv-thumb ap" data-ap-thumb="${esc(x.images[0])}"></span>
             <span class="cv-st2"><b>${esc(x.title)}</b><small>${[x.key, `${x.images.length}장`, x.note].filter(Boolean).map(esc).join(" · ")}</small></span>
-            <span class="row" style="gap:6px">${i ? `<button type="button" class="btn btn-ghost btn-sm" data-apa="up">위로</button>` : ""}<label class="btn btn-ghost btn-sm cv-upl">사진 바꾸기<input type="file" accept="image/*" multiple data-apa-img hidden></label><button type="button" class="btn btn-ghost btn-sm" data-apa="del">지우기</button></span></div>`).join("") || `<p class="muted small x-m0">아직 없어요.</p>`}</section>
+            <span class="row x2-4">${i ? `<button type="button" class="btn btn-ghost btn-sm" data-apa="up">위로</button>` : ""}<label class="btn btn-ghost btn-sm cv-upl">사진 바꾸기<input type="file" accept="image/*" multiple data-apa-img hidden></label><button type="button" class="btn btn-ghost btn-sm" data-apa="del">지우기</button></span></div>`).join("") || `<p class="muted small x-m0">아직 없어요.</p>`}</section>
         <p class="small muted x-m0">${svc.applied_meta?.notified_at ? "처음 올릴 때 라인업에 알렸어요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요" : "처음 올리면 이 예배 라인업에 알림이 가요 · 그 뒤로 고치면 알림 없이 '수정됨'으로 보여요"}</p>
         <section class="card ap-form"><div class="card-title cv-ct">곡 더하기</div>
           <label class="field">곡 이름 <span class="hint">· 전에 쓴 이름을 고르면 같은 곡으로 묶여 기록에 쌓여요</span><input class="input" id="apTitle" maxlength="80" list="apSug" autocomplete="off" placeholder="예: 주의 손에 나의 손을 포개고"></label>
           <datalist id="apSug">${SUG.map((x) => `<option value="${esc(x.title)}">${x.n}번</option>`).join("")}</datalist>
           <div class="ap-sug" id="apHint"></div>
-          <div class="row" style="gap:10px;align-items:flex-end"><label class="field" style="flex:0 0 110px">키<input class="input" id="apKey" maxlength="12" placeholder="G"></label>
+          <div class="row x2-26"><label class="field x2-27">키<input class="input" id="apKey" maxlength="12" placeholder="G"></label>
             <label class="field x-f1">메모 <span class="hint">· 팀원에게 보여요</span><input class="input" id="apNote" maxlength="200" placeholder="예: 설교 후 · 1절만"></label></div>
           <label class="btn btn-soft btn-sm cv-upl x-ss">악보 사진 고르기 (여러 장)<input type="file" accept="image/*" multiple id="apFiles" hidden></label>
           <span class="small muted" id="apPicked">고른 사진 없음 · 순서대로 이어서 보여요</span>
@@ -1574,7 +1589,7 @@
           ${saved.map(sheetRow).join("") || `<p class="muted small x-m0">아직 없어요. 콘티에 이 곡을 넣고 파일로 더하거나 통합본을 올리면 쌓여요.</p>`}</section>
         ${myParts.length ? `<section class="card" id="sdParts"><div class="card-title cv-ct">파트 악보 <small>일렉 · 드럼처럼 포지션마다 · 같은 포지션 팀원끼리 봐요</small></div>
           ${parts.map(partRow).join("") || `<p class="muted small x-m0">아직 없어요.</p>`}
-          <div class="row" style="gap:6px">${isAdm ? `<select class="select x-wa" id="sdPartSel" aria-label="올릴 파트">${myParts.map((p) => `<option value="${p}">${esc(partName(p))}</option>`).join("")}</select><label class="btn btn-soft btn-sm cv-upl" style="margin-top:0">+ 파트 악보 올리기<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="?" hidden></label>`
+          <div class="row x2-4">${isAdm ? `<select class="select x-wa" id="sdPartSel" aria-label="올릴 파트">${myParts.map((p) => `<option value="${p}">${esc(partName(p))}</option>`).join("")}</select><label class="btn btn-soft btn-sm cv-upl x2-36">+ 파트 악보 올리기<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="?" hidden></label>`
             : myParts.map((p) => `<label class="btn btn-soft btn-sm cv-upl">+ ${esc(partName(p))} 악보<input type="file" accept="application/pdf,image/*" multiple data-sd-pup="${p}" hidden></label>`).join("")}</div></section>` : ""}
         ${st?.refs?.length ? `<section class="card"><div class="card-title cv-ct">레퍼런스 <small>${st.refs.length}개</small></div>
           ${st.refs.slice(0, 6).map((r, i) => `<div class="cv-ref"><a class="hx-yt" href="${ytLink(r[0], r[3])}" ${playAttrs(r[0], r[3], null, song.title + ` · 영상 ${i + 1}`)} target="_blank" rel="noopener">▶ 영상 ${i + 1}</a><span class="small muted">${r[1]}번 사용 · 마지막 ${r[4] ? r[4].slice(2).replace(/-/g, ".") : ""}${r[2] ? ` · ${esc(r[2])}` : ""}</span></div>`).join("")}</section>` : ""}
@@ -1779,8 +1794,9 @@
     }
     function basicTab(x, i, grpHead) {
       const srcTag = { manual: ["me", `직접${x.orig ? ` · 원래 ${mmss(x.orig)}` : ""}`], team: ["team", x.medley_id && grpHead ? "메들리 기준" : "팀 기준"], video: ["vid", "영상"], medley: ["team", "메들리 합계"], live: ["live", "실연주"] }[x.src] || ["none", "모름"];
-      return `<div class="ce2-fl"><span class="ce2-lb">키 <small>· 누르면 바로 바뀌어요</small></span>
-          <div class="ce2-keys">${KEY12.map((k) => `<button type="button" data-ce="key" data-k="${k}" aria-pressed="${x.key === k}">${k}</button>`).join("")}</div>
+      return `<div class="ce2-fl"><span class="ce2-lb">키 <small>· 누르면 바로 바뀌어요 · 숫자는 이번 ${(REC_GROUPS.find((r) => r[0] === E.recG) || [])[1] || ""} 중 그 키로 해 본 사람(최근 1년)</small></span>
+          <div class="ce2-keys ce3-keys">${(() => { const kw = keyWho(x.song_id).by; return KEY12.map((k) => { const c = (kw.get(k) || []).length; return `<button type="button" data-ce="key" data-k="${k}" aria-pressed="${x.key === k}"${c ? ` aria-label="${k} · 이번 라인업 ${c}명이 이 키로 해 봄"` : ""}>${k}${c ? `<em>${c}</em>` : ""}</button>`; }).join(""); })()}</div>
+          ${keyWhoHTML(x)}
           <label class="ce2-kl"><span>다른 키</span><input class="ce-key ce2-kin" list="ceKeys" value="${esc(x.key)}" data-f="key" aria-label="${esc(x.title)} 키" maxlength="12" placeholder="예: G-A"></label></div>
         <label class="ce2-sw"><span class="tx"><b>음원과 키 다름</b><small>레퍼런스와 다른 키로 불러요 · 키 뒤에 * 표시</small></span><input type="checkbox" class="ce2-tog" data-f="diff" ${x.diff ? "checked" : ""}></label>
         <div class="ce2-g2"><div class="ce2-fl"><span class="ce2-lb">BPM · 박자 <small>· 팀 기준으로 저장돼요</small></span>${bpmCell(x)}</div>
@@ -1861,23 +1877,129 @@
         <button type="button" class="ce-opt new" data-ce="sheet-new"><span class="cv-thumb sm plus">+</span><b>새 악보로 저장</b><span>통합본을 올리면 이 곡 쪽을 새 이름으로</span><i></i></button>
         <button type="button" class="ce-opt" data-ce="sheet-none"><span class="cv-thumb sm none"></span><b>악보 없이</b><span>보기 화면에 빈 쪽으로</span><i>${x.sheet.mode === "none" ? "✓" : ""}</i></button></div>`;
     }
-    // v34.2: 함께 부른 곡 — 기록 › 콘티에서 '같은 날 콘티에 함께 들어간 횟수'를 셈해요 (한 번만 계산)
+    // ================================================================= v35: 곡 추천 — 기준 셋 (함께 부른 곡 · 이 라인업 · 멤버별) · 모두 최근 1년
+    //  기록 › 콘티(곡 + 키)와 기록 라인업(날짜마다 사람)을 날짜로 맞춰 셈해요. 해 본 기록은 '곡 + 키' 단위(키가 다르면 코드도 달라서).
+    //  추천에서 넣어도 키는 바꾸지 않아요(평소처럼). 키 단추에 '이번 라인업 중 그 키로 해 본 사람 수'가 붙어요.
+    const REC_GROUPS = [["band", "밴드"], ["singer", "싱어"], ["all", "전체"]];
+    const recGroupOf = (pos) => (pos === "singer" ? "singer" : pos === "leader" ? "leader" : "band");
+    const inGroup = (pos, g) => g === "all" || recGroupOf(pos) === g;
+    const recPref = ls.get("pole2.ce.rec") || {};
+    if (!E.recMode) E.recMode = recPref.mode || ((svc.lineup || []).length ? "lineup" : "co");
+    if (!E.recG) E.recG = recPref.g || "band";
+    const recSave = () => ls.set("pole2.ce.rec", { mode: E.recMode, g: E.recG });
+    function recData() {
+      if (E.rec) return E.rec;
+      const H = E.H, since = addDays(todayISO(), -365);
+      const byDate = new Map();   // 날짜 → Map(sid → Set(키))
+      (H?.plays || []).forEach((p) => { if (p[0] < since) return; let m = byDate.get(p[0]); if (!m) byDate.set(p[0], (m = new Map())); let ks = m.get(p[2]); if (!ks) m.set(p[2], (ks = new Set())); keyParts(p[4]).forEach((k) => ks.add(k)); });
+      // 사람 → Map(sid → { n, keys: Map(키 → 번), last })
+      const P = new Map();
+      Object.entries(H?.lu || {}).forEach(([d, rows]) => {
+        const songsOn = byDate.get(d); if (!songsOn) return;
+        new Set(rows.map(recPid)).forEach((pid) => {
+          let m = P.get(pid); if (!m) P.set(pid, (m = new Map()));
+          songsOn.forEach((ks, sid) => { let r = m.get(sid); if (!r) m.set(sid, (r = { n: 0, keys: new Map(), last: "" })); r.n++; if (d > r.last) r.last = d; ks.forEach((k) => r.keys.set(k, (r.keys.get(k) || 0) + 1)); });
+        });
+      });
+      // 함께 부른 곡 (같은 날 콘티)
+      const co = new Map();
+      byDate.forEach((m) => { const a = [...m.keys()]; a.forEach((u) => { let x = co.get(u); if (!x) co.set(u, (x = new Map())); a.forEach((v) => { if (v !== u) x.set(v, (x.get(v) || 0) + 1); }); }); });
+      return (E.rec = { P, co, since });
+    }
+    // 이번 라인업 사람들 (같은 사람은 한 번 · 포지션 순)
+    function recPeople(g) {
+      const seen = new Set(), out = [];
+      (svc.lineup || []).forEach((x) => { if (!x.name || !inGroup(x.pos, g)) return; const pid = recPid(x); if (seen.has(pid)) return; seen.add(pid); out.push({ pid, name: x.name, pos: x.pos}); });
+      return out;
+    }
+    const keyLine = (keys, nounN, boldFirst = true) => [...keys.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, n], j) => (j === 0 && boldFirst ? `<b>${esc(k)}로 ${n}${nounN}</b>` : `${esc(k)}로 ${n}${nounN}`)).join(" · ");
     function coSuggest() {
-      if (!E.items.length || !E.H?.plays) return [];
-      if (!E.co) {
-        const by = new Map();
-        E.H.plays.forEach((p) => { let s = by.get(p[0]); if (!s) by.set(p[0], (s = new Set())); s.add(p[2]); });
-        E.co = new Map();
-        by.forEach((set) => { const a = [...set]; a.forEach((u) => { let m = E.co.get(u); if (!m) E.co.set(u, (m = new Map())); a.forEach((v) => { if (v !== u) m.set(v, (m.get(v) || 0) + 1); }); }); });
-      }
+      if (!E.items.length) return [];
+      const { co } = recData();
       const have = new Set(E.items.map((x) => x.song_id)), score = new Map(), best = new Map();
-      E.items.forEach((x) => (E.co.get(x.song_id) || new Map()).forEach((n, v) => {
+      E.items.forEach((x) => (co.get(x.song_id) || new Map()).forEach((n, v) => {
         if (have.has(v)) return;
         score.set(v, (score.get(v) || 0) + n);
         const b = best.get(v); if (!b || n > b[1]) best.set(v, [x.title, n]);
       }));
       return [...score.entries()].map(([id, sc]) => ({ s: songById(id), sc, top: best.get(id) })).filter((r) => r.s)
-        .sort((a, b) => b.sc - a.sc || (b.s.st?.count || 0) - (a.s.st?.count || 0)).slice(0, 5);
+        .sort((a, b) => b.sc - a.sc || (b.s.st?.count || 0) - (a.s.st?.count || 0)).slice(0, 6);
+    }
+    // 이 라인업: 해 본 사람 수 → 함께 한 횟수 → 최근
+    function lineupSuggest(g) {
+      const ppl = recPeople(g); if (!ppl.length) return { ppl, rows: [] };
+      const { P } = recData(), have = new Set(E.items.map((x) => x.song_id)), S = new Map();
+      ppl.forEach((u, j) => (P.get(u.pid) || new Map()).forEach((r, sid) => {
+        if (have.has(sid)) return;
+        let t = S.get(sid); if (!t) S.set(sid, (t = { who: new Map(), n: 0, last: "", keys: new Map() }));
+        t.who.set(j, r); t.n += r.n; if (r.last > t.last) t.last = r.last;
+        r.keys.forEach((_, k) => t.keys.set(k, (t.keys.get(k) || 0) + 1));
+      }));
+      const rows = [...S.entries()].map(([sid, t]) => ({ s: songById(sid), ...t })).filter((r) => r.s)
+        .sort((a, b) => b.who.size - a.who.size || b.n - a.n || b.last.localeCompare(a.last)).slice(0, 8);
+      return { ppl, rows };
+    }
+    function memberSuggest(pid) {
+      const r0 = recData().P.get(pid); if (!r0) return [];
+      const have = new Set(E.items.map((x) => x.song_id));
+      return [...r0.entries()].filter(([sid]) => !have.has(sid)).map(([sid, r]) => ({ s: songById(sid), ...r })).filter((r) => r.s)
+        .sort((a, b) => b.n - a.n || b.last.localeCompare(a.last)).slice(0, 8);
+    }
+    // 얼굴 점: k = 이 키로 해 봄 · o = 다른 키로만 · 빈 칸 = 안 해 봄
+    function covHTML(ppl, who, topKey) {
+      return `<span class="ce3-cov" aria-hidden="true">${ppl.map((u, j) => { const r = who.get(j), c = !r ? "" : topKey && r.keys.has(topKey) ? "k" : "o";
+        return `<i class="${c}" title="${esc(u.name)} · ${!r ? "안 해 봄" : c === "k" ? `${esc(topKey)}로 해 봄` : `${esc([...r.keys.keys()].join(", ") || "키 모름")}로 해 봄`}">${esc(ini1(u.name))}</i>`; }).join("")}</span>`;
+    }
+    // 키 단추 숫자: 이번 라인업(고른 무리) 중 그 키로 해 본 사람
+    function keyWho(sid) {
+      const g = E.recG, ppl = recPeople(g), { P } = recData(), by = new Map(), any = [];
+      ppl.forEach((u) => { const r = P.get(u.pid)?.get(sid); if (!r) return; any.push({ u, r }); r.keys.forEach((_, k) => { let a = by.get(k); if (!a) by.set(k, (a = [])); a.push(u); }); });
+      return { g, ppl, by, any };
+    }
+    function keyWhoHTML(x) {
+      const { g, ppl, by, any } = keyWho(x.song_id), gl = (REC_GROUPS.find((r) => r[0] === g) || [])[1] || "";
+      if (!ppl.length) return `<div class="ce3-kwho"><span class="o">라인업이 정해지면 그 키로 해 본 사람 수가 보여요</span></div>`;
+      if (!any.length) return `<div class="ce3-kwho"><span class="o">이번 ${gl} 중 최근 1년에 이 곡을 해 본 사람이 없어요</span></div>`;
+      const cur = keyParts(x.key)[0], has = cur ? by.get(cur) || [] : [];
+      const others = cur ? any.filter(({ u }) => !has.includes(u)) : [];
+      const sumKeys = [...by.entries()].sort((a, b) => b[1].length - a[1].length).map(([k, a]) => `${esc(k)} ${a.length}명`).join(" · ");
+      return `<div class="ce3-kwho">${cur ? `<span><b>${esc(cur)}로 해 본 ${gl} ${has.length}/${ppl.length}</b>${has.length ? esc(has.map((u) => u.name).join(" · ")) : ""}</span>
+          ${others.length ? `<span class="o">${others.map(({ u, r }) => `${esc(u.name)} — ${esc([...r.keys.keys()].join(", ") || "키 모름")}로만`).join(" · ")}</span>` : ""}` : `<span><b>해 본 키</b>${sumKeys}</span>`}</div>`;
+    }
+    function recHead() {
+      const n = (svc.lineup || []).length;
+      const modes = [["co", "함께 부른 곡"], ["lineup", "이 라인업"], ["member", "멤버별"]];
+      return `<div class="u-seg ce3-seg" role="tablist" aria-label="추천 기준">${modes.map(([k, l]) => `<button type="button" role="tab" data-ce="rec-mode" data-m="${k}" aria-pressed="${E.recMode === k}">${l}</button>`).join("")}</div>${n ? "" : ""}`;
+    }
+    function recBody(total, tg) {
+      const m = E.recMode;
+      const noLineup = () => `<div class="ce3-empty"><b>아직 이 예배 라인업이 없어요</b><span>배치표가 정해지면 이번 라인업이 해 본 곡을 보여 줘요</span><button type="button" class="u-b u-o u-sm" data-ce="rec-mode" data-m="co">함께 부른 곡 보기</button></div>`;
+      const none = (t) => `<p class="ce3-none">${t}</p>`;
+      if (m === "co") {
+        const sug = coSuggest();
+        return { n: sug.length, html: `<small class="ce3-why">최근 1년 · 지금 넣은 곡들과 같은 콘티에 들어간 횟수 순</small>${!E.items.length ? none("곡을 하나 넣으면 그 곡과 자주 같이 부른 곡이 나와요") : !sug.length ? none("최근 1년에 지금 곡들과 같이 부른 곡이 없어요") : sug.map(({ s, top }) =>
+          songRow(s, (d) => `'${esc(top[0])}'${josa(top[0])} ${top[1]}번 같이${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}`, total, tg)).join("")}` };
+      }
+      if (!(svc.lineup || []).length) return { n: 0, html: noLineup() };
+      if (m === "lineup") {
+        const counts = Object.fromEntries(REC_GROUPS.map(([g]) => [g, recPeople(g).length]));
+        const chips = `<div class="ce3-sub"><span class="ce3-chips" role="group" aria-label="누구 기준">${REC_GROUPS.map(([g, l]) => `<button type="button" data-ce="rec-g" data-g="${g}" aria-pressed="${E.recG === g}" ${counts[g] ? "" : "disabled"}>${l} ${counts[g]}</button>`).join("")}</span><span class="ce3-leg" aria-hidden="true"><i class="k"></i>가장 많이 한 키로 <i class="o"></i>다른 키로만 <i></i>안 해 봄</span></div>`;
+        const { ppl, rows } = lineupSuggest(E.recG), gl = REC_GROUPS.find((r) => r[0] === E.recG)[1];
+        return { n: rows.length, html: `${chips}<small class="ce3-why">최근 1년 · 이번 ${gl} 중 해 본 사람이 많은 순 · 점은 곡마다 가장 많이 한 키 기준</small>${!ppl.length ? none(`이번 라인업에 ${gl}가 없어요`) : !rows.length ? none(`이번 ${gl}가 최근 1년에 같이 한 곡이 없어요`) : rows.map((r) => {
+          const top = [...r.keys.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+          const all = r.who.size === ppl.length;
+          return songRow(r.s, (d) => `${covHTML(ppl, r.who, top)}${gl} ${all ? `${ppl.length}명 모두` : `${ppl.length}명 중 ${r.who.size}명`}${r.keys.size ? ` · ${keyLine(r.keys, "명")}` : ""}${d ? ` · ${mmss(d)}` : ""}`, total, tg);
+        }).join("")}` };
+      }
+      // 멤버별
+      const ppl = recPeople("all"), order = ["band", "singer", "leader"];
+      ppl.sort((a, b) => order.indexOf(recGroupOf(a.pos)) - order.indexOf(recGroupOf(b.pos)));
+      if (!E.recWho || !ppl.some((u) => u.pid === E.recWho)) E.recWho = ppl[0]?.pid;
+      const cur = ppl.find((u) => u.pid === E.recWho);
+      const chips = `<div class="ce3-mem" role="group" aria-label="누구">${ppl.map((u) => `<button type="button" data-ce="rec-who" data-p="${esc(u.pid)}" aria-pressed="${u.pid === E.recWho}"><span class="av">${esc(ini1(u.name))}</span><b>${esc(u.name)}</b><small>${esc(POS[u.pos] || "")}</small></button>`).join("")}</div>`;
+      const rows = cur ? memberSuggest(cur.pid) : [];
+      return { n: rows.length, html: `${chips}<small class="ce3-why">최근 1년 · ${cur ? `${esc(cur.name)}님이 많이 한 순` : ""}</small>${!rows.length ? none(`${cur ? esc(cur.name) + "님이" : ""} 최근 1년에 한 곡이 없어요`) : rows.map((r) =>
+        songRow(r.s, (d) => `${keyLine(r.keys, "번") || `${r.n}번`} · 마지막 ${esc(md(r.last))}${d ? ` · ${mmss(d)}` : ""}`, total, tg)).join("")}` };
     }
     const josa = (w) => { const c = String(w).charCodeAt(String(w).length - 1) - 44032; return c >= 0 && c < 11172 && c % 28 ? "과" : "와"; };
     function songRow(s, sub, total, tg) {
@@ -1892,13 +2014,9 @@
       const q = E.q.trim().toLowerCase().replace(/\s/g, ""), total = rtOf(E.items.map((x) => ({ duration_sec: x.dur }))), tg = target();
       const usual = (s) => (d) => `${s.st?.count ? `${s.st.count}번 · 마지막 ${s.st.last.slice(2).replace(/-/g, ".")}` : "아직 안 부름"}${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}`;
       if (!q) {
-        // 비어 있으면: 지금 곡들과 자주 같이 부른 곡 (이미 넣은 곡은 빼요)
-        const sug = coSuggest();
-        // v34.3: 서랍처럼 기본은 닫혀 있어요. 머리를 누르면 펼쳐요 (이 콘티를 여는 동안만 기억)
-        if (!sug.length) return "";
-        const open = !!E.sugOpen;
-        return `<div class="ce-drop ce2-res ce2-sug" id="ceDrop"><button type="button" class="ce2-sugh" data-ce="sug" aria-expanded="${open}" aria-controls="ceSugList"><span class="ce2-lab">지금 곡들과 자주 같이 부른 곡 <small>${sug.length}곡</small></span>${CEI.chev}</button>${open ? `<div class="ce2-sugl" id="ceSugList">${sug.map(({ s, top }) =>
-          songRow(s, (d) => `'${esc(top[0])}'${josa(top[0])} ${top[1]}번 같이${s.main_key || s.st?.key_main ? ` · 주로 ${esc(s.main_key || s.st.key_main)}` : ""}${d ? ` · ${mmss(d)}` : ""}`, total, tg)).join("")}</div>` : ""}</div>`;
+        // v35: 비어 있으면 '곡 추천' 서랍 — 기준 셋 중 하나 (서랍은 기본으로 닫혀 있어요 · 기준은 이 기기에 기억)
+        const open = !!E.sugOpen, R = open ? recBody(total, tg) : null;
+        return `<div class="ce-drop ce2-res ce2-sug" id="ceDrop"><button type="button" class="ce2-sugh" data-ce="sug" aria-expanded="${open}" aria-controls="ceSugList"><span class="ce2-lab">곡 추천${open ? ` <small>${R.n}곡</small>` : ` <small>${{ co: "함께 부른 곡", lineup: "이 라인업", member: "멤버별" }[E.recMode]}</small>`}</span>${CEI.chev}</button>${open ? `<div class="ce2-sugl" id="ceSugList">${recHead()}${R.html}</div>` : ""}</div>`;
       }
       const hits = E.songs.filter((s) => KO.match(s.title, q)).sort((a, b) => (b.st?.count || 0) - (a.st?.count || 0)).slice(0, 8);
       const exact = E.songs.some((s) => s.title.toLowerCase().replace(/\s/g, "") === q);
@@ -1936,7 +2054,7 @@
         <div class="ce-upl">${U ? `<span class="cv-pdfic">PDF</span><span class="ce-upl-t"><b>${esc(U.name)}</b><span class="small">${mb(U.size)} · ${U.size <= LIMIT ? `<span class="ok">5MB 이하라 압축 없이 그대로</span>` : `<span class="warn">5MB가 넘어서 올릴 때 줄여서 저장해요</span>`} · ${U.thumbs.length}쪽</span></span>`
           : `<span class="cv-pdfic">PDF</span><span class="ce-upl-t"><b>${E.pub && E.items.some((x) => x.sheet.mode === "saved") ? "지금 악보를 그대로 써요" : "아직 올린 통합본이 없어요"}</b><span class="small muted">${E.pub ? "PDF를 바꿀 때만 새로 올려 주세요" : "올리면 곡별로 나눠서 저장해요"}</span></span>`}
           <label class="btn btn-ghost btn-sm">${U ? "다른 파일" : "PDF 고르기"}<input type="file" accept="application/pdf" data-ce-file hidden></label></div>
-        ${U ? `<span class="small" style="font-weight:700">곡별 페이지 <span class="muted" style="font-weight:500">· 곡 순서대로 나눠 뒀어요. 틀린 쪽만 눌러 고쳐 주세요</span></span>${pages}${sum}` : ""}
+        ${U ? `<span class="small x2-15">곡별 페이지 <span class="muted x2-29">· 곡 순서대로 나눠 뒀어요. 틀린 쪽만 눌러 고쳐 주세요</span></span>${pages}${sum}` : ""}
       </details></section>`;
     }
     function draw() {
@@ -2092,6 +2210,9 @@
       if (a === "discard") { ls.del(DKEY); return openEditor(sid, { after }); }
       // v34.2: 곡 줄 펼치기 · 탭 · 키 단추 · 이어서 부르기 · 위로/아래로 · '악보 없는 곡' 칩
       if (a === "sug") { E.sugOpen = !E.sugOpen; return redrawList(); }
+      if (a === "rec-mode") { E.recMode = b.dataset.m; E.sugOpen = true; recSave(); return redrawList(); }
+      if (a === "rec-g") { E.recG = b.dataset.g; recSave(); return redrawList(); }
+      if (a === "rec-who") { E.recWho = b.dataset.p; return redrawList(); }
       if (a === "toggle") { if (e.target.closest("[data-grip]")) return; E.open = E.open === i ? null : i; E.preview = null; redrawList(); if (E.open === i) afterOpen(i); return; }
       if (a === "tab") { E.tab = b.dataset.tab; E.preview = null; redrawList(); afterOpen(i); return; }
       if (a === "key") { x.key = b.dataset.k; persist(); return redrawList(); }
@@ -2544,18 +2665,17 @@
     const cur = today.slice(0, 8) + "01";
     root.innerHTML = `<section class="panel" id="caPast"><div class="ca-mnav"><button type="button" class="btn btn-ghost btn-sm" data-capm="-1">이전 달</button><h2>${monthLabel(m)} 지난 예배</h2><button type="button" class="btn btn-ghost btn-sm" data-capm="1" ${m >= cur ? "disabled" : ""}>다음 달</button></div>
         <p class="small muted x-m0">지난 예배 콘티 · 적용찬양을 고칠 수 있어요. <b>알림은 보내지 않고</b>, 고치면 찬양 › 기록 통계에 바로 반영돼요. 이전 버전은 남아요. 그 예배 인도자 · 밴드 마스터도 팀원 화면 찬양 › 기록에서 고칠 수 있어요.</p>
-        <div class="song-wrap"><table class="hx-lead ca-table"><thead><tr><th>예배</th><th>인도</th><th>콘티</th><th>적용찬양</th><th></th></tr></thead><tbody>
-        ${rows.map((s) => { const sl = s.setlist, p = sl?.status === "published", items = sl?.items || [];
-          return `<tr data-sid="${s.id}"><td><b>${esc(svcShort(s, rows))}</b>${s.ministry_id ? ` <span class="chip chip-violet">사역</span>` : ""}</td>
-            <td class="small">${(s.lineup || []).filter((x) => x.pos === "leader").map((x) => esc(x.name)).join(", ") || "<span class='muted'>—</span>"}</td>
-            <td class="small">${p ? `${items.length}곡 · ${items.map((x) => esc(x.title)).slice(0, 3).join(" · ")}${items.length > 3 ? " …" : ""}${sl.changes ? ` <span class="chip chip-mid">수정됨</span>` : ""}` : `<span class="muted">${sl ? "임시 저장만" : "콘티 없음"}</span>`}</td>
-            <td class="small">${s.applied?.length ? s.applied.map((x) => esc(x.title)).join(" · ") : "<span class='muted'>—</span>"}</td>
-            <td class="ca-acts">${p ? `<button type="button" class="btn btn-ghost btn-sm" data-cap="view">악보</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-cap="edit">${sl ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-cap="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button></td></tr>`; }).join("")
-          || `<tr><td colspan="5" class="muted">${monthLabel(m)}에 지난 예배가 없어요.</td></tr>`}</tbody></table></div></section>`;
+        <div class="ca-list">${rows.map((s) => { const sl = s.setlist, p = sl?.status === "published", items = sl?.items || [];
+          const lead = (s.lineup || []).filter((x) => x.pos === "leader").map((x) => esc(x.name)).join(", ");
+          return `<div class="ca-row" data-sid="${s.id}"><div class="ca-main"><div class="ca-t"><b>${esc(svcShort(s, rows))}</b>${s.ministry_id ? `<span class="chip chip-violet">사역</span>` : ""}${p && sl.changes ? `<span class="chip chip-mid">수정됨</span>` : ""}</div>
+            <small>인도 ${lead || "—"} · ${p ? `${items.length}곡 · ${items.map((x) => esc(x.title)).slice(0, 3).join(" · ")}${items.length > 3 ? " …" : ""}` : sl ? "임시 저장만" : "콘티 없음"}</small>
+            ${s.applied?.length ? `<small>적용찬양 ${s.applied.map((x) => esc(x.title)).join(" · ")}</small>` : ""}</div>
+            <div class="ca-acts2">${p ? `<button type="button" class="btn btn-ghost btn-sm" data-cap="view">악보</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-cap="edit">${sl ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-cap="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button></div></div>`; }).join("")
+          || `<p class="muted small ca-empty">${monthLabel(m)}에 지난 예배가 없어요.</p>`}</div></section>`;
     root.onclick = (e) => {
       const n = e.target.closest("[data-capm]"); if (n) { CA.month = addMonths(CA.month, +n.dataset.capm); return mountPast(root, outer); }
       const b = e.target.closest("[data-cap]"); if (!b) return;
-      const s = rows.find((x) => x.id === b.closest("tr").dataset.sid);
+      const s = rows.find((x) => x.id === b.closest("[data-sid]").dataset.sid);
       if (b.dataset.cap === "view") return openViewer(s, {});
       if (b.dataset.cap === "edit") return openEditor(s.id, { after: () => mountPast(root, outer) });
       if (b.dataset.cap === "applied") return openApplied(s, { after: () => { if (window.HISTORY) HISTORY.reset(); mountPast(root, outer); } });
@@ -2572,7 +2692,7 @@
     root.innerHTML = `<section class="panel" id="caShare"><h2>섬김이 팀 링크 <small>자막팀 · 방송팀처럼 팀마다 고정 링크</small></h2>
         <p class="small muted x-m0">로그인 없이 링크로 열어요. 열 때마다 <b>다가오는 예배</b>의 콘티(곡 순서 · 키 · BPM · 악보) · 적용찬양 · 예배 진행곡(성찬식 주일엔 성찬 찬양) · 백업찬양 후보를 보여 주고, 기도회 중에는 지금 곡 · 다음 곡이 실시간으로 바뀌어요. 라인업 · 멤버 정보 · 내 메모 · 고치기는 보이지 않아요. 홈 화면에 추가하면 앱처럼 쓸 수 있어요.</p>
         <p class="notice warn x-m0">링크는 누구에게나 전달될 수 있어요. 팀이 바뀌거나 링크가 퍼졌으면 '새 링크로 바꾸기'나 '끊기'를 눌러 주세요.</p>
-        <div class="bk-alist" id="shList">${list.map((x) => `<div class="devrow lk-row ${x.active ? "" : "off"}" data-id="${x.id}"><span style="display:flex;flex-direction:column;gap:2px;min-width:0">
+        <div class="bk-alist" id="shList">${list.map((x) => `<div class="devrow lk-row ${x.active ? "" : "off"}" data-id="${x.id}"><span class="x2-60">
             <span><b>${esc(x.label)}</b> ${x.active ? `<span class="chip chip-ok">켜짐</span>` : `<span class="chip chip-gray">끊김</span>`}</span>
             <span class="small muted lk-url">${x.active ? esc(shareUrl(x.token)) : "이 링크로는 열리지 않아요"}</span>
             <span class="small muted">${fmtDateTime(x.created_at)} 만듦${x.last_seen_at ? ` · 마지막으로 연 때 ${fmtDateTime(x.last_seen_at)}` : " · 아직 안 열어 봄"}</span></span>
@@ -2609,37 +2729,42 @@
     };
     const hours = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === sel ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("");
     root.innerHTML = `<section class="panel"><h2>다가오는 예배 <small>배치표가 공개되면 인도자에게 콘티 안내가 가요</small></h2>
-        <div class="song-wrap"><table class="hx-lead ca-table"><thead><tr><th>예배</th><th>인도</th><th>상태</th><th>마감</th><th class="n">RT</th><th></th></tr></thead><tbody>
-        ${rows.map((s) => { const [c, t] = st(s), items = s.setlist?.items || [], rt = rtOf(items);
-          return `<tr data-sid="${s.id}"><td><b>${esc(svcShort(s, rows))}</b>${s.ministry_id ? ` <span class="chip chip-violet">사역</span>` : s.communion ? ` <span class="chip chip-violet">성찬식</span>` : ""}</td>
-            <td class="small">${(s.lineup || []).filter((x) => x.pos === "leader").map((x) => esc(x.name)).join(", ") || "<span class='muted'>—</span>"}</td>
-            <td><span class="chip ${c}">${t}</span>${items.length ? ` <span class="small muted">${items.length}곡</span>` : ""}</td>
-            <td class="small">${esc(dlText(s.deadline))}${s.setlist?.deadline ? ` <span class="chip chip-gray">바꿈</span>` : ""}</td>
-            <td class="n small">${items.length ? mmss(rt) : "—"}${s.target_sec ? ` / ${mmss(s.target_sec)}` : ""}</td>
-            <td class="ca-acts">${s.setlist?.status === "published" ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button><button type="button" class="btn btn-ghost btn-sm" data-ca="copy">카톡 복사</button>` : ""}<button type="button" class="btn btn-ghost btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="applied">적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="order">순서${s.extras?.length ? ` · 특별 ${s.extras.length}` : ""}</button><button type="button" class="btn btn-ghost btn-sm" data-ca="meta">마감 · 목표</button>${s.ministry_id ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-ca="communion" aria-pressed="${!!s.communion}">${s.communion ? "성찬식 빼기" : "성찬식 넣기"}</button>`}</td></tr>`; }).join("")
-          || `<tr><td colspan="6" class="muted">앞으로 8주 안에 배치된 예배가 없어요.</td></tr>`}</tbody></table></div></section>
+        <div class="ca-list">${rows.map((s) => { const [c, t] = st(s), items = s.setlist?.items || [], rt = rtOf(items), pub = s.setlist?.status === "published";
+          const lead = (s.lineup || []).filter((x) => x.pos === "leader").map((x) => esc(x.name)).join(", ");
+          return `<div class="ca-row" data-sid="${s.id}"><div class="ca-main"><div class="ca-t"><b>${esc(svcShort(s, rows))}</b>${s.ministry_id ? `<span class="chip chip-violet">사역</span>` : s.communion ? `<span class="chip chip-violet">성찬식</span>` : ""}<span class="chip ${c}">${t}</span></div>
+            <small>${[lead ? `인도 ${lead}` : "인도 —", `마감 ${esc(dlText(s.deadline))}${s.setlist?.deadline ? " (바꿈)" : ""}`, items.length ? `${items.length}곡 · ${mmss(rt)}${s.target_sec ? ` / ${mmss(s.target_sec)}` : ""}` : s.target_sec ? `목표 ${mmss(s.target_sec)}` : ""].filter(Boolean).join(" · ")}</small></div>
+            <div class="ca-acts2">${pub ? `<button type="button" class="btn btn-ghost btn-sm" data-ca="view">악보</button>` : ""}<button type="button" class="btn ${s.published || s.setlist ? "btn-primary" : "btn-ghost"} btn-sm" data-ca="edit">${s.setlist ? "고치기" : "쓰기"}</button><button type="button" class="ca-more" data-ca="more" aria-label="${esc(svcShort(s, rows))} 더보기" title="더보기"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button></div></div>`; }).join("")
+          || `<p class="muted small ca-empty">앞으로 8주 안에 배치된 예배가 없어요.</p>`}</div></section>
       <section class="panel" id="caSet"><h2>기본값 <small>예배마다 '마감 · 목표'로 따로 바꿀 수 있어요</small></h2>
-        <div class="row"><span style="font-weight:700">주일 콘티 마감</span><select class="select x-wa" id="caDow">${KDOW.map((w, i) => `<option value="${i}" ${C.deadline_dow === i ? "selected" : ""}>${w}요일</option>`).join("")}</select><select class="select x-wa" id="caHour">${hours(C.deadline_hour)}</select></div>
-        <div class="row"><span style="font-weight:700">사역 콘티 마감</span><select class="select x-wa" id="caMin">${[1, 2, 3, 4, 5, 7].map((n) => `<option value="${n}" ${C.min_days === n ? "selected" : ""}>예배 ${n}일 전</option>`).join("")}</select><span class="small muted">22:00</span></div>
-        <div class="row"><span style="font-weight:700">목표 RT</span><label class="row" style="gap:6px">성찬식 주일<input type="number" class="input" id="caFirst" min="5" max="90" value="${Math.round(C.rt_first / 60)}" style="width:80px;min-height:40px">분</label>
-          <label class="row" style="gap:6px">나머지 주일<input type="number" class="input" id="caOther" min="5" max="90" value="${Math.round(C.rt_other / 60)}" style="width:80px;min-height:40px">분</label></div>
+        <div class="row"><span class="x2-15">주일 콘티 마감</span><select class="select x-wa" id="caDow">${KDOW.map((w, i) => `<option value="${i}" ${C.deadline_dow === i ? "selected" : ""}>${w}요일</option>`).join("")}</select><select class="select x-wa" id="caHour">${hours(C.deadline_hour)}</select></div>
+        <div class="row"><span class="x2-15">사역 콘티 마감</span><select class="select x-wa" id="caMin">${[1, 2, 3, 4, 5, 7].map((n) => `<option value="${n}" ${C.min_days === n ? "selected" : ""}>예배 ${n}일 전</option>`).join("")}</select><span class="small muted">22:00</span></div>
+        <div class="row"><span class="x2-15">목표 RT</span><label class="row x2-4">성찬식 주일<input type="number" class="input x2-61" id="caFirst" min="5" max="90" value="${Math.round(C.rt_first / 60)}">분</label>
+          <label class="row x2-4">나머지 주일<input type="number" class="input x2-61" id="caOther" min="5" max="90" value="${Math.round(C.rt_other / 60)}">분</label></div>
         <div class="row"><button type="button" class="btn btn-primary btn-sm" id="caSave">저장</button><span class="small muted">콘티 알림(안내 · 독촉 · 올라옴 · 수정됨)은 공지 · 알림 › 알림 설정에서 바꿔요.</span></div></section>`;
-    root.onclick = async (e) => {
-      const b = e.target.closest("[data-ca]"); if (b) {
-        const s = rows.find((x) => x.id === b.closest("tr").dataset.sid);
-        if (b.dataset.ca === "view") return openViewer(s, {});
-        if (b.dataset.ca === "copy") return copyPop(s);
-        if (b.dataset.ca === "edit") return openEditor(s.id, { after: () => mountAdmin(outer) });
-        if (b.dataset.ca === "applied") return openApplied(s, { after: () => mountAdmin(outer) });
-        if (b.dataset.ca === "order") return openOrder(s, { after: () => mountAdmin(outer) });
+    // v35: 줄마다 주 행동(쓰기 · 고치기) 하나 + 악보 · 더보기(카톡 복사 · 적용찬양 · 순서 · 마감 · 목표 · 성찬식)
+    const moreMenu = (s) => {
+      const pub = s.setlist?.status === "published";
+      const items = [pub && ["copy", "카톡 복사", "콘티 문구 · 링크"], ["applied", `적용찬양${s.applied?.length ? ` ${s.applied.length}` : ""}`, "교역자가 정해 준 곡 사진"], ["order", `순서${s.extras?.length ? ` · 특별 ${s.extras.length}` : ""}`, "예배 순서 · 특별순서"],
+        ["meta", "마감 · 목표", "이 예배만 바꾸기"], !s.ministry_id && ["communion", s.communion ? "성찬식 빼기" : "성찬식 넣기", "성찬 찬양 · 목표 RT가 따라가요"]].filter(Boolean);
+      const sh = UI.sheet({ title: svcShort(s, rows), cls: "ca-sheet", html: `<div class="ca-menu">${items.map(([k, l, d]) => `<button type="button" class="ca-mi" data-ca="${k}"><b>${l}</b><small>${d}</small></button>`).join("")}</div>` });
+      sh.body.addEventListener("click", (e) => { const b = e.target.closest("[data-ca]"); if (!b) return; sh.close(); act(s, b.dataset.ca, b); });
+    };
+    root.onclick = (e) => { const b = e.target.closest("[data-ca]"); if (!b) return onSet(e); const s = rows.find((x) => x.id === b.closest("[data-sid]").dataset.sid); if (b.dataset.ca === "more") return moreMenu(s); act(s, b.dataset.ca, b); };
+    const act = async (s, a, b) => {
+      {
+        if (a === "view") return openViewer(s, {});
+        if (a === "copy") return copyPop(s);
+        if (a === "edit") return openEditor(s.id, { after: () => mountAdmin(outer) });
+        if (a === "applied") return openApplied(s, { after: () => mountAdmin(outer) });
+        if (a === "order") return openOrder(s, { after: () => mountAdmin(outer) });
         // 024: 이 주일 성찬식 켬 · 끔 (첫째 주는 자동으로 켜져 있어요) — 성찬 찬양 · 목표 RT가 따라감
-        if (b.dataset.ca === "communion") {
-          b.disabled = true;
+        if (a === "communion") {
+          if (b) b.disabled = true;
           const { data, error } = await sb.rpc("set_communion", { p_service: s.id, p_on: !s.communion });
           toast(error ? error.message || "바꾸지 못했어요" : data ? `${svcShort(s, rows)} 성찬식 있음 · 성찬 찬양이 보여요` : `${svcShort(s, rows)} 성찬식 없음`);
           return mountAdmin(outer);
         }
-        if (b.dataset.ca === "meta") {
+        if (a === "meta") {
           const k = kst(s.deadline);
           const dv = prompt(`${svcShort(s, rows)} 콘티 마감 (YYYY-MM-DD HH:MM · 비우면 기본값)`, s.setlist?.deadline ? `${k.date} ${k.hm}` : "");
           if (dv === null) return;
@@ -2652,6 +2777,8 @@
           toast(error ? error.message || "바꾸지 못했어요" : "바꿨어요"); return mountAdmin(outer);
         }
       }
+    };
+    const onSet = async (e) => {
       if (e.target.id === "caSave") {
         const v = { deadline_dow: +$("#caDow").value, deadline_hour: +$("#caHour").value, min_days: +$("#caMin").value, rt_first: Math.round(+$("#caFirst").value * 60), rt_other: Math.round(+$("#caOther").value * 60) };
         if (!(v.rt_first >= 300 && v.rt_other >= 300)) return toast("목표 RT는 5분 이상으로 적어 주세요");

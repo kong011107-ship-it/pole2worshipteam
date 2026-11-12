@@ -3280,3 +3280,168 @@ button.ce2-ck:active { transform: scale(.97); }
 .cv-editor .ce2-det .ce-bpm select { width: 72px; }
 .input::placeholder, .search::placeholder, .hx-search::placeholder, textarea::placeholder { font-size: var(--fs-body); }
 .cv-editor .ce-bar .ce2-lg, .ce2-lg { height: 36px; min-height: 36px; }
+
+/* =====================================================================
+   v35 곡 추천 — 기준 셋(함께 부른 곡 · 이 라인업 · 멤버별) · 키 단추 숫자 · 작은 + 단추
+   ===================================================================== */
+/* + 단추: 곡 줄의 키 칸(28)과 같은 크기 · 누르는 범위는 ::before로 44 */
+.ce-oadd { position: relative; width: 28px; height: 28px; border-radius: 8px; }
+@media (pointer: coarse) { .ce-oadd { width: 28px; height: 28px; } }
+.ce-oadd::before { content: ""; position: absolute; inset: -8px; }
+.ce-oadd svg { width: 14px; height: 14px; }
+.cv-editor .ce2-srch .ce-orow { padding-right: 8px; }
+/* 기준 칸 · 무리 칩 */
+.ce3-seg { display: flex; width: 100%; }
+.ce3-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ce3-chips { display: flex; gap: 4px; }
+.ce3-chips button { height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font: inherit; font-size: var(--fs-meta); font-weight: var(--fw-m); color: var(--muted-foreground); cursor: pointer; transition: background-color var(--d1), color var(--d1); }
+.ce3-chips button[aria-pressed=true] { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ce3-chips button:disabled { opacity: .45; cursor: default; }
+.ce3-leg { display: flex; align-items: center; gap: 4px; font-size: var(--fs-cap); color: var(--muted-foreground); }
+.ce3-leg i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #CFC6DC; background: #fff; margin-left: 6px; }
+.ce3-leg i.k { background: var(--primary); border-color: var(--primary); }
+.ce3-leg i.o { background: #D9C8F2; border-color: #D9C8F2; }
+.ce3-why { font-size: var(--fs-cap); color: var(--muted-foreground); padding: 0 2px; }
+.ce3-none { margin: 0; padding: 10px 4px; font-size: var(--fs-meta); color: var(--muted-foreground); }
+.ce-o small b, .cv-editor .ce2-srch .ce-o small b { font-weight: var(--fw-s); color: var(--foreground); font-size: inherit; }
+.cv-editor .ce2-srch .ce2-sug .ce-o small { line-height: 1.9; }
+/* 얼굴 점 */
+.ce3-cov { display: inline-flex; vertical-align: -6px; margin: 0 6px 0 5px; }
+.ce3-cov i { width: 20px; height: 20px; border-radius: 10px; margin-left: -5px; border: 2px solid #fff; box-sizing: border-box; display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: var(--fw-s); background: var(--muted-bg); color: #A79DB8; letter-spacing: -.02em; }
+.ce3-cov i.k { background: var(--primary); color: #fff; }
+.ce3-cov i.o { background: #D9C8F2; color: var(--primary); }
+/* 멤버 고르기 */
+.ce3-mem { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0; scrollbar-width: none; }
+.ce3-mem::-webkit-scrollbar { display: none; }
+.ce3-mem button { flex: none; display: grid; grid-template-columns: 24px auto; grid-template-rows: auto auto; column-gap: 6px; align-items: center; height: 40px; padding: 0 12px 0 6px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font: inherit; cursor: pointer; text-align: left; color: var(--foreground); }
+.ce3-mem .av { grid-row: 1 / 3; width: 24px; height: 24px; border-radius: 12px; background: var(--secondary); color: var(--primary); display: grid; place-items: center; font-size: 10px; font-weight: var(--fw-s); }
+.ce3-mem b { font-size: var(--fs-meta); font-weight: var(--fw-m); line-height: 1.15; }
+.ce3-mem small { font-size: 10.5px; color: var(--muted-foreground); line-height: 1.15; }
+.ce3-mem button[aria-pressed=true] { border-color: var(--primary); background: var(--accent); }
+.ce3-mem button[aria-pressed=true] .av { background: var(--primary); color: #fff; }
+/* 빈 상태 */
+.ce3-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; border: 1px dashed var(--input); border-radius: var(--radius); background: #fff; }
+.ce3-empty b { font-size: var(--fs-body); font-weight: var(--fw-m); }
+.ce3-empty span { font-size: var(--fs-meta); color: var(--muted-foreground); }
+.ce3-empty .u-b { margin-top: 6px; }
+/* 키 단추 숫자 · 누가 해 봤는지 */
+.ce3-keys { padding-top: 6px; }
+.ce3-keys button { position: relative; overflow: visible; }
+.ce3-keys button em { position: absolute; top: -7px; right: -4px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border-radius: 8px; background: #fff; border: 1px solid var(--ring); color: var(--primary); font-style: normal; font-size: 10px; font-weight: var(--fw-s); line-height: 13px; pointer-events: none; }
+.ce3-keys button[aria-pressed=true] em { border-color: #fff; }
+.ce3-kwho { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-meta); color: var(--muted-foreground); padding: 2px 2px 0; }
+.ce3-kwho b { color: var(--foreground); font-weight: var(--fw-s); margin-right: 6px; }
+.ce3-kwho .o { color: #8A7FA0; }
+@media (max-width: 699px) {
+  .ce3-leg { display: none; }
+  .cv-editor .ce2-srch .ce2-sug .ce-o .r { display: none; }
+  .cv-editor .ce2-srch .ce2-sug .ce-o small { display: block; }
+}
+@media (prefers-reduced-motion: reduce) { .ce3-chips button { transition: none; } }
+
+/* =====================================================================
+   v35 화면별 정리 — 리더십 찬양 › 콘티 목록: 줄마다 주 행동 하나 + 악보 · 더보기
+   (예전 표는 단추 7개가 한 줄에 들어가 PC에서 잘리고 휴대폰에서 줄이 길어졌어요)
+   ===================================================================== */
+.ca-list { display: flex; flex-direction: column; }
+.ca-row { display: flex; align-items: center; gap: 12px; padding: 12px 2px; border-top: 1px solid var(--border); }
+.ca-row:first-child { border-top: 0; }
+.ca-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ca-t { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ca-t b { font-size: var(--fs-body); font-weight: var(--fw-s); }
+.ca-main small { font-size: var(--fs-meta); color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; }
+.ca-acts2 { flex: none; display: flex; align-items: center; gap: 6px; }
+.ca-more { position: relative; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--muted-foreground); cursor: pointer; transition: background-color var(--d1); }
+.ca-more::before { content: ""; position: absolute; inset: -5px; }
+.ca-more:hover { background: var(--accent); color: var(--primary); }
+.ca-more svg { width: 16px; height: 16px; }
+.ca-empty { margin: 0; padding: 12px 2px; }
+.ca-menu { display: flex; flex-direction: column; gap: 4px; }
+.ca-mi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 10px 12px; border: 0; border-radius: var(--radius); background: none; font: inherit; color: var(--foreground); text-align: left; cursor: pointer; }
+.ca-mi:hover, .ca-mi:focus-visible { background: var(--accent); outline: none; }
+.ca-mi b { font-size: var(--fs-body); font-weight: var(--fw-m); }
+.ca-mi small { font-size: var(--fs-meta); color: var(--muted-foreground); }
+@media (max-width: 699px) {
+  .ca-row { flex-wrap: wrap; row-gap: 8px; }
+  .ca-acts2 { width: 100%; justify-content: flex-end; }
+  .ca-main small { white-space: normal; }
+}
+
+/* v35 화면별 정리 — '고르는 카드'(출석 주 · 배치표 월간/사역 · 응답 보기) 한 모양으로
+   고른 카드는 꽉 찬 보라(또는 검정) 대신 옅은 보라 + 보라 테두리 — 주 행동 단추와 헷갈리지 않게 */
+.sat-tab, .vpills button, .resp-pick button { border: 1px solid var(--border); border-radius: var(--radius); background: #fff; color: var(--foreground); box-shadow: var(--shadow-xs); transition: background-color var(--d1), border-color var(--d1); }
+.sat-tab b, .vpills button b, .resp-pick button b { font-size: var(--fs-body); font-weight: var(--fw-s); }
+.sat-tab span, .vpills button span, .resp-pick button span { font-size: var(--fs-meta); font-weight: var(--fw-m); color: var(--muted-foreground); }
+.sat-tab:hover, .vpills button:hover, .resp-pick button:hover { background: var(--muted-bg); }
+.sat-tab.on, .vpills button[aria-selected=true], .resp-pick button[aria-pressed=true] { background: var(--accent); border-color: var(--primary); color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.sat-tab.on span, .vpills button[aria-selected=true] span, .resp-pick button[aria-pressed=true] span { color: var(--primary); opacity: .8; }
+.sat-tab.today:not(.on) { border-color: var(--ring); }
+@media (prefers-reduced-motion: reduce) { .sat-tab, .vpills button, .resp-pick button { transition: none; } }
+
+/* v35: 남은 인라인 style → x2-* (dev/v34/inline_to_class35.py) · 굵기 700/800은 600 · 인라인처럼 이기도록 !important */
+.x2-1 { font-size:20px !important; font-weight:600 !important; }
+.x2-2 { display:flex !important; flex-direction:column !important; gap:2px !important; }
+.x2-4 { gap:6px !important; }
+.x2-5 { font-weight:600 !important; width:72px !important; }
+.x2-6 { display:contents !important; }
+.x2-7 { border-left:1px solid var(--line) !important; }
+.x2-9 { flex:1 1 260px !important; }
+.x2-10 { width:18px !important; height:18px !important; accent-color:var(--violet) !important; }
+.x2-11 { border-color:var(--violet-soft) !important; }
+.x2-12 { font-size:16px !important; }
+.x2-13 { color:var(--warn) !important; }
+.x2-14 { background:var(--bg) !important; }
+.x2-15 { font-weight:600 !important; }
+.x2-16 { color:var(--faint) !important; }
+.x2-17 { color:var(--violet) !important; }
+.x2-18 { cursor:pointer !important; color:var(--violet) !important; font-weight:600 !important; }
+.x2-19 { min-height:80px !important; }
+.x2-20 { align-self:center !important; margin-right:4px !important; }
+.x2-21 { flex-direction:row !important; align-items:center !important; gap:8px !important; font-size:13px !important; }
+.x2-22 { width:auto !important; }   /* v35: 높이는 입력칸 기준(34)을 따라요 */
+.x2-23 { display:flex !important; flex-direction:column !important; flex:1 !important; min-width:0 !important; }
+.x2-24 { display:flex !important; flex-direction:column !important; gap:6px !important; border-top:1px solid var(--line) !important; padding-top:12px !important; }
+.x2-25 { color:var(--ink-2) !important; }
+.x2-26 { gap:10px !important; align-items:flex-end !important; }
+.x2-27 { flex:0 0 110px !important; }
+.x2-28 { display:flex !important; justify-content:space-between !important; align-items:baseline !important; }
+.x2-29 { font-weight:500 !important; }
+.x2-30 { display:flex !important; align-items:center !important; gap:8px !important; flex-wrap:wrap !important; }
+.x2-32 { white-space:pre-wrap !important; }
+.x2-34 { border:0 !important; border-radius:0 !important; }
+.x2-35 { min-width:0 !important; }
+.x2-36 { margin-top:0 !important; }
+.x2-37 { margin-top:-8px !important; }
+.x2-38 { color:var(--ok) !important; }
+.x2-39 { background:var(--ok-bg) !important; }
+.x2-40 { background:var(--bg) !important; border-radius:10px !important; padding:10px 12px !important; }
+.x2-41 { font-weight:600 !important; white-space:nowrap !important; }
+.x2-42 { white-space:nowrap !important; }
+.x2-43 { width:30px !important; text-align:right !important; }
+.x2-44 { margin-left:4px !important; }
+.x2-45 { font-size:15px !important; }
+.x2-46 { grid-column:1/-1 !important; }
+.x2-47 { text-align:right !important; }
+.x2-48 { color:var(--ok) !important; font-weight:600 !important; }
+.x2-49 { padding:0 !important; overflow:hidden !important; }
+.x2-50 { width:200px !important; }
+.x2-51 { width:70px !important; }
+.x2-52 { gap:2px !important; }
+.x2-53 { vertical-align:6px !important; }
+.x2-54 { margin-top:10px !important; }
+.x2-55 { gap:6px !important; font-weight:600 !important; }
+.x2-56 { align-self:center !important; }
+.x2-57 { background:var(--violet-mid) !important; }
+.x2-58 { background:repeating-linear-gradient(135deg,var(--violet-soft) 0 2px,#fff 2px 4px) !important; }
+.x2-59 { gap:8px !important; }
+.x2-60 { display:flex !important; flex-direction:column !important; gap:2px !important; min-width:0 !important; }
+.x2-61 { width:80px !important; }   /* v35: 높이는 입력칸 기준(34)을 따라요 */
+.x2-62 { border-radius:999px !important; padding:6px 12px !important; }
+.x2-63 { margin:0 !important; text-align:center !important; }
+.x2-64 { display:flex !important; align-items:center !important; justify-content:space-between !important; }
+.x2-65 { margin:10px 0 0 !important; }
+/* .hidden이 x2-*(display !important)보다 뒤에 와야 이겨요 — 인라인 style일 때와 같게 */
+.hidden { display: none !important; }
+/* v35: 카드 제목 옆 설명 — 휴대폰에서는 제목 아래 한 줄로 (제목이 두 줄로 꺾이지 않게) · 설명 굵기는 보조(500) */
+.panel h2 small { font-weight: var(--fw-m); color: var(--muted-foreground); }
+@media (max-width: 699px) { .panel h2 { flex-wrap: wrap; row-gap: 2px; } .panel h2 small { flex-basis: 100%; } }

@@ -68,11 +68,14 @@ async def editor_tests(p):
     check((await pg.inner_text(".ce-row .ce2-key")).strip() == "G" and await pg.locator(".ce-row .ce2-ics .no").count() == 1, "줄에 키 · 악보 없음 아이콘")
     # 함께 부른 곡 추천 (곡 추가 칸이 비어 있으면) — v34.3: 서랍처럼 기본은 닫혀 있고, 머리를 누르면 펼쳐요
     lab = await pg.inner_text("#ceDrop .ce2-lab") if await pg.locator("#ceDrop .ce2-lab").count() else ""
-    check(await pg.locator("#ceDrop .ce2-sugh[aria-expanded=false]").count() == 1 and await pg.locator("#ceDrop .ce-o").count() == 0 and "2곡" in lab, "추천 서랍은 기본 닫힘 " + lab)
+    check(await pg.locator("#ceDrop .ce2-sugh[aria-expanded=false]").count() == 1 and await pg.locator("#ceDrop .ce-o").count() == 0 and "곡 추천" in lab, "추천 서랍은 기본 닫힘 " + lab)
     await pg.click("#ceDrop .ce2-sugh"); await pg.wait_for_timeout(300)
     check(await pg.locator("#ceDrop .ce2-sugh[aria-expanded=true]").count() == 1, "머리를 누르면 펼쳐짐")
+    # v35: 기준 셋 — '함께 부른 곡'으로
+    await pg.click("#ceDrop [data-ce='rec-mode'][data-m='co']"); await pg.wait_for_timeout(300)
+    lab = await pg.inner_text("#ceDrop .ce2-lab")
     sug = [x.strip() for x in await pg.locator("#ceDrop .ce-o b").all_text_contents()]
-    check("자주 같이 부른 곡" in lab and sug == ["주님의 마음", "예수 피를 힘입어"], f"함께 부른 곡 추천 (많이 같이 부른 순 · 넣은 곡 빼고) {sug}")
+    check("2곡" in lab and sug == ["주님의 마음", "예수 피를 힘입어"], f"함께 부른 곡 추천 (많이 같이 부른 순 · 넣은 곡 빼고) {sug} {lab}")
     sub = await pg.locator("#ceDrop .ce-o small").first.inner_text()
     check("'은혜'와 2번 같이" in sub, "추천 이유 " + sub)
     await open_row(pg, 0, "ref")
@@ -402,12 +405,93 @@ async def links_tests(p):
     else: check(False, "악보 보기 레퍼런스 단추가 안 보임")
     await b.close()
 
+# v35: 곡 추천 — 이 라인업 · 멤버별 · 키 단추 숫자 (최근 1년 · 곡 + 키)
+HIST35 = """window.HISTORY.load = async () => ({ songs: [{ id: 2, count: 2, last: '2026-10-04', refs: [] }, { id: 3, count: 2, last: '2026-10-04', refs: [] }],
+  plays: [['2026-10-04', 1, 2, '주님의 마음', 'A', [], 0, null], ['2026-10-04', 2, 3, '예수 피를 힘입어', 'D', [], 0, null], ['2026-09-06', 1, 2, '주님의 마음', 'G', [], 0, null],
+          ['2026-08-02', 1, 3, '예수 피를 힘입어', 'Db', [], 0, null], ['2025-01-05', 1, 4, '오래된 곡', 'E', [], 0, null]],
+  lu: { '2026-10-04': [{ pos: 'drum', name: '김밴드', mid: 'u2' }, { pos: 'key_main', name: '이건반', mid: 'u3' }, { pos: 'e_guitar', name: '박객원', guest: true, mid: null }, { pos: 'singer', name: '최싱어', mid: 'u5' }],
+        '2026-09-06': [{ pos: 'drum', name: '김밴드', mid: 'u2' }, { pos: 'e_guitar', name: '박객원', guest: true, mid: null }],
+        '2026-08-02': [{ pos: 'bass', name: '이건반 (예전 이름)', mid: 'u3' }],
+        '2025-01-05': [{ pos: 'drum', name: '김밴드', mid: 'u2' }, { pos: 'key_main', name: '이건반', mid: 'u3' }] } }); 0;"""
+LU35 = """FIX.tables.songs.push({ id: 4, title: '오래된 곡', main_key: 'E' });
+const _c1 = FIX.rpc.conti_one; FIX.rpc.conti_one = () => ({ ..._c1(), lineup: [{ member_id: 'u-lead', name: '공준혁', pos: 'leader' }, { member_id: 'u2', name: '김밴드', pos: 'drum' },
+  { member_id: 'u3', name: '이건반', pos: 'key_main' }, { member_id: null, name: '박객원', pos: 'e_guitar', guest: true }, { member_id: 'u5', name: '최싱어', pos: 'singer' }] }); 0;"""
+async def rec_tests(p):
+    print("== v35: 곡 추천 — 이 라인업 · 멤버별 · 키 단추 숫자")
+    b, pg = await page(p)
+    await pg.goto(BASE + "/dev/tests/v31/harness.html"); await pg.wait_for_timeout(500)
+    await pg.evaluate(HIST35); await pg.evaluate(LU35)
+    await pg.evaluate("CONTI.openEditor('s1')"); await pg.wait_for_timeout(800)
+    lab = await pg.inner_text("#ceDrop .ce2-lab")
+    check("이 라인업" in lab and await pg.locator("#ceDrop .ce-o").count() == 0, "라인업이 있으면 기본 기준 = 이 라인업 · 서랍은 닫힘 " + lab)
+    await pg.click("#ceDrop .ce2-sugh"); await pg.wait_for_timeout(300)
+    chips = [x.strip() for x in await pg.locator(".ce3-chips button").all_text_contents()]
+    check(chips == ["밴드 3", "싱어 1", "전체 5"], f"무리 칩 (인도자는 전체에만 · 같은 사람 한 번) {chips}")
+    sug = [x.strip() for x in await pg.locator("#ceDrop .ce-o > b").all_text_contents()]
+    check(sug == ["주님의 마음", "예수 피를 힘입어"], f"해 본 사람 많은 순 → 횟수 순 · 1년 넘은 곡 빠짐 {sug}")
+    sub = (await pg.locator("#ceDrop .ce-o small").first.inner_text()).replace("\n", "")
+    check("밴드 3명 모두" in sub and "A로 3명" in sub and "G로 2명" in sub, "줄 설명: 해 본 사람 · 키별 " + sub)
+    dots = await pg.locator("#ceDrop .ce-orow").nth(1).locator(".ce3-cov i").evaluate_all("(a) => a.map((x) => x.className)")
+    check(dots == ["k", "k", "k"], f"얼굴 점 (가장 많이 한 키 D · Db는 C#로 같은 소리 묶음 · 이건반은 D도 해 봄) {dots}")
+    t = await pg.locator("#ceDrop .ce-orow").nth(1).locator(".ce3-cov i").nth(1).get_attribute("title")
+    check("이건반" in t, "예전 이름이어도 member_id로 같은 사람 " + t)
+    await pg.click(".ce3-chips [data-g='singer']"); await pg.wait_for_timeout(300)
+    sub = await pg.locator("#ceDrop .ce-o small").first.inner_text()
+    check("싱어 1명 모두" in sub, "싱어 칩 " + sub)
+    # 멤버별
+    await pg.click("#ceDrop [data-ce='rec-mode'][data-m='member']"); await pg.wait_for_timeout(300)
+    mem = [x.strip() for x in await pg.locator(".ce3-mem b").all_text_contents()]
+    check(mem[:3] == ["김밴드", "이건반", "박객원"] and mem[-1] == "공준혁", f"멤버 칩: 밴드 → 싱어 → 인도 {mem}")
+    sug = [x.strip() for x in await pg.locator("#ceDrop .ce-o > b").all_text_contents()]
+    sub = await pg.locator("#ceDrop .ce-o small").first.inner_text()
+    check(sug == ["주님의 마음", "예수 피를 힘입어"] and "A로 1번" in sub and "G로 1번" in sub and "마지막" in sub, f"김밴드가 많이 한 곡 {sug} {sub}")
+    await pg.click(".ce3-mem [data-p='m:u3']"); await pg.wait_for_timeout(300)
+    sug = [x.strip() for x in await pg.locator("#ceDrop .ce-o > b").all_text_contents()]
+    sub = await pg.locator("#ceDrop .ce-o small").first.inner_text()
+    check(sug[0] == "예수 피를 힘입어" and "D로 1번" in sub and "C#로 1번" in sub, f"이건반 → 2번 한 곡 먼저 {sug} {sub}")
+    # 넣어도 키는 평소처럼 (곡의 주 키) · 키 단추에 숫자
+    await pg.click("#ceDrop [data-add='2']"); await pg.wait_for_timeout(600)
+    check((await pg.inner_text(".ce-row .ce2-key")).strip() == "A", "추천에서 넣어도 키는 평소대로(주 키)")
+    check(await pg.locator("#ceDrop .ce-o > b", has_text="주님의 마음").count() == 0, "넣은 곡은 추천에서 빠짐")
+    await pg.click("#ceDrop [data-ce='rec-mode'][data-m='lineup']"); await pg.wait_for_timeout(200)
+    await pg.click(".ce3-chips [data-g='band']"); await pg.wait_for_timeout(200)
+    await open_row(pg, 0, "basic")
+    em = await pg.evaluate("Object.fromEntries([...document.querySelectorAll('.ce3-keys button')].filter((b) => b.querySelector('em')).map((b) => [b.dataset.k, b.querySelector('em').textContent]))")
+    check(em == {"A": "3", "G": "2"}, f"키 단추 숫자 = 그 키로 해 본 밴드 {em}")
+    kw = await pg.inner_text(".ce3-kwho")
+    check("A로 해 본 밴드 3/3" in kw, "지금 키로 해 본 사람 " + kw.replace("\n", " "))
+    await pg.click(".ce3-keys [data-k='G']"); await pg.wait_for_timeout(300)
+    kw = await pg.inner_text(".ce3-kwho")
+    check("G로 해 본 밴드 2/3" in kw and "이건반 — A로만" in kw, "키를 바꾸면 · 다른 키로만 해 본 사람 " + kw.replace("\n", " "))
+    # + 단추 크기 = 곡 줄 키 칸
+    sz = await pg.evaluate("(() => { const a = document.querySelector('#ceDrop .ce-oadd') || document.querySelector('.ce-oadd'); const k = document.querySelector('.ce-row .ce2-key'); if (!a) return null; const r = a.getBoundingClientRect(), q = k.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), Math.round(q.height)]; })()")
+    check(sz and sz[0] == 28 and sz[1] == sz[2], f"+ 단추 = 키 칸 높이 {sz}")
+    # 기억: 다시 열면 같은 기준
+    pref = await pg.evaluate("localStorage.getItem('pole2.ce.rec')")
+    check(pref and '"lineup"' in pref and '"band"' in pref, "기준 · 무리는 이 기기에 기억 " + str(pref))
+    check(not pg.errs, f"오류 없음 {pg.errs[:2]}")
+    await b.close()
+    # 라인업 없음
+    b, pg = await page(p, mobile=True)
+    await pg.goto(BASE + "/dev/tests/v31/harness.html"); await pg.wait_for_timeout(500)
+    await pg.evaluate(HIST35)
+    await pg.evaluate("const _c = FIX.rpc.conti_one; FIX.rpc.conti_one = () => ({ ..._c(), lineup: [] }); localStorage.setItem('pole2.ce.rec', JSON.stringify({ mode: 'lineup', g: 'band' })); 0")
+    await pg.evaluate("CONTI.openEditor('s1')"); await pg.wait_for_timeout(800)
+    await pg.click("#ceDrop .ce2-sugh"); await pg.wait_for_timeout(300)
+    check(await pg.locator(".ce3-empty").count() == 1, "라인업이 없으면 빈 상태")
+    await pg.click(".ce3-empty [data-m='co']"); await pg.wait_for_timeout(300)
+    check(await pg.locator(".ce3-none").count() == 1 and "곡을 하나 넣으면" in await pg.inner_text(".ce3-none"), "→ 함께 부른 곡 (곡이 없으면 안내)")
+    ow = await pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
+    check(ow, "휴대폰 가로 넘침 없음")
+    check(not pg.errs, f"오류 없음 {pg.errs[:2]}")
+    await b.close()
+
 async def main():
     srv = subprocess.Popen([sys.executable, "-m", "http.server", str(PORT), "-d", ROOT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1)
     try:
         async with async_playwright() as p:
-            for t in [editor_tests, draft_tests, band_tests, ios_tests, backup_tests, ink_tests, links_tests]:
+            for t in [rec_tests, editor_tests, draft_tests, band_tests, ios_tests, backup_tests, ink_tests, links_tests]:
                 try: await t(p)
                 except Exception as e: check(False, f"{t.__name__} 예외: {e}")
     finally: srv.kill()

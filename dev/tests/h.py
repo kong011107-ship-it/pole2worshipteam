@@ -61,3 +61,10 @@ def fix_lineup(q, sid):
     for pos, slot, n, sl, bm in rows:
         q(f"insert into assignments(service_id, position_code, slot, member_id, is_singer_leader, is_band_master) select '{sid}', '{pos}', {slot}, id, {str(sl).lower()}, {str(bm).lower()} from members where email='demo{n:02d}@pole2.test'")
     q(f"update services set status='published' where id='{sid}'")
+
+# v35: 리더십 콘티 목록 — 줄(.ca-row) · 주 행동(쓰기/고치기) · 악보는 줄에, 나머지는 '더보기' 시트(.ca-sheet)에
+def ca_row(pg, sid, past=False):
+    return pg.locator(f'{"#caPast " if past else ""}.ca-row[data-sid="{sid}"]')
+async def ca_more(pg, sid, act):
+    await ca_row(pg, sid).locator("[data-ca=more]").click(); await pg.wait_for_timeout(400)
+    return pg.locator(f'.ca-sheet [data-ca="{act}"]')

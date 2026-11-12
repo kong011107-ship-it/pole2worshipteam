@@ -7,7 +7,7 @@ FIX = """FIX.rpc.history_bundle = { songs: [{ id: 1, title: '은혜', main_key: 
   setlists: [{ d: '2026-08-30', leaders: ['김철수'], note: '', items: [[1, 1, 'A', false, [], null]] },
              { d: '2026-10-25', leaders: ['공준혁'], note: '', items: [[1, 1, 'G', false, [['AAAAAAAAAAA', 30, '']], null], [2, 2, 'A', false, [], null]] },
              { d: '2026-11-01', leaders: ['이영희'], note: '', items: [[1, 1, 'G', false, [], null]] }], lineup: [], applied: [] };
-FIX.rpc.video_bundle = { videos: [['VID00000001', '2026-10-25', 1800, '10/25 예배', new Date().toISOString(), true], ['VID00000002', '2026-08-30', 1500, '8/30', '2026-09-01T00:00:00Z', true], ['VID00000003', '2026-11-01', 1600, '11/1', '2026-11-02T00:00:00Z', false]],
+FIX.rpc.video_bundle = { videos: [['VID00000001', '2026-10-25', 1800, '10/25 예배', new Date().toISOString(), true], ['VID00000002', '2026-08-30', 1500, '8/30', '2026-09-01T00:00:00Z', true], ['VID00000003', '2026-11-01', 1600, '11/1', new Date(Date.now() - 2 * 864e5).toISOString(), false]],
   songs: [['VID00000001', 1, 231, 552, false, true], ['VID00000001', 2, 552, 800, false, true], ['VID00000002', 1, 100, 400, false, true], ['VID00000003', 1, 0, null, false, false]] };
 FIX.tables.worship_videos = [
   { id: 'VID00000004', title: 'Pole2 대학부 주일예배 찬양', service_date: '2026-10-25', date_src: 'upload', status: 'review', reasons: ['date'], marks: [], leaders_said: [], pinned: false },

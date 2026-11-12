@@ -362,7 +362,7 @@ async def main():
         check("결과 확인 표" in await lp2.locator("#content").text_content() and await lp2.locator("#secCard").count() == 0, "non-owner: backup page without secrets")
         # 관리자 콘티 표: 카톡 복사
         await navclick(lp2, "conti"); await lp2.wait_for_timeout(2000)
-        await lp2.locator(f'.ca-table tr[data-sid="{sid}"] [data-ca=copy]').click(); await lp2.wait_for_timeout(800)
+        await (await ca_more(lp2, sid, "copy")).click(); await lp2.wait_for_timeout(800)
         check((await lp2.locator("#cpText").input_value()).startswith(f"{y} 찬양콘티"), "admin conti table copy")
         await ctx.close(); await b.close()
 

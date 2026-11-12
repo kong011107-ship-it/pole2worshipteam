@@ -61,7 +61,7 @@ async def admin(p, w, h, tag):
     await shot(pg, f"a{tag}_dash")
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests"))
     from h import navclick
-    for key in ["attendance", "lineup", "conti", "members"]:
+    for key in ["attendance", "lineup", "conti", "members", "history"]:
         try:
             await navclick(pg, key); await pg.wait_for_timeout(1500)
             await shot(pg, f"a{tag}_{key}")

@@ -118,7 +118,7 @@
   const conflictBox = (list, tail) => `<div class="notice warn conflict x-col x-g6" role="alert">
     <b>저장하지 않았어요 · 그 사이 다른 리더가 먼저 고친 칸이 있어요</b>
     <ul style="margin:0;padding-left:18px;font-weight:500;line-height:1.7">${list.map((c) => `<li>${esc(c.label)} · 지금 <b>${esc(fieldText(c.field, c.now))}</b></li>`).join("")}</ul>
-    <span class="small" style="font-weight:500">${tail}</span></div>`;
+    <span class="small x2-29">${tail}</span></div>`;
 
   async function api(path, payload) {
     const { data: { session } } = await sb.auth.getSession();
@@ -228,6 +228,11 @@
   }
   document.addEventListener("click", (e) => {
     const area = e.target.closest("[data-area]");
+    // v35: 접힌 메뉴 + 마우스가 없는 기기(태블릿): 메뉴가 둘 이상인 영역은 처음 누르면 메뉴를 띄우고, 한 번 더 누르면 그 영역으로
+    if (area && NAV.shut && area.closest("#adRail") && !matchMedia("(hover: hover)").matches) {
+      const a = AREAS.find((x) => x.key === area.dataset.area);
+      if (a && a.menus.length > 1 && NAV.fly !== a.key) return adFly(a.key, area);
+    }
     if (area) { adFly(null); return adGoArea(area.dataset.area); }
     const sm = e.target.closest("[data-nav-m]"); if (sm) return nav(sm.dataset.navM);
     if (e.target.closest("#adShut")) return adShut(true);
@@ -385,7 +390,7 @@
     $("#content").innerHTML = `
       <div class="page-head">
         <h1 class="page-title">모집·수습</h1>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="x2-30">
           <span class="small muted x-b">지원서에 보이는 모집 포지션</span>
           <span class="x-row x-wrap x-g6" id="recruitChips"></span>
         </div>
@@ -696,7 +701,7 @@
       step: t.timing, title: `${a.name}님 · 면접 → 수습 시작`,
       body: `${prev.length ? `<div class="notice warn" style="margin:0;display:flex;flex-direction:column;gap:8px">
             <span>같은 이름의 탈퇴 기록이 있어요: ${prev.map((x) => `${esc(positionName(x.main_position))} · ${x.joined_at ? md(x.joined_at.slice(0, 10)) + " ~ " : ""}${md(x.left_at)} 탈퇴${x.reason ? " (" + esc(x.reason) + ")" : ""}`).join(" / ")}</span>
-            <label style="display:flex;gap:8px;align-items:center;font-weight:600;color:var(--ink)"><input type="checkbox" id="rejoin" style="width:18px;height:18px;accent-color:var(--violet)"> 재가입 — 면담만 하고 수습 없이 바로 정식 (규정 제3조 바항)</label></div>` : ""}
+            <label style="display:flex;gap:8px;align-items:center;font-weight:600;color:var(--ink)"><input class="x2-10" type="checkbox" id="rejoin"> 재가입 — 면담만 하고 수습 없이 바로 정식 (규정 제3조 바항)</label></div>` : ""}
         <div class="x-col x-g14" id="traineeFields">
         ${weak ? `<p class="notice warn x-m0">평가표에 '미흡'이 ${weak}개 있어요. 판정 기준상 보류 또는 조건부 수습을 검토해 주세요.</p>` : ""}
         <div class="field"><span>면접 결과</span>
@@ -872,7 +877,7 @@
     const others = admins().filter((m) => m.id !== S.me.id);
     const weak = evals.reduce((n, e) => n + Object.values(e.scores || {}).filter((v) => v === "weak").length, 0);
     const filled = Object.keys(mine.scores || {}).length;
-    const chip = (v) => v ? `<span class="chip ${v === "ok" ? "chip-ok" : v === "mid" ? "chip-mid" : "chip-bad"}">${SCORE[v]}</span>` : `<span class="small" style="color:var(--faint)">—</span>`;
+    const chip = (v) => v ? `<span class="chip ${v === "ok" ? "chip-ok" : v === "mid" ? "chip-mid" : "chip-bad"}">${SCORE[v]}</span>` : `<span class="small x2-16">—</span>`;
     let prevArea = null;
     body.innerHTML = `<section class="x-col x-g14">
       <div class="verdict ${weak ? "warn" : "ok"}"><b>${weak ? `'미흡' ${weak}개 — 보류 또는 조건부 수습 검토` : "'미흡' 없음"}</b>
@@ -888,8 +893,8 @@
               `<button type="button" data-v="${k}" data-tone="${k}" aria-pressed="${mine.scores?.[it.code] === k}">${SCORE[k]}</button>`).join("")}</div></td></tr>`;
         }).join("")}</tbody></table></div>
       <div class="notes3">
-        ${others.map((m) => `<div><b>${esc(m.name)} 메모</b><span style="white-space:pre-wrap">${esc(evals.find((e) => e.interviewer_id === m.id)?.note) || `<span class="muted small">아직 없어요</span>`}</span></div>`).join("")}
-        <label style="border-color:var(--violet-soft)"><b style="color:var(--violet)">내 메모</b>
+        ${others.map((m) => `<div><b>${esc(m.name)} 메모</b><span class="x2-32">${esc(evals.find((e) => e.interviewer_id === m.id)?.note) || `<span class="muted small">아직 없어요</span>`}</span></div>`).join("")}
+        <label class="x2-11"><b class="x2-17">내 메모</b>
           <textarea id="myNote" maxlength="1000" placeholder="면접에서 나눈 이야기, 수습 때 함께 볼 점" style="border:0;padding:0;min-height:60px;resize:vertical;outline:none;font-size:14px">${esc(mine.note || "")}</textarea></label>
       </div></section>`;
 
@@ -930,7 +935,7 @@
           <div class="postpone" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;border-radius:12px;background:var(--warn-bg);color:var(--warn);font-size:13px;font-weight:600">
             <span>${n}주차부터 ${p.weeks}주 연기${p.reason ? " · " + esc(p.reason) : ""}</span>
             <span class="small" style="font-weight:500;color:#8A5A3A">${esc(memberName(p.created_by))} · ${fmtDate(p.created_at)}</span>
-            ${a.stage === "trainee" ? `<button type="button" class="btn btn-ghost btn-sm" data-undo="${p.id}" style="margin-left:auto">되돌리기</button>` : ""}
+            ${a.stage === "trainee" ? `<button type="button" class="btn btn-ghost btn-sm x-mla" data-undo="${p.id}">되돌리기</button>` : ""}
           </div>`).join("");
         return `${moved}<article class="weekrow ${n === w && !st.paused ? "now" : ""}" data-week="${n}">
           <div class="x-col x-g4"><span class="wk">${n}주</span><span class="wt">${esc(info.title)}</span>
@@ -1014,7 +1019,7 @@
       $("#ppPreview").innerHTML = [1, 2, 3, 4, 5].map((n) => {
         const before = traineeWeekSat(a.trainee_start, n, list), now = traineeWeekSat(a.trainee_start, n, after);
         return `<div style="display:grid;grid-template-columns:48px 1fr;gap:8px;padding:4px 0;${n < from ? "color:var(--faint)" : ""}">
-          <b>${n}주</b><span>${before === now ? md(before) + " (그대로)" : `${md(before)} → <b style="color:var(--violet)">${md(now)}</b>`}</span></div>`;
+          <b>${n}주</b><span>${before === now ? md(before) + " (그대로)" : `${md(before)} → <b class="x2-17">${md(now)}</b>`}</span></div>`;
       }).join("");
     };
     modal({
@@ -1047,8 +1052,8 @@
       <dt>지원 포지션</dt><dd>${esc(positionName(a.applied_position))}</dd>
       <dt>지원 동기</dt><dd>${esc(a.motivation) || "—"}</dd><dt>이루고 싶은 것</dt><dd>${esc(a.goal) || "—"}</dd>
       <dt>서약</dt><dd>${esc(a.pledge_title)} · ${fmtDate(a.pledged_at)} 서약
-        <details class="x-mt8"><summary style="cursor:pointer;color:var(--violet);font-weight:600">원문 보기</summary><div class="pledge-box x-mt8">${esc(a.pledge_content)}</div></details></dd>
-      <dt>관리자 메모</dt><dd><textarea class="input" id="memo" maxlength="1000" style="min-height:80px" placeholder="리더십끼리만 보는 메모">${esc(a.admin_memo || "")}</textarea>
+        <details class="x-mt8"><summary class="x2-18">원문 보기</summary><div class="pledge-box x-mt8">${esc(a.pledge_content)}</div></details></dd>
+      <dt>관리자 메모</dt><dd><textarea class="input x2-19" id="memo" maxlength="1000" placeholder="리더십끼리만 보는 메모">${esc(a.admin_memo || "")}</textarea>
         <div class="x-mt8" id="memoConflict"></div></dd>
     </dl></section>`;
     // 020: 연 때의 메모를 기준으로 저장 — 그 사이 다른 리더가 고쳤으면 덮어쓰지 않고 알려 줌
@@ -1181,7 +1186,7 @@
             <span class="nm">${esc(g.name)} <span class="chip chip-violet">객원</span>${g.is_active ? "" : ` <span class="chip chip-gray">숨김</span>`}</span>
             <span class="sub">${g.positions.map(positionName).join(" · ")}</span><span class="sub">${esc(g.phone) || "—"}</span><span class="sub">${esc(g.note) || ""}</span>
             <span><button type="button" class="btn btn-ghost btn-sm" data-gedit="${g.id}">수정</button></span></div>`).join("")
-          || `<div class="empty" style="border:0;border-radius:0">아직 저장한 객원이 없어요.</div>`}</div>`;
+          || `<div class="empty x2-34">아직 저장한 객원이 없어요.</div>`}</div>`;
       bindMemberHead();
       $("#gAdd").onclick = () => openGuestEdit(null, () => renderMembers());
       $$("[data-gedit]").forEach((b) => b.addEventListener("click", () => openGuestEdit(S.guests.find((g) => g.id === b.dataset.gedit), () => renderMembers())));
@@ -1248,12 +1253,12 @@
           <button type="button" class="btn btn-ghost btn-sm" id="mPickMode" aria-pressed="${!!S.memberSelect}">${S.memberSelect ? "고르기 끝" : "여러 명 고르기"}</button>
           <button type="button" class="btn btn-soft btn-sm" id="mAddOne">+ 개별 등록</button>
           <button type="button" class="btn btn-ghost btn-sm" id="mBulkAdd">엑셀로 일괄 등록</button></div>
-        <div class="seg" id="mGroup"><span class="small muted" style="align-self:center;margin-right:4px">묶어 보기</span>
+        <div class="seg" id="mGroup"><span class="small muted x2-20">묶어 보기</span>
           <button type="button" data-g="part" aria-pressed="${!["name", "cohort"].includes(S.memberGroup)}">파트별</button><button type="button" data-g="cohort" aria-pressed="${S.memberGroup === "cohort"}">기수별</button><button type="button" data-g="name" aria-pressed="${S.memberGroup === "name"}">이름순</button></div>
       </div>
       <div class="mtable">
         <div class="mrow head"><span>이름</span><span>포지션</span><span>이번 달 섬김</span><span>최근 3개월</span><span>최근 팀모임 ${held.length}회</span><span>지각 ${LATE_WEEKS}주</span><span></span></div>
-        ${body || `<div class="empty" style="border:0;border-radius:0">해당하는 멤버가 없어요.</div>`}
+        ${body || `<div class="empty x2-34">해당하는 멤버가 없어요.</div>`}
       </div>
       ${f === "first" ? `<section class="card bordered" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:14px 18px">
           <span style="flex:1 1 320px;display:flex;flex-direction:column;gap:2px"><b>아직 임시 비밀번호를 쓰고 있어요</b>
@@ -1574,7 +1579,7 @@
           <label class="field">이메일(아이디) *<input type="email" id="aEmail" autocomplete="off" placeholder="name@example.com"></label>
           <label class="field">연락처<input type="tel" id="aPhone" inputmode="numeric" placeholder="010-0000-0000"></label>
           <div class="field"><span>성별</span>${segBtns("aGender", [["m", "남"], ["f", "여"]], gender)}</div>
-          <label class="field">기수<span class="x-row x-ac x-g6"><input type="text" id="aCohort" inputmode="numeric" maxlength="3" placeholder="예: 41" style="min-width:0">기</span></label>
+          <label class="field">기수<span class="x-row x-ac x-g6"><input class="x2-35" type="text" id="aCohort" inputmode="numeric" maxlength="3" placeholder="예: 41">기</span></label>
           <label class="field">생년월일 (양력)<input type="date" id="aBirth" min="1940-01-01" max="2020-12-31"></label>
           <label class="field">주 포지션 *<select class="select" id="aMain"><option value="">고르기</option>${ps.map((p) => `<option value="${p.code}">${esc(p.name)}</option>`).join("")}</select></label>
           <label class="field">순모임<input type="text" id="aGroup" maxlength="30" placeholder="예: 3순"></label>
@@ -1586,7 +1591,7 @@
           <div class="field"><span>구분</span>${segBtns("aStatus", [["active", "정식"], ["trainee", "수습"], ...(isOwner() ? [["mc", "예배MC"], ["pastor", "교역자"]] : [])], status)}</div>
         </div>
         <div class="field"><span>임시 비밀번호 <span class="hint">· 첫 로그인 때 바꿔요</span></span>
-          <div class="bk-pw" id="aPwBox" style="margin-top:0">
+          <div class="bk-pw x2-36" id="aPwBox">
             <label class="radio1 on"><input type="radio" name="aPwMode" value="same" checked><span><b>공통 임시 비밀번호</b><small>${last ? "이 기기에서 일괄 등록 때 쓴 비밀번호를 채워 뒀어요. 바꿔도 돼요" : "단체방에 안내한 공통 비밀번호가 있으면 그걸 적어 주세요"}</small></span></label>
             <div class="bk-pw-in" id="aPwIn"><input type="text" class="input" id="aPw" maxlength="40" autocomplete="off" spellcheck="false" value="${esc(last)}" placeholder="영문+숫자 8자 이상" aria-label="임시 비밀번호"></div>
             <label class="radio1"><input type="radio" name="aPwMode" value="each"><span><b>자동으로 만들기</b><small>이 사람만 쓰는 비밀번호를 만들어 개인 카톡으로 전해요</small></span></label>
@@ -1648,7 +1653,7 @@
             <td><button type="button" class="btn btn-ghost btn-sm" data-acopy="${i}">개인 문구 복사</button></td></tr>`).join("")}</tbody></table></div>`
       : ok.length ? `<p class="notice warn x-m0">임시 비밀번호는 이 창을 닫으면 다시 볼 수 없어요. 목록을 내려받거나 사람마다 문구를 복사해 개인 카톡으로 보내 주세요. 다 전한 뒤에는 내려받은 파일을 지워 주세요.</p>
         <div class="evaltable" style="max-height:360px;overflow:auto"><table class="bk-table"><thead><tr><th>이름</th><th>아이디</th><th>임시 비밀번호</th><th></th></tr></thead>
-          <tbody>${ok.map((x, i) => `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.email)}</td><td class="temp-pw" style="font-size:16px">${esc(x.tempPassword)}</td>
+          <tbody>${ok.map((x, i) => `<tr><td><b>${esc(x.name)}</b></td><td>${esc(x.email)}</td><td class="temp-pw x2-12">${esc(x.tempPassword)}</td>
             <td><button type="button" class="btn btn-ghost btn-sm" data-acopy="${i}">문구 복사</button></td></tr>`).join("")}</tbody></table></div>` : ""}
         ${bad.length ? `<div class="notice error x-m0">등록하지 못한 ${bad.length}명: ${bad.map((x) => `${esc(x.name || x.email)} (${esc(x.error)})`).join(", ")}</div>` : ""}`,
       onConfirm: pw ? async () => toast((await copyText(groupAccountMsg(pw))) ? "단체방 안내 문구를 복사했어요" : "복사하지 못했어요")
@@ -1681,7 +1686,7 @@
         <label class="field"><span class="lrow">메모 <span class="hint">선택 · 예: 다른 공동체 드러머</span></span><input type="text" id="gNote" maxlength="200" value="${esc(g?.note || "")}"></label>
         ${g ? `<label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600"><input type="checkbox" id="gHide" ${g.is_active ? "" : "checked"} style="width:18px;height:18px;accent-color:var(--violet)"> 배치표 후보에서 숨기기</label>` : ""}
         ${g ? `<button type="button" class="btn btn-danger btn-sm x-ss" id="gDel">객원 삭제</button>
-          <span class="small muted" style="margin-top:-8px">삭제해도 지난 배치표에는 이름이 '(객원)'으로 남아요.</span>` : ""}`,
+          <span class="small muted x2-37">삭제해도 지난 배치표에는 이름이 '(객원)'으로 남아요.</span>` : ""}`,
       onInput: (e) => {
         const b = e?.target?.closest?.("#gPos button");
         if (b && e.type === "click") b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
@@ -1766,8 +1771,8 @@
     const lastLate = weeks.slice().reverse().find((d) => ["practice", "rehearsal", "meeting"].some((k) => recOf(mt(d), id, k)?.status === "late"));
     const respTile = m.status !== "active" ? `<span>섬김 응답</span><b class="muted">대상 아님</b><small>${m.status === "trainee" ? "수습 중" : ""}</small>`
       : !avail ? `<span>섬김 응답</span><b class="muted">–</b><small>지금 받는 달 없음</small>`
-      : avail.done >= avail.total ? `<span>섬김 응답</span><b style="color:var(--ok)">완료</b><small>${monthLabel(avail.open.month)} 응답${avail.open.deadline ? " · " + dday(avail.open.deadline) : ""}</small>`
-      : `<span>섬김 응답</span><b style="color:var(--warn)">${avail.done ? `${avail.done}/${avail.total}` : "미응답"}</b><small>${monthLabel(avail.open.month)} 응답${avail.open.deadline ? " · " + dday(avail.open.deadline) : ""}</small>`;
+      : avail.done >= avail.total ? `<span>섬김 응답</span><b class="x2-38">완료</b><small>${monthLabel(avail.open.month)} 응답${avail.open.deadline ? " · " + dday(avail.open.deadline) : ""}</small>`
+      : `<span>섬김 응답</span><b class="x2-13">${avail.done ? `${avail.done}/${avail.total}` : "미응답"}</b><small>${monthLabel(avail.open.month)} 응답${avail.open.deadline ? " · " + dday(avail.open.deadline) : ""}</small>`;
 
     // 섬김 통계: 최근 6개월 막대
     const months = Array.from({ length: 6 }, (_, i) => addMonths(monthOf(today), i - 5));
@@ -1813,7 +1818,7 @@
           <span class="muted">${isObs(m) ? `${OBS[m.status]} · 리더십 권한으로 알림 · 정보를 받아요 · 배치는 어느 자리든 할 수 있어요` : `${esc(positionName(m.main_position))} · ${extrasOf(id).length ? "추가 " + extrasOf(id).map(positionName).join(", ") : "추가 포지션 없음"}`}</span>
           <dl><div><dt>연락처</dt><dd>${esc(m.phone) || "—"}</dd></div><div><dt>이메일 (로그인)</dt><dd>${esc(m.email) || "—"}</dd></div>
             <div><dt>순모임</dt><dd>${esc(m.small_group) || "—"}</dd></div>
-            <div><dt>성별</dt><dd>${m.gender ? GENDER[m.gender] : `<span style="color:var(--warn)">미입력</span>`}</dd></div>
+            <div><dt>성별</dt><dd>${m.gender ? GENDER[m.gender] : `<span class="x2-13">미입력</span>`}</dd></div>
             <div><dt>기수</dt><dd>${m.cohort ? m.cohort + "기" : "—"}</dd></div>
             <div><dt>생년월일 · 리더십만</dt><dd>${m.birth_date ? `${birthLabel(m.birth_date)}${(() => { const nb = nextBirthday(m.birth_date); return nb.days === 0 ? ` <span class="chip chip-bday">오늘 생일</span>` : nb.days <= 14 ? ` <span class="chip chip-bday">생일 D-${nb.days}</span>` : ""; })()}` : "—"}</dd></div>
             <div><dt>생일선물 정산</dt><dd>${m.gift_join === true ? "참여" : m.gift_join === false ? "미참여" : `<span class="muted">미정</span>`}</dd></div>
@@ -1859,10 +1864,10 @@
             <span class="l">팀모임</span>${weeks.map((d) => cell(d, "meeting")).join("")}
             <span class="l">주일 리허설</span>${weeks.map((d) => cell(d, "rehearsal")).join("")}
           </div>
-          <div class="legend"><span><i style="background:var(--ok-bg)"></i>출석</span><span><i style="background:var(--mid-bg)"></i>지각</span><span><i style="background:var(--bad)"></i>결석</span><span>– 미기록 · · 섬김 없는 주</span></div>
+          <div class="legend"><span><i class="x2-39"></i>출석</span><span><i style="background:var(--mid-bg)"></i>지각</span><span><i style="background:var(--bad)"></i>결석</span><span>– 미기록 · · 섬김 없는 주</span></div>
           <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
-            <div style="background:var(--bg);border-radius:10px;padding:10px 12px"><b style="font-size:17px;color:${streak.n >= STREAK_LIMIT ? "var(--bad)" : "inherit"}">${streak.n}회</b><br><span class="small muted">팀모임 연속 결석</span></div>
-            <div style="background:var(--bg);border-radius:10px;padding:10px 12px"><b style="font-size:17px">${lastLate ? md(lastLate) : "–"}</b><br><span class="small muted">마지막 지각</span></div>
+            <div class="x2-40"><b style="font-size:17px;color:${streak.n >= STREAK_LIMIT ? "var(--bad)" : "inherit"}">${streak.n}회</b><br><span class="small muted">팀모임 연속 결석</span></div>
+            <div class="x2-40"><b style="font-size:17px">${lastLate ? md(lastLate) : "–"}</b><br><span class="small muted">마지막 지각</span></div>
           </div>
           ${absences.length ? `<div><b class="small">결석 사유</b><div class="hist x-mt4">${absences.map((x) => `<div style="grid-template-columns:56px 84px minmax(0,1fr)"><b>${md(x.k === "rehearsal" ? addDays(x.d, 1) : x.d)}</b><span class="muted small">${ACT_KINDS[x.k]}</span><span>${esc(reasonText(x.r))}</span></div>`).join("")}</div></div>` : ""}
         </section>
@@ -1870,7 +1875,7 @@
 
       <section class="panel">
         <h2>리더십 메모 <small>리더십끼리만 봐요 · 본인에게는 안 보여요</small></h2>
-        ${note.data ? `<div class="note-box" style="white-space:pre-wrap">${esc(note.data.note)}</div><span class="small muted">${esc(memberName(note.data.updated_by))} · ${fmtDate(note.data.updated_at)} 저장</span>`
+        ${note.data ? `<div class="note-box x2-32">${esc(note.data.note)}</div><span class="small muted">${esc(memberName(note.data.updated_by))} · ${fmtDate(note.data.updated_at)} 저장</span>`
           : `<span class="small muted">아직 메모가 없어요. '정보 수정'에서 남길 수 있어요.</span>`}
       </section>`;
 
@@ -1968,7 +1973,7 @@
     };
     modal({
       step: "멤버 정보", title: `${m.name} 정보 수정`,
-      body: `<div id="eConflict" style="display:contents"></div><div class="grid2">
+      body: `<div class="x2-6" id="eConflict"></div><div class="grid2">
           <label class="field"><span class="lrow">이름</span><input type="text" id="eName" maxlength="30" value="${esc(m.name)}"></label>
           <label class="field"><span class="lrow">연락처</span><input type="tel" id="ePhone" maxlength="13" value="${esc(m.phone || "")}" placeholder="010-0000-0000"></label>
           <label class="field"><span class="lrow">순모임</span><input type="text" id="eGroup" maxlength="30" value="${esc(m.small_group || "")}" placeholder="예: OOO순"></label>
@@ -1993,7 +1998,7 @@
         <div class="field"><span class="lrow">포지션별 숙련도 <span class="chip chip-violet">리더십만 봐요</span></span>
           <div id="eSkills" class="sklist"></div>
           <span class="hint">배치 자동 추천에서 주마다 실력이 고르게 섞이도록 써요. 비워 두면 '중'으로 계산해요.</span></div>`}
-        <label class="field">리더십 메모 <span class="hint">리더십끼리만 봐요. 본인에게는 안 보여요.</span><textarea id="eNote" maxlength="1000" style="min-height:80px">${esc(noteText)}</textarea></label>`,
+        <label class="field">리더십 메모 <span class="hint">리더십끼리만 봐요. 본인에게는 안 보여요.</span><textarea class="x2-19" id="eNote" maxlength="1000">${esc(noteText)}</textarea></label>`,
       onInput: (e) => {
         if (!obs && !$("#eSkills").children.length && !e) drawSkills();
         if (!e) return;
@@ -2096,7 +2101,7 @@
         <label class="field">제목<input type="text" id="pTitle" maxlength="100" value="${esc(active?.title || "")}"></label>
         <label class="field">내용<textarea id="pBody" style="min-height:420px;font-size:14px;line-height:1.8">${esc(active?.content || "")}</textarea></label>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <details><summary class="small" style="cursor:pointer;color:var(--violet);font-weight:600">이전 버전 ${Math.max(pv.length - 1, 0)}개</summary>
+          <details><summary class="small x2-18">이전 버전 ${Math.max(pv.length - 1, 0)}개</summary>
             <ul style="margin:8px 0 0;padding-left:18px;font-size:13px">${pv.filter((p) => !p.is_active).map((p) =>
               `<li>${esc(p.title)} · ${fmtDate(p.created_at, { year: "numeric", month: "numeric", day: "numeric" })} · 서약 ${signers(p.id)}명</li>`).join("") || "<li>없음</li>"}</ul></details>
           <button type="button" class="btn btn-primary btn-sm" id="pSave">새 버전으로 저장</button>
@@ -2270,10 +2275,10 @@
     const actions = curMi ? `<span>${curMi.response_mode === "monthly" ? `${monthLabel(month)} 월말 응답에 포함` : `따로 받기 · ${curMi.response_open ? "응답 받는 중" : "마감됨"}${curMi.response_deadline ? " · " + md(curMi.response_deadline) + "까지" : ""}`}</span>
         <a class="btn btn-ghost btn-sm" href="#ministry/${curMi.id}">사역 화면에서 응답 열기·마감</a>`
       : !info
-      ? `<label class="field" style="flex-direction:row;align-items:center;gap:8px;font-size:13px">마감일<input type="date" id="dl" value="${addDays(sundays[0], -2)}" style="min-height:40px;width:auto"></label>
+      ? `<label class="field x2-21">마감일<input class="input x2-22" type="date" id="dl" value="${addDays(sundays[0], -2)}"></label>
          <button type="button" class="btn btn-primary" id="openMonth">${monthLabel(month)} 응답 받기 열기</button>`
       : info.is_open
-      ? `<label class="field" style="flex-direction:row;align-items:center;gap:8px;font-size:13px">마감일<input type="date" id="dl" value="${info.deadline || ""}" style="min-height:40px;width:auto"></label>
+      ? `<label class="field x2-21">마감일<input type="date" id="dl" value="${info.deadline || ""}" class="input x-wa"></label>
          <button type="button" class="btn btn-ghost" id="saveDl">마감일 저장</button>
          <button type="button" class="btn btn-ghost" id="copyOpen">응답 안내 보내기</button>
          <button type="button" class="btn btn-danger" id="closeMonth">마감하기</button>`
@@ -2284,8 +2289,8 @@
     const cell = (m, c, i) => {
       const v = val(m, c);
       const bl = lineAt(i) ? ` style="border-left:1px solid var(--line)"` : "";
-      if (v === "x") return `<td class="a-off"${bl}><span class="small" style="color:var(--faint)">대상 아님</span></td>`;
-      if (v === "off") return `<td class="a-off"${bl} title="본 섬김이 '가능'일 때만 연습을 물어요"><span style="color:var(--faint)">–</span></td>`;
+      if (v === "x") return `<td class="a-off"${bl}><span class="small x2-16">대상 아님</span></td>`;
+      if (v === "off") return `<td class="a-off"${bl} title="본 섬김이 '가능'일 때만 연습을 물어요"><span class="x2-16">–</span></td>`;
       if (v === "polled" || v === "pollnone") return `<td class="${v === "polled" ? "a-yes" : "a-none"} a-min"${bl}><span class="a-txt">${v === "polled" ? "응답" : "미응답"}</span></td>`;
       const auto = v === "auto-yes" || v === "auto-no";
       const b = v === true || v === "auto-yes" ? true : v === false || v === "auto-no" ? false : undefined;
@@ -2310,8 +2315,8 @@
       ${viewPills(multis, V.respView, month)}
       <section class="card bordered x-row x-wrap x-ac x-g10">${actions}</section>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
-        <div class="card bordered"><span class="muted small">응답 완료</span><div style="font-size:20px;font-weight:600">${done.length}<span class="muted x-14 x-b"> / ${shown.length}명</span></div></div>
-        <div class="card bordered"><span class="muted small">응답 중</span><div style="font-size:20px;font-weight:600">${partial.length}<span class="muted x-14 x-b">명</span></div></div>
+        <div class="card bordered"><span class="muted small">응답 완료</span><div class="x2-1">${done.length}<span class="muted x-14 x-b"> / ${shown.length}명</span></div></div>
+        <div class="card bordered"><span class="muted small">응답 중</span><div class="x2-1">${partial.length}<span class="muted x-14 x-b">명</span></div></div>
         <div class="card bordered x-col x-g6"><span class="muted small">미응답 ${none.length + partial.length}명${pollCols.length ? ` · 연습 시간 미응답 ${pollPend.length}명` : ""}</span>
           <span style="font-size:13px;font-weight:600">${[...none, ...partial].map((m) => esc(m.name)).join(", ") || "없음"}</span>
           ${pollCols.length ? `<span class="small x-b"><span class="muted">연습 시간 (${esc(pollMins.map((x) => x.name).join(", "))}) ·</span> ${pollPend.map((m) => esc(m.name)).join(", ") || "모두 골랐어요"}</span>` : ""}
@@ -2319,11 +2324,11 @@
       </div>
       <p class="lead x-m0">칸을 누르면 리더십이 직접 바꿀 수 있어요 (가능 → 불가 → 미응답).${curMi ? " 예배마다 따로 응답받아요." : singles.length ? " 보라색 칸은 사역이에요 — 따로 받는 사역도 여기서 함께 봐요. 예배가 2개 이상인 사역은 위 탭에서 봐요." : ""}</p>
       <div class="evaltable"><table class="resp-table">
-        <thead><tr><th>이름</th><th>포지션</th>${head}${curMi ? "" : `<th style="border-left:1px solid var(--line)">전할 말</th>`}</tr></thead>
-        <tbody>${shown.map((m) => `<tr><td style="font-weight:600;white-space:nowrap">${esc(m.name)}</td><td class="muted small" style="white-space:nowrap">${esc(positionName(m.main_position))}</td>
+        <thead><tr><th>이름</th><th>포지션</th>${head}${curMi ? "" : `<th class="x2-7">전할 말</th>`}</tr></thead>
+        <tbody>${shown.map((m) => `<tr><td class="x2-41">${esc(m.name)}</td><td class="muted small x2-42">${esc(positionName(m.main_position))}</td>
           ${cols.map((c, i) => cell(m, c, i)).join("")}
           ${curMi ? "" : `<td class="small" style="max-width:220px">${esc(notes.find((n) => n.member_id === m.id)?.note || "")}</td>`}</tr>`).join("") || `<tr><td colspan="99" class="muted">응답 대상이 없어요.</td></tr>`}
-        <tr style="background:var(--bg)"><td colspan="2" class="small x-b">가능 인원</td>
+        <tr class="x2-14"><td colspan="2" class="small x-b">가능 인원</td>
           ${cols.map((c, i) => `<td style="font-weight:600;color:var(--violet);${lineAt(i) ? "border-left:1px solid var(--line)" : ""}">${shown.filter((m) => isYes(val(m, c))).length}</td>`).join("")}${curMi ? "" : "<td></td>"}</tr></tbody></table></div>
       ${cols.some((c) => c.type === "prac") ? `<p class="small muted" style="margin:-8px 0 0">사역 연습 칸은 본 섬김이 '가능'인 사람만 물어요. 점선 칸은 칠한 시간으로 자동 표시한 것이고, 누르면 직접 정할 수 있어요.</p>` : ""}
       ${info || mins.length ? `<a class="btn btn-primary x-ss" href="#lineup" id="goLineup">${curMi ? esc(curMi.name) : monthLabel(month)} 배치하러 가기</a>` : ""}`;
@@ -2662,14 +2667,14 @@
           const singers = list.filter((a) => a.position_code === "singer").sort((a, b) => a.slot - b.slot).map(nm1);
           const pr = practiceOf(c);
           return `<article class="stcard ${c.type === "min" ? "min" : ""}">
-            <div class="row" style="justify-content:space-between;align-items:flex-start"><div><b style="font-size:16px">${esc(c.title)}</b>${c.type === "min" ? ` <span class="chip chip-violet">사역</span>` : ""}
+            <div class="row" style="justify-content:space-between;align-items:flex-start"><div><b class="x2-12">${esc(c.title)}</b>${c.type === "min" ? ` <span class="chip chip-violet">사역</span>` : ""}
               <div class="small muted">${c.type === "min" ? c.sub : `${hm(sunTime(c.svc, S.settings)[0])} · 토요 연습 ${md(addDays(c.date, -1))}`}</div></div>
               <button type="button" class="lu-pub" data-pub="${ci}" aria-pressed="${pub}" ${list.length || pub ? "" : "disabled"}>${pub ? "공개" : "비공개"}</button></div>
             <dl class="stl"><dt>인도</dt><dd>${nm("leader")}</dd><dt>싱어</dt><dd>${singers.join(" · ") || `<span class="x">X</span>`}</dd>
               <dt>밴드</dt><dd>${partPositions("band").filter((p) => baseOf(p) > 0 || list.some((a) => a.position_code === p.code)).map((p) => `${POS_SHORT[p.code] || p.name} ${nm(p.code)}`).join(" · ")}</dd>
               ${isPollCol(c) || (c.type === "min" && pr) ? `<dt>연습</dt><dd>${pr ? winText(winOf(pr)) : V.sugg[c.key] ? `미정 <span class="small muted">(추천 ${winText(V.sugg[c.key])})</span>` : "미정"}</dd>` : ""}</dl>
-            <div class="row" style="gap:6px">${colCheck(c, "all").map((x) => `<span class="pill ${x.c}">${esc(x.t)}</span>`).join("")}</div>
-            ${list.length ? `<button type="button" class="btn btn-ghost btn-sm" data-copy="${ci}" style="align-self:flex-start">라인업 복사</button>` : ""}
+            <div class="row x2-4">${colCheck(c, "all").map((x) => `<span class="pill ${x.c}">${esc(x.t)}</span>`).join("")}</div>
+            ${list.length ? `<button type="button" class="btn btn-ghost btn-sm x-ss" data-copy="${ci}">라인업 복사</button>` : ""}
           </article>`;
         }).join("")}</div>`;
       bindBoardEvents({ canPlace, published });
@@ -2790,8 +2795,8 @@
       }
       const pos = posOfM(m).filter((c) => partOfPos(c) === part).map((c) => `${POS_SHORT[c] || positionName(c)}${skillSet(m.id, c) ? " " + LEVEL[skillSet(m.id, c)] : ""}`).join(" · ");
       return `<div class="lu-cand ${V.picked === m.id ? "picked" : ""} ${placedPart ? "placed" : ""} ${sun === false ? "unavail" : ""}" draggable="true" data-who="${m.id}" data-nm="${esc(m.name)}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
-        <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(m.name)}${part === "vocal" && m.gender ? ` <span class="gtag ${m.gender}">${GENDER[m.gender]}</span>` : ""}</b><span class="small muted">${pos}</span></span>
-        ${tags.join("")}<b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
+        <span class="x2-23"><b>${esc(m.name)}${part === "vocal" && m.gender ? ` <span class="gtag ${m.gender}">${GENDER[m.gender]}</span>` : ""}</b><span class="small muted">${pos}</span></span>
+        ${tags.join("")}<b class="small x2-43">${counts[m.id] || 0}회</b></div>`;
     };
     const guests = S.guests.filter((g) => g.is_active && g.positions.some((c) => partOfPos(c) === part));
     // 021: 예배MC · 교역자 — 응답 · 자동 추천 없이 필요할 때 직접 넣음
@@ -2799,14 +2804,14 @@
     const obsHTML = (m) => {
       const placedHere = asgOf(selCol).find((x) => x.member_id === m.id);
       return `<div class="lu-cand guest ${V.picked === m.id ? "picked" : ""} ${placedHere ? "placed" : ""}" draggable="true" data-who="${m.id}" data-nm="${esc(m.name)}" tabindex="0" role="button" aria-pressed="${V.picked === m.id}">
-        <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(m.name)}</b><span class="small muted">어느 자리든</span></span>
-        ${placedHere ? `<span class="chip chip-violet">배치됨</span>` : obsChip(m)}<b class="small" style="width:30px;text-align:right">${counts[m.id] || 0}회</b></div>`;
+        <span class="x2-23"><b>${esc(m.name)}</b><span class="small muted">어느 자리든</span></span>
+        ${placedHere ? `<span class="chip chip-violet">배치됨</span>` : obsChip(m)}<b class="small x2-43">${counts[m.id] || 0}회</b></div>`;
     };
     const guestHTML = (g) => {
       const placed = asgOf(selCol).some((x) => x.guest_id === g.id);
       const key = "g:" + g.id;
       return `<div class="lu-cand guest ${V.picked === key ? "picked" : ""} ${placed ? "placed" : ""}" draggable="true" data-who="${key}" data-nm="${esc(g.name)}" tabindex="0" role="button" aria-pressed="${V.picked === key}">
-        <span style="display:flex;flex-direction:column;flex:1;min-width:0"><b>${esc(g.name)}</b><span class="small muted">${g.positions.map((c) => POS_SHORT[c] || positionName(c)).join(" · ")}${g.note ? " · " + esc(g.note) : ""}</span></span>
+        <span class="x2-23"><b>${esc(g.name)}</b><span class="small muted">${g.positions.map((c) => POS_SHORT[c] || positionName(c)).join(" · ")}${g.note ? " · " + esc(g.note) : ""}</span></span>
         ${placed ? `<span class="chip chip-violet">배치됨</span>` : `<span class="chip chip-gray">객원</span>`}</div>`;
     };
     const recN = cols.reduce((n, c) => n + asgOf(c).filter((a) => a.recommended && partOfPos(a.position_code) === part).length, 0);
@@ -2833,15 +2838,15 @@
           <div><h2 class="x-h">${esc(selCol.title)} 후보</h2><span class="muted small">${PART_NAME[part]} 포지션 · 가능 응답 우선 · 이번 달 섬김 횟수(주일+사역)</span></div>
           <input class="search lu-q" id="luQ" type="search" placeholder="이름 찾기 · 초성도 (ㄱㅈㅎ)" value="${esc(LUQ.q)}" aria-label="후보 이름 찾기" autocomplete="off">
           <div class="x-col x-g6">${pool.map(candHTML).join("") || `<span class="muted small">가능한 팀원이 없어요</span>`}</div>
-          ${unavailable.length ? `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px">
-            <span class="small muted"><b style="color:var(--ink-2)">불가로 응답</b> · 일정이 바뀌었으면 끌어다 놓을 수 있어요</span>
+          ${unavailable.length ? `<div class="x2-24">
+            <span class="small muted"><b class="x2-25">불가로 응답</b> · 일정이 바뀌었으면 끌어다 놓을 수 있어요</span>
             ${unavailable.map(candHTML).join("")}</div>` : ""}
-          <div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px">
-            <span class="small muted" style="display:flex;justify-content:space-between;align-items:center"><b style="color:var(--ink-2)">객원</b>
+          <div class="x2-24">
+            <span class="small muted" style="display:flex;justify-content:space-between;align-items:center"><b class="x2-25">객원</b>
               <button type="button" class="btn btn-ghost btn-sm" id="guestAdd">+ 객원 추가</button></span>
             ${guests.map(guestHTML).join("") || `<span class="small muted">이 파트 객원이 없어요</span>`}</div>
-          ${observers.length ? `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px">
-            <span class="small muted"><b style="color:var(--ink-2)">예배MC · 교역자</b> · 응답 없이 필요할 때 직접 넣어요</span>
+          ${observers.length ? `<div class="x2-24">
+            <span class="small muted"><b class="x2-25">예배MC · 교역자</b> · 응답 없이 필요할 때 직접 넣어요</span>
             ${observers.map(obsHTML).join("")}</div>` : ""}
         </aside>
       </div>
@@ -3426,8 +3431,8 @@
         .sort((a, b) => b.s.localeCompare(a.s));
       $("#content").innerHTML = `${head}${tabsHTML}
         <div class="evaltable"><table class="att-table">
-          <thead><tr><th rowspan="2">이름</th>${sats.map((s) => `<th colspan="${kinds.length}" style="text-align:center;border-left:1px solid var(--line)">${md(s)} 주 ${kinds.includes("meeting") ? `<span class="chip ${MS_CHIP[mt(s).meeting_status]}" style="margin-left:4px">모임 ${MEETING[mt(s).meeting_status]}</span>` : ""}${kinds.includes("practice") && mt(s).practice_cancelled ? `<span class="chip chip-gray" style="margin-left:4px">연습 취소</span>` : ""}</th>`).join("")}
-            <th rowspan="2" style="border-left:1px solid var(--line)">지각</th><th rowspan="2">결석</th></tr>
+          <thead><tr><th rowspan="2">이름</th>${sats.map((s) => `<th colspan="${kinds.length}" style="text-align:center;border-left:1px solid var(--line)">${md(s)} 주 ${kinds.includes("meeting") ? `<span class="chip ${MS_CHIP[mt(s).meeting_status]}" style="margin-left:4px">모임 ${MEETING[mt(s).meeting_status]}</span>` : ""}${kinds.includes("practice") && mt(s).practice_cancelled ? `<span class="chip chip-gray x2-44">연습 취소</span>` : ""}</th>`).join("")}
+            <th class="x2-7" rowspan="2">지각</th><th rowspan="2">결석</th></tr>
             <tr>${sats.map(() => kinds.map((k, i) => `<th style="${i === 0 ? "border-left:1px solid var(--line);" : ""}font-size:12px">${sub[k]}</th>`).join("")).join("")}</tr></thead>
           <tbody>${everyone.map((m) => {
             const L = tally(m, "late"), X = tally(m, "absent");
@@ -3489,7 +3494,7 @@
       <div class="dcard-head"><h2>${title}</h2><span class="small muted">${sub}</span></div>
       ${people.length ? `${sum(kind, people.length)}
         ${people.map(({ m, pos, off }) => personRow(m, kind, off ? "배치에서 빠짐" : pos ? esc(positionName(pos)) : "", disabled)).join("")}
-        ${disabled ? "" : `<button type="button" class="btn btn-soft btn-sm" data-allin="${kind}" style="align-self:flex-start">남은 사람 모두 출석</button>`}`
+        ${disabled ? "" : `<button type="button" class="btn btn-soft btn-sm x-ss" data-allin="${kind}">남은 사람 모두 출석</button>`}`
       : emptyMsg}</section>`;
     const noLineup = (day) => `<div class="empty x-p20">${md(day)} 주일 배치가 아직 없어요.<br><a href="#lineup" data-lmonth="${monthOf(day)}">배치표로 가기</a></div>`;
 
@@ -3501,7 +3506,7 @@
     $("#content").innerHTML = `${head}${tabsHTML}
       <div class="sat-tabs" role="tablist" aria-label="주">${tabs}</div>
       <section class="card bordered" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
-        <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:15px">${fmtDate(d, { month: "long", day: "numeric", weekday: "short" })} 팀모임</b>
+        <div class="x2-2"><b class="x2-45">${fmtDate(d, { month: "long", day: "numeric", weekday: "short" })} 팀모임</b>
           <span class="small muted">${futureSat ? "정해지면 팀원 홈에 바로 보여요" : "연습 후 팀모임이 있었는지 골라 주세요"}</span></div>
         <div class="seg" id="msSeg">${["yes", "no", "tbd"].map((k) => `<button type="button" data-v="${k}" aria-pressed="${ms === k}">${MEETING[k]}</button>`).join("")}</div>
       </section>
@@ -3694,7 +3699,7 @@
             <g stroke="#EDE3FA" stroke-width="1" font-size="13" fill="#675C7E">${grid}</g>
             <g font-size="13" fill="#675C7E">${bars}</g></svg>
             <div class="tip hidden" id="wTip"></div>` : `<div class="empty">이 기간에 ${kind === "meeting" ? "있었던 팀모임이" : "기록이"} 없어요.</div>`}
-          <details class="small"><summary style="cursor:pointer;color:var(--violet);font-weight:600">표로 보기</summary>
+          <details class="small"><summary class="x2-18">표로 보기</summary>
             <table class="att-table" style="width:100%;margin-top:8px"><thead><tr><th>날짜</th><th>출석</th><th>지각</th><th>결석</th></tr></thead>
             <tbody>${per.map((w) => `<tr><td>${md(dayOf(w.d))}</td><td>${w.p}</td><td>${w.l}</td><td>${w.a}</td></tr>`).join("")}</tbody></table></details>
         </section>
@@ -3710,7 +3715,7 @@
         <div class="x-ox"><div class="heat" style="grid-template-columns:110px repeat(${weeks.length}, minmax(${n > 12 ? 14 : 22}px, 1fr)) 40px 40px;min-width:${110 + weeks.length * (n > 12 ? 16 : 26) + 90}px">
           <span></span>${weeks.map((d, i) => `<span class="h">${n <= 12 || i % 2 === 0 ? md(dayOf(d)) : ""}</span>`).join("")}<span class="h">지각</span><span class="h">결석</span>
           ${rowsP.map(({ m, cells, L, X }) => `<a class="n" href="#member/${m.id}">${esc(m.name)}</a>${cells.map((x) => `<span class="c ${x.c}" title="${esc(x.t)}"></span>`).join("")}
-            <span class="t" style="color:#9A6418">${L}</span><span class="t x-bad">${X}</span>`).join("") || `<span class="small muted" style="grid-column:1/-1">기록이 없어요</span>`}
+            <span class="t" style="color:#9A6418">${L}</span><span class="t x-bad">${X}</span>`).join("") || `<span class="small muted x2-46">기록이 없어요</span>`}
         </div></div>
         <span class="small muted">칸에 마우스를 올리면 날짜와 결석 사유가 보여요 · 이름을 누르면 멤버 상세로 가요 · 결석 많은 순</span>
       </section>`;
@@ -3817,9 +3822,9 @@
     const respBox = r0 ? `
       <div class="head-num"><b>${r0.done.length}</b><span class="muted">/ ${r0.total}명 완료${r0.m.deadline ? ` · ${fmtDate(r0.m.deadline, { month: "long", day: "numeric", weekday: "short" })} 마감 · ${dday(r0.m.deadline)}` : ""}</span></div>
       <div style="height:10px;border-radius:999px;background:var(--tint-2);overflow:hidden" role="img" aria-label="응답 완료 ${r0.done.length}/${r0.total}"><div style="width:${r0.total ? Math.round(100 * r0.done.length / r0.total) : 0}%;height:10px;background:var(--violet)"></div></div>
-      <div class="plist"><div><span>미응답</span><b style="text-align:right">${r0.none.map((p) => esc(p.name)).join(", ") || "없음"}</b></div>
-        <div><span>응답 중</span><b style="text-align:right">${r0.partial.map((p) => esc(p.name)).join(", ") || "없음"}</b></div></div>
-      ${r0.none.length + r0.partial.length ? `<button type="button" class="btn btn-soft btn-sm" data-nudge="${r0.m.month}" style="align-self:flex-start">독촉 보내기</button>` : `<span class="small" style="color:var(--ok);font-weight:600">모두 응답했어요</span>`}
+      <div class="plist"><div><span>미응답</span><b class="x2-47">${r0.none.map((p) => esc(p.name)).join(", ") || "없음"}</b></div>
+        <div><span>응답 중</span><b class="x2-47">${r0.partial.map((p) => esc(p.name)).join(", ") || "없음"}</b></div></div>
+      ${r0.none.length + r0.partial.length ? `<button type="button" class="btn btn-soft btn-sm x-ss" data-nudge="${r0.m.month}">독촉 보내기</button>` : `<span class="small x2-48">모두 응답했어요</span>`}
       ${resp.length > 1 ? `<span class="small muted">${resp.slice(1).map((x) => `${monthLabel(x.m.month)} 응답도 받는 중 (${x.done.length}/${x.total})`).join(" · ")}</span>` : ""}`
       : `<div class="head-num"><b class="muted">–</b><span class="muted">지금 응답 받는 달이 없어요</span></div>`;
 
@@ -4007,8 +4012,8 @@
         <div class="ktile"><span>응답 받는 중</span><b>${openN}건</b><small>${[mo.data?.is_open && `${monthLabel(month)} 월말 응답`, ...list.filter((m) => m.response_mode === "separate" && m.response_open).map((m) => esc(m.name))].filter(Boolean).join(" · ") || "없음"}</small></div>
         <div class="ktile"><span>연습 일정 미정</span><b style="color:${pollingN ? "var(--warn)" : "inherit"}">${pollingN}건</b><small>${list.filter((m) => !m.ministry_practices.length).map((m) => esc(m.name)).join(" · ") || "모두 정해짐"}</small></div>
       </div>
-      <section class="box" style="padding:0;overflow:hidden"><div class="x-ox">
-        <table class="sched"><thead><tr><th style="width:120px">날짜</th><th>일정</th><th style="width:190px">시간</th><th style="width:200px">응답</th><th style="width:200px">연습</th><th style="width:70px"></th></tr></thead>
+      <section class="box x2-49"><div class="x-ox">
+        <table class="sched"><thead><tr><th style="width:120px">날짜</th><th>일정</th><th style="width:190px">시간</th><th class="x2-50">응답</th><th class="x2-50">연습</th><th class="x2-51"></th></tr></thead>
           <tbody>${weeks}${rest.length ? `<tr class="wk"><td colspan="6">그 외</td></tr>${rest.map(minRow).join("")}` : ""}</tbody></table></div></section>`;
 
     bindMonthNav((n) => { SC.month = addMonths(SC.month, n); renderSchedule(); });
@@ -4173,7 +4178,7 @@
           <li>리허설 출석은 그대로예요. 팀모임은 따로예요</li>
           <li>이 주는 배치표의 '토 연습 불가 → 섬김 불가' 규칙을 쓰지 않아요</li></ul>
         <div class="field"><span>${md(sun)} 주일(리허설) 시간 <span class="hint">· 바꾸면 그 주일 섬김 시간이 함께 바뀌어요</span></span>
-          <div class="row"><input type="time" id="cA" class="input" value="${hm(cur[0])}" step="600" style="width:auto"><span>–</span><input type="time" id="cB" class="input" value="${hm(cur[1])}" step="600" style="width:auto"></div></div>
+          <div class="row"><input type="time" id="cA" class="input x-wa" value="${hm(cur[0])}" step="600"><span>–</span><input type="time" id="cB" class="input x-wa" value="${hm(cur[1])}" step="600"></div></div>
         <label class="checkrow"><input type="checkbox" id="cNotify" checked><span><b>대상자에게 알리기</b><small>${T.ids.length}명 · ${esc(T.basis)} · 리허설 시간 포함</small></span></label>`,
       onConfirm: async (close) => {
         const a = $("#cA").value, z = $("#cB").value;
@@ -4261,23 +4266,23 @@
           <p class="small muted x-m0">수련회처럼 예배가 여러 번이면 예배마다 한 줄씩 넣어요. 응답도 예배별로 받아요.</p></div>
         <div class="sec"><h4>② 섬김 가능 여부 응답</h4>
           <div class="radios" id="rMode">${radio("rmode", "monthly", f.response_mode, "월말 섬김 응답에 포함", "그 달 응답에 같이 나와요")}${radio("rmode", "separate", f.response_mode, "따로 바로 받기", "급하거나 큰 사역 · 마감일 지정")}</div>
-          <div class="row ${f.response_mode === "separate" ? "" : "hidden"}" id="rDeadline"><span class="small" style="font-weight:600;width:72px">응답 마감</span><input type="date" class="input" id="miRDl" value="${f.response_deadline || ""}" style="width:auto"></div>
-          <div class="row"><span class="small" style="font-weight:600;width:72px">응답 대상</span><div class="seg" id="tMode"><button type="button" data-v="all" aria-pressed="${f.target_mode === "all"}">활동 중 전체</button><button type="button" data-v="custom" aria-pressed="${f.target_mode === "custom"}">직접 고르기</button></div></div>
+          <div class="row ${f.response_mode === "separate" ? "" : "hidden"}" id="rDeadline"><span class="small x2-5">응답 마감</span><input type="date" class="input" id="miRDl" value="${f.response_deadline || ""}" style="width:auto"></div>
+          <div class="row"><span class="small x2-5">응답 대상</span><div class="seg" id="tMode"><button type="button" data-v="all" aria-pressed="${f.target_mode === "all"}">활동 중 전체</button><button type="button" data-v="custom" aria-pressed="${f.target_mode === "custom"}">직접 고르기</button></div></div>
           <div id="tPick" class="pick-people ${f.target_mode === "custom" ? "" : "hidden"}">${people.map((m) => `<label><input type="checkbox" value="${m.id}" ${targets.has(m.id) ? "checked" : ""}>${esc(m.name)}<small>${esc(POS_SHORT[m.main_position] || "")}</small></label>`).join("")}</div>
-          <div class="row"><span class="small" style="font-weight:600;width:72px">필수 포지션</span><div class="seg" id="reqPos">${ps.map((p) => `<button type="button" data-v="${p.code}" aria-pressed="${f.required_positions.includes(p.code)}">${esc(POS_SHORT[p.code] || p.name)}</button>`).join("")}</div></div>
+          <div class="row"><span class="small x2-5">필수 포지션</span><div class="seg" id="reqPos">${ps.map((p) => `<button type="button" data-v="${p.code}" aria-pressed="${f.required_positions.includes(p.code)}">${esc(POS_SHORT[p.code] || p.name)}</button>`).join("")}</div></div>
           <p class="small muted" style="margin:-4px 0 0 82px">연습 시간을 추천할 때, 고른 포지션이 빠지는 시간은 경고하고 뒤로 미뤄요. 포지션 구성은 주일과 같아요.</p></div>
         <div class="sec"><h4>③ 연습 일정</h4>
           <div class="radios" id="pMode">${radio("pmode", "fixed", f.practice_mode, "이미 정해짐", "연습 일시를 보여 주고 가능/불가만 받아요")}${radio("pmode", "poll", f.practice_mode, "가능 시간 취합", "본 섬김 가능한 사람에게 시간을 받아요")}</div>
           <div class="subbox ${f.practice_mode === "fixed" ? "" : "hidden"}" id="pFixed"><div id="prRows">${prRows()}</div>
             <button type="button" class="btn btn-ghost btn-sm x-ss" id="addPr">+ 연습 추가</button></div>
           <div class="subbox ${f.practice_mode === "poll" ? "" : "hidden"}" id="pPoll">
-            <div class="row"><span class="small" style="font-weight:600;width:72px">후보 날짜</span><div class="seg" id="pdMode"><button type="button" data-v="range" aria-pressed="${pdMode === "range"}">기간</button><button type="button" data-v="pick" aria-pressed="${pdMode === "pick"}">날짜 고르기</button></div></div>
+            <div class="row"><span class="small x2-5">후보 날짜</span><div class="seg" id="pdMode"><button type="button" data-v="range" aria-pressed="${pdMode === "range"}">기간</button><button type="button" data-v="pick" aria-pressed="${pdMode === "pick"}">날짜 고르기</button></div></div>
             <div class="row ${pdMode === "range" ? "" : "hidden"}" id="pdRange"><span style="width:72px"></span><input type="date" class="input" id="pFrom" value="${f.poll_from || ""}" style="width:auto"><span class="muted">–</span><input type="date" class="input" id="pTo" value="${f.poll_to || ""}" style="width:auto"></div>
             <div class="calbox ${pdMode === "pick" ? "" : "hidden"}" id="pdPick">${calHTML()}</div>
-            <div class="row"><span class="small" style="font-weight:600;width:72px">시간대</span><input type="time" class="input" id="pDS" value="${hm(f.poll_day_start)}" step="1800" style="width:auto"><span class="muted">–</span><input type="time" class="input" id="pDE" value="${hm(f.poll_day_end)}" step="1800" style="width:auto"><span class="small muted">모든 날짜 같게 · 30분 칸 (주말 종일 + 평일 저녁이면 넓게)</span></div>
-            <div class="row"><span class="small" style="font-weight:600;width:72px">연습 길이</span><div class="seg" id="pLen">${mins.map((n) => `<button type="button" data-v="${n}" aria-pressed="${f.practice_minutes === n}">${n % 60 ? `${Math.floor(n / 60)}시간 30분` : `${n / 60}시간`}</button>`).join("")}<button type="button" data-v="custom" aria-pressed="${!mins.includes(f.practice_minutes)}">직접</button></div>
+            <div class="row"><span class="small x2-5">시간대</span><input type="time" class="input x-wa" id="pDS" value="${hm(f.poll_day_start)}" step="1800"><span class="muted">–</span><input type="time" class="input x-wa" id="pDE" value="${hm(f.poll_day_end)}" step="1800"><span class="small muted">모든 날짜 같게 · 30분 칸 (주말 종일 + 평일 저녁이면 넓게)</span></div>
+            <div class="row"><span class="small x2-5">연습 길이</span><div class="seg" id="pLen">${mins.map((n) => `<button type="button" data-v="${n}" aria-pressed="${f.practice_minutes === n}">${n % 60 ? `${Math.floor(n / 60)}시간 30분` : `${n / 60}시간`}</button>`).join("")}<button type="button" data-v="custom" aria-pressed="${!mins.includes(f.practice_minutes)}">직접</button></div>
               <input type="number" class="input ${mins.includes(f.practice_minutes) ? "hidden" : ""}" id="pLenN" min="30" max="480" step="30" value="${f.practice_minutes}" style="width:90px"><span class="small muted ${mins.includes(f.practice_minutes) ? "hidden" : ""}" id="pLenU">분</span></div>
-            <div class="row"><span class="small" style="font-weight:600;width:72px">응답 마감</span><input type="date" class="input" id="pDl" value="${f.poll_deadline || ""}" style="width:auto">${mi ? `<span class="small muted">${mi.poll_open ? "지금 취합 중이에요" : "취합은 사역 화면에서 열어요"}</span>` : ""}</div>
+            <div class="row"><span class="small x2-5">응답 마감</span><input type="date" class="input" id="pDl" value="${f.poll_deadline || ""}" style="width:auto">${mi ? `<span class="small muted">${mi.poll_open ? "지금 취합 중이에요" : "취합은 사역 화면에서 열어요"}</span>` : ""}</div>
             ${mi ? "" : `<label class="checkrow" style="margin-top:2px"><input type="checkbox" id="pOpenNow" checked><span><b>응답과 함께 연습 시간도 바로 받기</b><small>본 섬김 '가능'을 누르면 바로 아래에 연습 시간 칠하기가 열려요 · 후보 날짜가 아직 안 정해졌으면 끄고, 나중에 사역 화면에서 열어요</small></span></label>`}</div></div>`,
       onInput: (e) => {
         if (!e) return;
@@ -4431,7 +4436,7 @@
         ${mi.practice_mode === "poll" ? `<div class="ktile ${mi.poll_open ? "focus" : ""}"><span>연습 시간 응답</span><b>${polled.length} / ${availPeople.length}</b><small>${mi.poll_open ? "취합 중" : prs.length ? "취합 끝" : "아직 안 열었어요"}${mi.poll_deadline ? ` · ${md(mi.poll_deadline)} 마감 · ${dday(mi.poll_deadline)}` : ""}</small></div>`
           : `<div class="ktile"><span>정해진 연습</span><b>${prs.length}회</b><small>가능 여부를 응답과 함께 받아요</small></div>`}
         <div class="ktile"><span>연습 길이</span><b>${mi.practice_minutes % 60 ? `${Math.floor(mi.practice_minutes / 60)}시간 ${mi.practice_minutes % 60}분` : `${mi.practice_minutes / 60}시간`}</b><small>${mi.practice_mode === "poll" && pollDays(mi).length ? (mi.poll_dates?.length ? `후보 ${pollDays(mi).length}일 (${pollDays(mi).slice(0, 3).map(md).join(", ")}${pollDays(mi).length > 3 ? " …" : ""})` : `후보 ${md(mi.poll_from)} – ${md(mi.poll_to)}`) : ""}</small></div>
-        <div class="ktile"><span>연습 일정</span>${prs.length ? `<b style="color:var(--ok);font-size:17px">${mdw(prs[0].practice_date)} ${hm(prs[0].start_time)}</b><small>${prs.length > 1 ? `외 ${prs.length - 1}회` : timeRange(prs[0].start_time, prs[0].end_time)}</small>` : `<b style="color:var(--warn)">미정</b><small>${mi.practice_mode === "poll" ? "연습 탭에서 추천 시간 확정" : "연습을 추가해 주세요"}</small>`}</div>
+        <div class="ktile"><span>연습 일정</span>${prs.length ? `<b style="color:var(--ok);font-size:17px">${mdw(prs[0].practice_date)} ${hm(prs[0].start_time)}</b><small>${prs.length > 1 ? `외 ${prs.length - 1}회` : timeRange(prs[0].start_time, prs[0].end_time)}</small>` : `<b class="x2-13">미정</b><small>${mi.practice_mode === "poll" ? "연습 탭에서 추천 시간 확정" : "연습을 추가해 주세요"}</small>`}</div>
       </div>
       <div class="tabs" role="tablist" id="msTabs">${tabs.map(([k, l]) => `<button type="button" role="tab" data-mtab="${k}" aria-selected="${MS.tab === k}">${l}</button>`).join("")}</div>
       <div class="x-col x-g16" id="msBody"></div>`;
@@ -4457,7 +4462,7 @@
           ${mi.response_mode === "monthly" ? `<span>월말 응답에 포함 · <b>${monthLabel(month)} 응답 ${monthOpen ? "받는 중" : mo.data ? "마감됨" : "아직 안 열림"}</b></span>
             <a class="btn btn-ghost btn-sm" href="#respond" id="goResp">${monthLabel(month)} 응답 현황으로</a>`
           : `<span class="chip ${mi.response_open ? "chip-ok" : "chip-gray"}">${mi.response_open ? "응답 받는 중" : "마감됨"}</span>
-            <label class="field" style="flex-direction:row;align-items:center;gap:8px;font-size:13px">마감일<input type="date" id="rdl" value="${mi.response_deadline || ""}" style="min-height:40px;width:auto"></label>
+            <label class="field x2-21">마감일<input type="date" id="rdl" value="${mi.response_deadline || ""}" style="min-height:40px;width:auto"></label>
             <button type="button" class="btn btn-ghost" id="rdlSave">마감일 저장</button>
             <button type="button" class="btn ${mi.response_open ? "btn-danger" : "btn-primary"}" id="rToggle">${mi.response_open ? "마감하기" : "다시 열기"}</button>
             ${mi.response_open ? `<button type="button" class="btn btn-ghost" id="rPush">응답 알림 보내기</button>` : ""}`}
@@ -4465,12 +4470,12 @@
         </section>
         <p class="lead x-m0">칸을 누르면 리더십이 직접 바꿀 수 있어요 (가능 → 불가 → 미응답).${mi.target_mode === "custom" ? ` 응답 대상 ${targets.length}명만 보여요.` : ""}</p>
         <div class="evaltable"><table class="resp-table">
-          <thead><tr><th>이름</th><th>포지션</th>${svs.map((s) => `<th style="border-left:1px solid var(--line)">${esc(s.label || mi.name)}<br><span class="small muted x-b">${mdw(s.service_date)} ${hm(s.start_time)}</span></th>`).join("")}</tr></thead>
-          <tbody>${targets.map((m) => `<tr><td style="font-weight:600;white-space:nowrap">${esc(m.name)}</td><td class="muted small" style="white-space:nowrap">${esc(positionName(m.main_position))}</td>
+          <thead><tr><th>이름</th><th>포지션</th>${svs.map((s) => `<th class="x2-7">${esc(s.label || mi.name)}<br><span class="small muted x-b">${mdw(s.service_date)} ${hm(s.start_time)}</span></th>`).join("")}</tr></thead>
+          <tbody>${targets.map((m) => `<tr><td class="x2-41">${esc(m.name)}</td><td class="muted small x2-42">${esc(positionName(m.main_position))}</td>
             ${svs.map((s) => { const v = aOf(s.id, m.id); const [cls, label] = v === true ? ["a-yes", "가능"] : v === false ? ["a-no", "불가"] : ["a-none", "–"];
               return `<td class="${cls}" style="border-left:1px solid var(--line)"><button type="button" class="a-btn" data-sid="${s.id}" data-mid="${m.id}" data-v="${v === undefined ? "" : v}" aria-label="${esc(m.name)} ${esc(s.label || "")} ${label}">${label}</button></td>`; }).join("")}</tr>`).join("")
             || `<tr><td colspan="99" class="muted">응답 대상이 없어요.</td></tr>`}
-            <tr style="background:var(--bg)"><td colspan="2" class="small x-b">가능 인원</td>${svs.map((s) => `<td style="font-weight:600;color:var(--violet);border-left:1px solid var(--line)">${targets.filter((m) => aOf(s.id, m.id) === true).length}</td>`).join("")}</tr>
+            <tr class="x2-14"><td colspan="2" class="small x-b">가능 인원</td>${svs.map((s) => `<td style="font-weight:600;color:var(--violet);border-left:1px solid var(--line)">${targets.filter((m) => aOf(s.id, m.id) === true).length}</td>`).join("")}</tr>
           </tbody></table></div>`;
       $("#goResp")?.addEventListener("click", () => { V.month = month; });
       $("#rdlSave")?.addEventListener("click", async () => { const { error } = await sb.from("ministries").update({ response_deadline: $("#rdl").value || null }).eq("id", id); toast(error ? "저장하지 못했습니다" : "마감일을 저장했어요"); renderMinistry(id); });
@@ -4560,7 +4565,7 @@
         </section>
         <div class="cols2">
           <section class="box"><h2>연습 가능 시간 <small>칸 숫자 = 가능 인원 (${polled.length}명 응답)</small></h2>${heat}
-            <div class="row small muted"><span>적음</span><span class="row" style="gap:2px">${[0, .25, .5, .75, 1].map((r) => `<i style="width:14px;height:14px;border-radius:3px;display:inline-block;background:${col(r * max)}"></i>`).join("")}</span><span>많음</span>
+            <div class="row small muted"><span>적음</span><span class="row x2-52">${[0, .25, .5, .75, 1].map((r) => `<i style="width:14px;height:14px;border-radius:3px;display:inline-block;background:${col(r * max)}"></i>`).join("")}</span><span>많음</span>
               <span style="margin-left:10px"><i style="width:14px;height:14px;border-radius:3px;outline:2px solid var(--violet);outline-offset:-1px;display:inline-block;vertical-align:-2px"></i> 추천 1위</span></div>
             <p class="note-box small x-m0">칸에 마우스를 올리면 가능한 사람이 보여요.</p></section>
           <section class="box"><h2>추천 연습 시간 <small>${mi.practice_minutes}분 연속 기준</small></h2>
@@ -4681,7 +4686,7 @@
                 <div class="x-row x-wrap x-g6"><input type="text" maxlength="200" data-rtext value="${esc(r?.reason || "")}" placeholder="직접 입력" style="flex:1 1 160px">
                   <button type="button" class="btn btn-primary btn-sm" data-rsave>저장</button><button type="button" class="btn btn-ghost btn-sm" data-rcancel>취소</button></div></div>` : ""}</div>`;
           }).join("")}
-          ${future ? "" : `<button type="button" class="btn btn-soft btn-sm" data-pall="${p.id}" style="align-self:flex-start">남은 사람 모두 출석</button>`}</section>`;
+          ${future ? "" : `<button type="button" class="btn btn-soft btn-sm x-ss" data-pall="${p.id}">남은 사람 모두 출석</button>`}</section>`;
       }).join("")}</div>`;
     const reload = () => renderMinistry(mi.id);
     body.querySelectorAll(".att-row").forEach((row) => {
@@ -4769,11 +4774,11 @@
           <span class="small muted">${md(p.week_of)} 주간 · ${fmtDateTime(p.created_at)}${p.hidden_at ? ` · ${fmtDateTime(p.hidden_at)} ${esc(nameOf(p.hidden_by))} 숨김` : ""}</span></div>
         <div class="sh-act">${shown(p) ? `<button type="button" class="btn btn-ghost btn-sm" data-shhide="${p.id}">숨기기</button>` : `<button type="button" class="btn btn-soft btn-sm" data-shshow="${p.id}">복원</button>`}</div></div>`;
     };
-    $("#content").innerHTML = `<div class="page-head"><div class="x-col x-g4"><h1 class="page-title">나눔 관리 <span class="chip chip-violet" style="vertical-align:6px">리더십 전용</span></h1>
+    $("#content").innerHTML = `<div class="page-head"><div class="x-col x-g4"><h1 class="page-title">나눔 관리 <span class="chip chip-violet x2-53">리더십 전용</span></h1>
         <p class="lead x-m0">팀원 '나눔' 탭에 올라온 것을 한눈에 보고 정리해요. 숨긴 것은 팀원에게 안 보이고, 여기서 다시 복원할 수 있어요. 작성자에게 알림은 가지 않아요.</p></div></div>
       <div class="tabs" role="tablist"><button type="button" role="tab" data-shtab="prayer" aria-selected="true">기도</button></div>
       <div class="kpis">
-        <div class="kpi" style="border-color:var(--violet-soft)"><span>이번 주 기도제목</span><b>${cur.length}개</b><small>${md(thisWeek)} 팀모임 주간</small></div>
+        <div class="kpi x2-11"><span>이번 주 기도제목</span><b>${cur.length}개</b><small>${md(thisWeek)} 팀모임 주간</small></div>
         <div class="kpi"><span>이번 주 나눈 사람</span><b>${new Set(cur.map((p) => p.member_id)).size}명</b><small>대신 올린 것 ${cur.filter((p) => p.author_id && p.author_id !== p.member_id).length}개 · 급한 기도 ${cur.filter((p) => p.urgent).length}개</small></div>
         <div class="kpi"><span>이번 주 함께 기도</span><b>${totals.get(thisWeek) || 0}번</b><small>'기도했습니다' 누른 횟수</small></div>
         <div class="kpi"><span>숨긴 기도제목</span><b>${hiddenN}개</b><small>${SH.range === "all" ? "전체 기간" : `최근 ${SH.range}주`}</small></div>
@@ -4973,7 +4978,7 @@
           ${VT.on ? `<div class="vopts" id="vOpts">${VT.options.map((o, i) => `<div class="vopt"><span class="vnum">${i + 1}</span><input type="text" class="input" data-vo="${i}" maxlength="40" value="${esc(o)}" placeholder="선택지 ${i + 1}" aria-label="선택지 ${i + 1}">
               ${VT.options.length > 2 ? `<button type="button" class="lu-x" data-vrm="${i}" aria-label="선택지 ${i + 1} 빼기">${XICON}</button>` : `<span></span>`}</div>`).join("")}
               ${VT.options.length < 10 ? `<button type="button" class="btn btn-ghost btn-sm x-ss" id="vAdd">+ 선택지 추가</button>` : ""}</div>
-            <div class="row" style="gap:6px"><label class="pillchk"><input type="checkbox" id="vMulti" ${VT.multi ? "checked" : ""}> 여러 개 고르기</label>
+            <div class="row x2-4"><label class="pillchk"><input type="checkbox" id="vMulti" ${VT.multi ? "checked" : ""}> 여러 개 고르기</label>
               <label class="pillchk"><input type="checkbox" id="vAnon" ${VT.anonymous ? "checked" : ""}> 익명</label></div>
             <div class="row" style="gap:8px;font-size:13px;font-weight:600">마감
               <input type="date" class="input" id="vDate" value="${VT.date}" min="${todayISO()}" style="width:170px;min-height:42px">
@@ -5083,14 +5088,14 @@
             <span class="vbar"><i style="width:${o.count ? Math.max(4, Math.round(100 * o.count / max)) : 0}%"></i></span><b>${o.count ?? 0}</b>
             ${!p.anonymous && o.names?.length ? `<span class="vn small muted">${o.names.map(esc).join(", ")}</span>` : ""}</div>`).join("")}</div>
         ${!p.ended ? `<p class="small muted x-m0">팀원에게는 마감 뒤에 결과가 보여요.${p.anonymous ? " 익명 투표라 리더십도 누가 무엇을 골랐는지는 못 봐요." : ""}</p>` : ""}
-        ${pend.length ? `<div class="small" style="line-height:1.6"><b>${p.ended ? "참여 안 한" : "아직 안 한"} ${pend.length}명</b> · ${pend.map((m) => esc(m.name)).join(", ")}</div>` : p.targets ? `<span class="small" style="color:var(--ok);font-weight:600">모두 참여했어요</span>` : ""}
+        ${pend.length ? `<div class="small" style="line-height:1.6"><b>${p.ended ? "참여 안 한" : "아직 안 한"} ${pend.length}명</b> · ${pend.map((m) => esc(m.name)).join(", ")}</div>` : p.targets ? `<span class="small x2-48">모두 참여했어요</span>` : ""}
         ${!p.ended ? `<div class="row x-je">
           ${pend.length ? `<button type="button" class="btn btn-soft btn-sm" data-vnudge="${p.id}">독촉 보내기</button>` : ""}
           <button type="button" class="btn btn-ghost btn-sm" data-vclose="${p.id}">지금 마감하기</button></div>` : ""}
       </section>`;
     };
     $("#nBody").innerHTML = `<p class="lead x-m0">공지 보내기에서 '투표 붙이기'로 만들어요. 최근 60일 · 진행 중 ${open.length}개${done.length ? ` · 마감 ${done.length}개` : ""}</p>
-      ${list.length ? `<div class="vgrid">${open.map(card).join("")}${done.map(card).join("")}</div>` : `<div class="empty">아직 만든 투표가 없어요.<br><button type="button" class="btn btn-soft btn-sm" id="vNew" style="margin-top:10px">투표 공지 만들기</button></div>`}`;
+      ${list.length ? `<div class="vgrid">${open.map(card).join("")}${done.map(card).join("")}</div>` : `<div class="empty">아직 만든 투표가 없어요.<br><button type="button" class="btn btn-soft btn-sm x2-54" id="vNew">투표 공지 만들기</button></div>`}`;
     $("#vNew")?.addEventListener("click", () => { NV.tab = "send"; NV.vote = { ...newVote(), on: true }; renderNotify(); });
     $$("[data-vclose]").forEach((b) => b.addEventListener("click", () => {
       const p = list.find((x) => x.id === +b.dataset.vclose);
@@ -5122,7 +5127,7 @@
     if (k === "remind" || k === "conti_remind") {
       const sc = [].concat(d.schedule || []);
       whenHTML = [0, 1].map((i) => { const x = sc[i]; return `<div class="row x-13">
-          <label class="row" style="gap:6px;font-weight:600"><input type="checkbox" data-sc-on="${i}" ${x ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--violet)">${i ? "두 번째" : "첫 번째"}</label>
+          <label class="row x2-55"><input type="checkbox" data-sc-on="${i}" ${x ? "checked" : ""} style="width:18px;height:18px;accent-color:var(--violet)">${i ? "두 번째" : "첫 번째"}</label>
           <select data-sc-days="${i}" ${x ? "" : "disabled"} aria-label="며칠 전">${[0, 1, 2, 3].map((n) => `<option value="${n}" ${x?.days === n ? "selected" : ""}>${dayLabel(n)}</option>`).join("")}</select>
           <select data-sc-hour="${i}" ${x ? "" : "disabled"} aria-label="시각">${hours(x?.hour ?? 18)}</select></div>`; }).join("")
         + (k === "remind" ? `<span class="small muted">월말 응답 · 따로 받는 사역 응답 · 연습 시간 취합 · 공지 투표 마감에 모두 적용돼요. 마감일을 정해 둔 것만 보내요. 같은 알림은 한 번만 가요.</span>`
@@ -5159,7 +5164,7 @@
     } else whenHTML = `<span class="small x-n">${esc(info.when)}에 바로 보내요.</span>`;
 
     $("#nBody").innerHTML = `<section class="card bordered warnset"><div><b>다시 보내기 경고</b><span class="small muted">'보내기' 창에서 같은 안내를 이 시간 안에 받은 사람에게 다시 보내려고 하면 경고해요. 0이면 경고하지 않아요.</span></div>
-        <label class="row" style="gap:6px;font-weight:600"><input type="number" id="warnH" min="0" max="168" step="1" value="${warnHours()}" class="input" style="width:88px;min-height:40px"> 시간</label>
+        <label class="row x2-55"><input type="number" id="warnH" min="0" max="168" step="1" value="${warnHours()}" class="input" style="width:88px;min-height:40px"> 시간</label>
         <button type="button" class="btn btn-ghost btn-sm" id="warnSave">저장</button></section>
       <div class="nset">
       <nav class="nlist" aria-label="알림 종류">${NKINDS.map((x) => { const r = x === k ? d : cur(x); return `<button type="button" data-nk="${x}" aria-current="${x === k}">
@@ -5278,22 +5283,22 @@
       <section class="card bordered x-col x-g12" id="ownerCard">
         <h2 class="x-h">최상위 리더십</h2>
         <div class="owner-row"><span class="chip chip-owner">최상위 리더십</span><b>${esc(owner?.name || "아직 없음")}</b>
-          <span class="small muted" style="flex:1 1 260px">리더십 지정·해제와 초기화는 이 사람만 할 수 있어요. 이 계정은 본인만 휴면·탈퇴·비밀번호·이메일을 바꿀 수 있어요.</span>
+          <span class="small muted x2-9">리더십 지정·해제와 초기화는 이 사람만 할 수 있어요. 이 계정은 본인만 휴면·탈퇴·비밀번호·이메일을 바꿀 수 있어요.</span>
           ${isOwner() ? `<button type="button" class="btn btn-ghost btn-sm" id="ownerGive">넘기기</button>` : ""}</div>
         ${!owner ? `<p class="notice warn x-m0">최상위 리더십이 정해져 있지 않아요. Supabase SQL Editor에서 <code>update members set is_owner = true where email = '이메일';</code>로 정해 주세요.</p>` : ""}
       </section>
       <section class="card bordered x-col x-g12" id="safeCard">
         <h2 class="x-h">백업 · 변경 기록</h2>
         <div class="owner-row">${bkChip}
-          <span class="small muted" style="flex:1 1 260px">${bk ? "매주 일요일 새벽, GitHub이 데이터 전체와 악보 파일을 암호화해서 백업해요 (최근 4개 보관)." : "자동 백업이 아직 한 번도 돌지 않았어요. 업데이트 안내(UPDATE-020)의 '백업 설정'을 따라 GitHub에 설정해 주세요."}</span></div>
+          <span class="small muted x2-9">${bk ? "매주 일요일 새벽, GitHub이 데이터 전체와 악보 파일을 암호화해서 백업해요 (최근 4개 보관)." : "자동 백업이 아직 한 번도 돌지 않았어요. 업데이트 안내(UPDATE-020)의 '백업 설정'을 따라 GitHub에 설정해 주세요."}</span></div>
         <div class="owner-row"><b class="x-14">변경 기록</b>
-          <span class="small muted" style="flex:1 1 260px">누가 언제 무엇을 바꿨는지 1년 동안 남아요. 실수로 지운 출석 · 배치 · 메모는 여기서 되살릴 수 있어요.</span>
+          <span class="small muted x2-9">누가 언제 무엇을 바꿨는지 1년 동안 남아요. 실수로 지운 출석 · 배치 · 메모는 여기서 되살릴 수 있어요.</span>
           <a class="btn btn-ghost btn-sm" href="#audit">변경 기록 보기</a></div>
         <div class="owner-row"><b class="x-14">사고 대응</b>
-          <span class="small muted" style="flex:1 1 260px">백업 목록 · 결과 확인 표 · 복원 버튼 쓰는 법 · 팀장 교체나 팀 계정으로 옮길 때(이관) 순서</span>
+          <span class="small muted x2-9">백업 목록 · 결과 확인 표 · 복원 버튼 쓰는 법 · 팀장 교체나 팀 계정으로 옮길 때(이관) 순서</span>
           <a class="btn btn-ghost btn-sm" href="#backup">백업 · 복원</a><a class="btn btn-ghost btn-sm" href="#backup-guide">사고 대응 · 이관 안내서</a></div>
         <div class="owner-row"><b class="x-14">안내 문구 · 서약서</b>
-          <span class="small muted" style="flex:1 1 260px">지원자 · 수습에게 보내는 안내 문구와 서약서 버전을 관리해요.</span>
+          <span class="small muted x2-9">지원자 · 수습에게 보내는 안내 문구와 서약서 버전을 관리해요.</span>
           <a class="btn btn-ghost btn-sm" href="#templates">안내 문구 · 서약서</a></div>
       </section>
       <div class="two">
@@ -5331,14 +5336,14 @@
         <p class="x-m0">실제 운영 전에 리더십이 기능을 눌러볼 수 있도록 가상의 팀원·지원자·응답·배치표를 만들어요.
           이름 끝에 <b>(T)</b>, 이메일은 <b>@pole2.test</b>로 표시되고, <b>모두 지우기</b>는 이 표시가 있는 데이터만 지워요.</p>
         <div class="grid2 x-13">
-          <div class="card" style="background:var(--bg)"><b>만들어지는 것</b><ul class="x-ul">
+          <div class="card x2-14"><b>만들어지는 것</b><ul class="x-ul">
             <li>정식 팀원 11명 + 휴면 1명 (포지션·멀티 포지션·숙련도 포함)</li>
             <li>지원자: 접수 2 · 면접 1 · 수습 3주차 1 · 재가입 면담 1 · 종료 2 (그중 1건은 3개월 지난 일괄 삭제 대상)</li>
             <li>다음 달 섬김 응답 (열린 상태, 미응답자 포함)</li>
             <li>지난 4주 + 이번 달 남은 주일 배치표 (공개 상태)</li>
             <li>지난 8주 출석 (연습·팀모임·주일 리허설, 결석 사유·연속 결석·지각 사례 포함)</li>
             <li>객원 1명 · 다음 달 사역 '원스텝(T)'(예배 1개)과 '수련회(T)'(예배 3개) — 연습 시간 취합 중, 몇 명 골라 둠</li></ul></div>
-          <div class="card" style="background:var(--bg)"><b>폰으로 로그인해 보기</b><ul class="x-ul">
+          <div class="card x2-14"><b>폰으로 로그인해 보기</b><ul class="x-ul">
             <li>팀원: <b>demo02@pole2.test</b> (김하늘(T))</li>
             <li>수습생: <b>trainee1@pole2.test</b> (노새벽(T))</li>
             <li>비밀번호: <b>${esc(st.password || "pole2test!")}</b></li></ul></div>
@@ -5356,7 +5361,7 @@
           <div class="card" style="background:var(--bad-bg)"><b>지워요</b><ul class="x-ul">
             <li>관리자가 아닌 멤버 전원 (계정 포함)</li><li>섬김 일정 · 사역 · 응답 · 배치표 · 출석</li><li>객원 · 탈퇴 기록</li>
             <li>지원 · 면접 · 수습 기록</li><li>보낸 알림 · 공지 기록</li></ul></div>
-          <div class="card" style="background:var(--ok-bg)"><b>남겨요</b><ul class="x-ul">
+          <div class="card x2-39"><b>남겨요</b><ul class="x-ul">
             <li>관리자(리더십) 계정과 정보 · 관리자 본인 지원서</li><li>기본 시간 · 추천 기준 · 알림 설정</li><li>안내 문구 · 서약서</li></ul></div>
         </div>
         ${isOwner() || !owner ? `<button type="button" class="btn btn-bad x-ss" id="resetAll">초기화</button>`
@@ -5551,9 +5556,9 @@
     $("#content").innerHTML = `<div class="page-head"><h1 class="page-title">곡</h1>
         <div class="row"><button type="button" class="btn btn-ghost btn-sm" id="songYt">영상 길이 채우기</button><button type="button" class="btn btn-primary btn-sm" id="songAdd">곡 추가</button></div></div>
       <p class="lead">콘티에 쓰는 곡 목록이에요. 곡 이름을 누르면 악보 · 레퍼런스 · 부른 기록을 봐요. 곡 시간(팀 기준)은 콘티 RT 계산에 써요. 콘티에서 시간을 직접 고치면 그 값이 팀 기준이 돼요.</p>
-      <div id="songPlus" style="display:contents"></div>
-      <div id="songMedley" style="display:contents"></div>
-      <div id="songExtra" style="display:contents"></div>
+      <div class="x2-6" id="songPlus"></div>
+      <div class="x2-6" id="songMedley"></div>
+      <div class="x2-6" id="songExtra"></div>
       <section class="panel">
         <div class="hx-fr"><input type="search" class="hx-search" id="songQ" placeholder="곡 이름 찾기 · 초성도 (ㅁㅇㅇㅇㅂ)" aria-label="곡 이름 찾기" value="${esc(SG.q)}">
           <div class="hx-seg" id="songSort">${[["n", "많이 부른 순"], ["last", "최근 순"], ["name", "가나다 순"]].map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${SG.sort === k}">${l}</button>`).join("")}</div></div>
@@ -5601,8 +5606,8 @@
         body: `<label class="field">곡 이름 *<input type="text" id="sgTitle" maxlength="80" value="${esc(x?.title || "")}" autocomplete="off"></label>
           <label class="field">대표 키 <span class="hint">· 비우면 가장 많이 부른 키로 보여요</span><input type="text" id="sgKey" maxlength="12" value="${esc(x?.main_key || "")}" placeholder="예: G" autocomplete="off"></label>
           <label class="field">곡 시간 (팀 기준) <span class="hint">· 4:30처럼 · 비우면 레퍼런스 영상 길이로 셈</span><input type="text" id="sgSec" maxlength="5" inputmode="numeric" value="${x?.team_sec ? `${Math.floor(x.team_sec / 60)}:${String(x.team_sec % 60).padStart(2, "0")}` : ""}" placeholder="예: 4:30" autocomplete="off"></label>
-          <div class="row" style="gap:10px;align-items:flex-end"><label class="field x-f1">BPM (팀 기준) <span class="hint">· 콘티에 넣으면 자동으로 채워져요</span><input type="text" id="sgBpm" maxlength="3" inputmode="numeric" value="${x?.team_bpm || ""}" placeholder="예: 72" autocomplete="off"></label>
-            <label class="field" style="flex:0 0 110px">박자<select class="select" id="sgMeter">${["4/4", "3/4", "6/8", "1/4"].map((m) => `<option ${(x?.team_meter || "4/4") === m ? "selected" : ""}>${m}</option>`).join("")}</select></label></div>
+          <div class="row x2-26"><label class="field x-f1">BPM (팀 기준) <span class="hint">· 콘티에 넣으면 자동으로 채워져요</span><input type="text" id="sgBpm" maxlength="3" inputmode="numeric" value="${x?.team_bpm || ""}" placeholder="예: 72" autocomplete="off"></label>
+            <label class="field x2-27">박자<select class="select" id="sgMeter">${["4/4", "3/4", "6/8", "1/4"].map((m) => `<option ${(x?.team_meter || "4/4") === m ? "selected" : ""}>${m}</option>`).join("")}</select></label></div>
           <label class="field">메모<textarea id="sgMemo" maxlength="300" rows="3" placeholder="예: 후렴 두 번 반복">${esc(x?.memo || "")}</textarea></label>
           ${x && x.st.count ? `<p class="small muted x-m0">콘티 ${x.st.count}번에 쓰인 곡이에요. 이름을 바꾸면 지난 기록에도 바뀐 이름으로 보여요.</p>` : ""}
           <span class="small bk-err" id="sgErr"></span>`,
@@ -5684,7 +5689,7 @@
     function medleyEdit(m) {
       const rows = m ? m.songs.map((x) => ({ title: x.title, key: x.key || "" })) : [{ title: "", key: "" }, { title: "", key: "" }];
       const ref = m?.ref_yt ? `https://youtu.be/${m.ref_yt}${m.ref_start ? `?t=${m.ref_start}` : ""}` : "";
-      const songRows = () => rows.map((r, k) => `<div class="row md-srow" data-k="${k}"><span class="small" style="width:18px;font-weight:600">${k + 1}</span><input class="input" list="mdSongs" data-mf="title" value="${esc(r.title)}" placeholder="곡 이름" style="flex:1"><input class="input" data-mf="key" value="${esc(r.key)}" placeholder="키" maxlength="12" style="width:70px">${rows.length > 2 ? `<button type="button" class="btn btn-ghost btn-sm" data-mf="rm">빼기</button>` : ""}</div>`).join("");
+      const songRows = () => rows.map((r, k) => `<div class="row md-srow" data-k="${k}"><span class="small" style="width:18px;font-weight:600">${k + 1}</span><input class="input" list="mdSongs" data-mf="title" value="${esc(r.title)}" placeholder="곡 이름" style="flex:1"><input class="input x2-51" data-mf="key" value="${esc(r.key)}" placeholder="키" maxlength="12">${rows.length > 2 ? `<button type="button" class="btn btn-ghost btn-sm" data-mf="rm">빼기</button>` : ""}</div>`).join("");
       modal({ title: m ? "메들리 고치기" : "메들리 만들기", confirmLabel: "저장", wide: true,
         body: `<label class="field">메들리 이름 <span class="hint">· 비우면 '곡 + 곡'</span><input class="input" id="mdTitle" maxlength="120" value="${esc(m?.title || "")}"></label>
           <div class="field">곡 · 키 <span class="hint">· 라이브러리에 있는 곡 이름으로 (없으면 저장하지 않아요)</span><div class="x-col x-g6" id="mdRows">${songRows()}</div>
@@ -5832,12 +5837,12 @@
             <div class="aud-hd"><span class="chip ${x.op === "DELETE" ? "chip-warn" : x.op === "INSERT" ? "chip-ok" : "chip-violet"}">${esc(AUD_TBL[x.tbl] || x.tbl)}${verb ? " " + verb : ""}</span>
               <b>${esc(x.label || "")}</b>${what ? `<span class="aud-what">${esc(what)}</span>` : ""}</div>
             ${x.op === "UPDATE" ? `<div class="aud-chs">${audChanges(x)}</div>` : ""}
-            <span class="small muted">${esc(x.actor_name || (x.actor ? "리더십" : "서버 · 자동"))}${x.restored_at ? ` · <b style="color:var(--ok)">${esc(memberName(x.restored_by))}님이 ${x.op === "DELETE" ? "되살림" : "되돌림"}</b>` : ""}</span>
+            <span class="small muted">${esc(x.actor_name || (x.actor ? "리더십" : "서버 · 자동"))}${x.restored_at ? ` · <b class="x2-38">${esc(memberName(x.restored_by))}님이 ${x.op === "DELETE" ? "되살림" : "되돌림"}</b>` : ""}</span>
           </div>
           ${audCanUndo(x) ? `<button type="button" class="btn btn-ghost btn-sm" data-undo-aid="${x.id}">${x.op === "DELETE" ? "되살리기" : "되돌리기"}</button>` : "<span></span>"}
         </article>`;
       }).join("") || `<div class="empty">${AUD.q || AUD.group !== "all" ? "조건에 맞는 기록이 없어요." : "아직 기록이 없어요."}</div>`}</section>
-      ${more ? `<button type="button" class="btn btn-ghost" id="audMore" style="align-self:center">더 보기</button>` : ""}`;
+      ${more ? `<button type="button" class="btn btn-ghost x2-56" id="audMore">더 보기</button>` : ""}`;
     $("#audGroup").onclick = (e) => { const b = e.target.closest("[data-g]"); if (b) { AUD.group = b.dataset.g; AUD.limit = 100; renderAudit(); } };
     let t = null;
     $("#audQ").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { AUD.q = e.target.value; AUD.limit = 100; renderAudit().then(() => { const i = $("#audQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }); }, 350); };
@@ -5989,11 +5994,11 @@
     const cfg = fcCfg();
     if (FC.t > +cfg.horizon) FC.t = 0;
     const TN = termNow(cfg);
-    const scSeg = `<div class="seg" id="fcSc" role="group" aria-label="시나리오"><span class="small muted" style="align-self:center;margin-right:4px">시나리오</span>
+    const scSeg = `<div class="seg" id="fcSc" role="group" aria-label="시나리오"><span class="small muted x2-20">시나리오</span>
         <button type="button" data-sc="opt" aria-pressed="${FC.sc === "opt"}">낙관</button><button type="button" data-sc="pess" data-tone="weak" aria-pressed="${FC.sc === "pess"}">비관</button></div>`;
     const TABS = [["plan", "충원 계획"], ["pyramid", "인구 구조"], ["exits", `이탈 가정 ${S.fcExits.length || ""}`], ["settings", "기준 설정"]];
     $("#content").innerHTML = `<div class="page-head"><div class="x-col x-g4">
-          <h1 class="page-title">인원 전망 <span class="chip chip-violet" style="vertical-align:6px">리더십 전용</span></h1>
+          <h1 class="page-title">인원 전망 <span class="chip chip-violet x2-53">리더십 전용</span></h1>
           <p class="lead x-m0">${TN.term}기 명단 기준 (${termStartLabel(TN, 0, true)}월 시작) · 졸업은 기수로 계산 (${TN.term}기에는 ${TN.term + +cfg.grad}기까지, ${TN.term + 1}기에는 ${TN.term + 1 + +cfg.grad}기까지)</p></div>
         ${["plan", "pyramid"].includes(FC.tab) ? scSeg : ""}</div>
       ${TN.adv ? `<div class="notice ok x-m0">기 시작 월(${TN.month}월)이 지나 ${TN.term}기로 넘어갔어요. 기준 설정을 저장하면 이 기준으로 고정돼요.</div>` : ""}
@@ -6134,7 +6139,7 @@
     const subDep = (y, c) => !y.need[c] && y.sub[c] > 0 && y.main[c] < cfg.min[c] - 1e-9;
     $("#fcBody").innerHTML = `${fcNoCohort(M)}
       <div class="kpis">
-        <div class="kpi" style="border-color:var(--violet-soft)"><span>${M.T0 + 1}기 충원 목표</span><b>${Y[0].minT === KY[0].add ? `${Y[0].minT}명` : `${Y[0].minT}~${KY[0].add}명`}</b><small>최소 운영 ${Y[0].minT} · 지금 규모 유지 ${KY[0].add}</small></div>
+        <div class="kpi x2-11"><span>${M.T0 + 1}기 충원 목표</span><b>${Y[0].minT === KY[0].add ? `${Y[0].minT}명` : `${Y[0].minT}~${KY[0].add}명`}</b><small>최소 운영 ${Y[0].minT} · 지금 규모 유지 ${KY[0].add}</small></div>
         <div class="kpi"><span>${M.H}년 누적 충원</span><b>${sum(Y.map((y) => y.minT)) === sum(KY.map((y) => y.add)) ? sum(Y.map((y) => y.minT)) : `${sum(Y.map((y) => y.minT))}~${sum(KY.map((y) => y.add))}`}명</b><small>${M.T0 + 1}~${M.T0 + M.H}기 합계</small></div>
         <div class="kpi"><span>가장 큰 공백</span><b>${peak ? `${peak.T}기` : "없음"}</b><small>${peak ? FC_POS.filter((c) => peak.need[c]).map((c) => `${POS_SHORT[c]}${peak.need[c] > 1 ? " " + peak.need[c] : ""}`).join(" · ") : "최소 운영 인원이 계속 채워져요"}</small></div>
         <div class="kpi" style="${warns.length ? "border-color:#EBC3BF" : ""}"><span>리더십 승계 경고</span><b style="color:${warns.length ? "var(--bad)" : "inherit"}">${warns.length}건</b><small>${warns.length ? warns.map((L) => `${M.T0 + L.k}기 ${TITLES[L.t]}`).join(" · ") + " 후보 부족" : "비는 직책도 이어받을 후보가 있어요"}</small></div>
@@ -6159,7 +6164,7 @@
           </tbody></table></div>
         <div class="lg" style="padding:12px 20px 16px"><span><i style="background:var(--bad-bg);border:1px solid #EBC3BF"></i>2명 이상 필요</span><span><i style="background:var(--warn-bg)"></i>1명 필요</span>
           <span><i style="background:repeating-linear-gradient(135deg,#FFF6E8 0 3px,#fff 3px 6px);border:1px solid #E9C98F"></i>보조로만 최소를 채움</span><span><i style="background:#FBF8FE;border:1px dashed var(--violet-soft)"></i>최소는 되지만 여유 기준보다 적음</span>
-          <span><i style="background:var(--violet-mid)"></i>주 포지션</span><span><i style="background:repeating-linear-gradient(135deg,var(--violet-soft) 0 2px,#fff 2px 4px)"></i>보조 포지션</span>
+          <span><i class="x2-57"></i>주 포지션</span><span><i class="x2-58"></i>보조 포지션</span>
           <span>포지션 합계는 보조 포지션까지 세서 사람 수보다 커요 · 숫자에 마우스를 올리면 자세히 보여요</span></div>
       </section>
       <section class="panel"><h2>리더십 승계 <small>${FC.sc === "pess" ? "비관: 모든 직책이 1년마다 바뀐다고 가정 · " : ""}예상 종료는 직책마다 · 후보 조건은 기준 설정에서</small></h2>
@@ -6209,20 +6214,20 @@
       return { c, main, sub, tot, min, lv, txt: lv === "bad" ? `부족 ${fmtN(min - tot)}` : lv === "warn" ? "보조로 채움" : "충족" }; };
     const PS = FC_POS.map(posStat);
     // 포지션별 인원 = 포지션 보기(필터) 겸용. 줄을 누르면 그 포지션만 강조, 다시 누르면 전체
-    const posPanel = `<section class="panel fc-pos" style="gap:8px"><h2 class="x-14">포지션별 인원 <small>${pf ? `<button type="button" class="btn btn-ghost btn-sm" data-pf="all">전체 보기</button>` : `${T}기 · 누르면 강조`}</small></h2>
-        <div id="fcPf" role="group" aria-label="포지션 보기" style="display:flex;flex-direction:column;gap:2px">
+    const posPanel = `<section class="panel fc-pos x2-59"><h2 class="x-14">포지션별 인원 <small>${pf ? `<button type="button" class="btn btn-ghost btn-sm" data-pf="all">전체 보기</button>` : `${T}기 · 누르면 강조`}</small></h2>
+        <div class="x2-2" id="fcPf" role="group" aria-label="포지션 보기">
         ${PS.map((x) => { const full = Math.max(x.min, x.tot, 1) * 1.15;
           return `<button type="button" class="fc-pos-row ${pf === x.c ? "on" : ""}" data-pf="${x.c}" data-pos="${x.c}" aria-pressed="${pf === x.c}" title="${esc(POS_SHORT[x.c])} ${T}기: 주 ${fmtN(x.main)} · 보조 ${fmtN(x.sub)} / 최소 ${x.min} · ${x.txt}"><b>${esc(POS_SHORT[x.c] || x.c)}</b>
             <span class="fc-pos-mid"><span class="fc-bar" aria-hidden="true"><i class="m" style="width:${Math.round(100 * x.main / full)}%"></i><i class="s" style="width:${Math.round(100 * x.sub / full)}%"></i><i class="ln" style="left:${Math.round(100 * x.min / full)}%"></i></span>
             <small>주 ${fmtN(x.main)}${recN(x.c) ? `(충원 ${recN(x.c)})` : ""} · 보조 ${fmtN(x.sub)} · 최소 ${x.min}</small></span>
             <span class="fc-badge ${x.lv}">${x.txt}</span></button>`; }).join("")}</div>
-        <div class="lg" style="font-size:11px;gap:10px"><span><i style="background:var(--violet-mid)"></i>주</span><span><i style="background:repeating-linear-gradient(135deg,var(--violet-soft) 0 2px,#fff 2px 4px)"></i>보조</span><span><i style="background:var(--ink);width:2px"></i>최소</span></div></section>`;
+        <div class="lg" style="font-size:11px;gap:10px"><span><i class="x2-57"></i>주</span><span><i class="x2-58"></i>보조</span><span><i style="background:var(--ink);width:2px"></i>최소</span></div></section>`;
     // 019.5 B안: 위는 한 줄(기 고르기 · 충원 반영), 아래는 3열(숫자·포지션 | 피라미드 | 리더십)
     $("#fcBody").innerHTML = `${fcNoCohort(M)}
-      <section class="panel fc-ctl" style="border-color:var(--violet-soft)">
+      <section class="panel fc-ctl x2-11">
         <span class="fc-ctl-t x-h" id="fcAt">${T}기 · ${k ? k + "년 뒤" : "지금"} <span class="small muted x-b">${termStartLabel(M.TN, k, true)}월 시작</span></span>
         <div class="fc-years" role="group" aria-label="볼 기">${yrs.map((i) => `<button type="button" data-k="${i}" aria-pressed="${i === k}"><b>${M.T0 + i}기</b><span>${i ? i + "년 뒤" : "지금"}</span></button>`).join("")}</div>
-        <div class="seg" id="fcPlan" role="group" aria-label="충원 반영"><span class="small muted" style="align-self:center;margin-right:4px">충원 반영</span>
+        <div class="seg" id="fcPlan" role="group" aria-label="충원 반영"><span class="small muted x2-20">충원 반영</span>
           ${[["none", "안 함"], ["min", "최소 운영"], ["keep", "규모 유지"]].map(([v, l]) => `<button type="button" data-plan="${v}" aria-pressed="${FC.plan === v}">${l}</button>`).join("")}</div>
       </section>
       <div class="fc-3col">
@@ -6230,7 +6235,7 @@
           <section class="panel" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">
             <div class="fc-stat"><span>섬기는 인원</span><b>${total}명</b><small style="color:${d < 0 ? "var(--bad)" : "var(--muted)"}">${k ? (d === 0 ? "지금과 같음" : d > 0 ? `지금보다 +${d}` : `지금보다 ${d}`) : `${M.T0}기 기준`}</small></div>
             <div class="fc-stat"><span>자리 비움</span><b>${away}명</b><small>군복무·이탈 가정</small></div>
-            ${k && Y.add ? `<div class="fc-stat" style="grid-column:1/-1"><span>${T}기 충원</span><b>${Y.add}명</b><small>${FC_POS.filter((c) => Y.need[c]).map((c) => `${POS_SHORT[c]} ${Y.need[c]}`).join(" · ")}${Y.add > Y.minT ? ` · 추가 ${Y.add - Y.minT}` : ""}</small></div>` : ""}
+            ${k && Y.add ? `<div class="fc-stat x2-46"><span>${T}기 충원</span><b>${Y.add}명</b><small>${FC_POS.filter((c) => Y.need[c]).map((c) => `${POS_SHORT[c]} ${Y.need[c]}`).join(" · ")}${Y.add > Y.minT ? ` · 추가 ${Y.add - Y.minT}` : ""}</small></div>` : ""}
           </section>
           ${posPanel}
         </aside>
@@ -6247,7 +6252,7 @@
             ${pf ? `<span>실선 테두리 = 주 ${esc(POS_SHORT[pf])} · 점선 테두리 = 보조 ${esc(POS_SHORT[pf])}</span>` : ""}</div>
         </section>
         <aside class="fc-col-r">
-          <section class="panel" style="gap:8px"><h2 class="x-14">리더십 4자리 <small>급한 순${FC.sc === "pess" ? " · 비관 · 1년 임기" : ""}</small></h2><div class="fc-leads one">${fcLeadHTML(M, k)}</div></section>
+          <section class="panel x2-59"><h2 class="x-14">리더십 4자리 <small>급한 순${FC.sc === "pess" ? " · 비관 · 1년 임기" : ""}</small></h2><div class="fc-leads one">${fcLeadHTML(M, k)}</div></section>
         </aside>
       </div>`;
     const setK = (v) => { FC.t = +v; drawFcPyramid(M); };
@@ -6276,7 +6281,7 @@
     const opt = list("opt"), pess = list("pess");
     const sec = (sc, title, sub, rows, border) => `<section class="panel" style="${border}"><h2>${title} <small>${sub}</small></h2>
       ${rows.length ? `<div class="fc-ex head"><span>멤버</span><span>사유</span><span>빠지는 기</span><span>돌아오는 기</span><span></span></div>${rows.map(row).join("")}` : `<span class="small muted">아직 없어요.</span>`}
-      <button type="button" class="btn btn-soft btn-sm" data-add="${sc}" style="align-self:flex-start">+ 멤버 골라서 추가</button></section>`;
+      <button type="button" class="btn btn-soft btn-sm x-ss" data-add="${sc}">+ 멤버 골라서 추가</button></section>`;
     $("#fcBody").innerHTML = `<div class="note-box"><b>비관 = 낙관 + 비관에 추가한 사람</b> · 졸업은 기수로 자동 계산하니 따로 넣지 않아도 돼요. 졸업 전에 빠질 것 같은 사람만 골라 주세요. 리더십만 볼 수 있어요.</div>
       ${sec("opt", "낙관", `거의 확실한 이탈 · ${opt.length}명`, opt, "")}
       ${sec("pess", "비관에 추가", `가능성 있는 이탈 · ${pess.length}명`, pess, "border-color:#EBC3BF")}`;

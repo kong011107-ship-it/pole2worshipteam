@@ -294,8 +294,9 @@ async def main():
         await pg.screenshot(path=SHOT + "admin_songs_backup.png", full_page=True)
         # 리더십 콘티 화면: 적용찬양 버튼
         await navclick(pg, "conti"); await pg.wait_for_timeout(2000)
-        check(await pg.locator(f'.ca-table tr[data-sid="{sid}"] [data-ca=applied]').count() == 1, "admin conti applied button")
-        await pg.locator(f'.ca-table tr[data-sid="{sid}"] [data-ca=applied]').click(); await pg.wait_for_timeout(1500)
+        apb = await ca_more(pg, sid, "applied")
+        check(await apb.count() == 1, "admin conti applied button")
+        await apb.click(); await pg.wait_for_timeout(1500)
         await pg.fill("#apTitle", "나의 영혼이 잠잠히"); await pg.fill("#apKey", "C")
         await pg.locator("#apFiles").set_input_files([FX + "ap1.jpg", FX + "ap2.jpg"])
         await pg.click("#apSave"); await pg.wait_for_timeout(3000)
@@ -401,23 +402,25 @@ async def main():
         check(cw > 200, f"leader sheet drawn {cw}")
         await lp.screenshot(path=SHOT + "backup_leader.png")
         # 팀원: 진행 중 띠 → 참여 (따라가기)
+        # v35: 033부터 팀원은 따로 .bk-live 화면이 아니라 악보 보기 안에서 백업 곡이 탭으로 붙고 '기도회 따라가는 중' 막대로 따라가요
         await mp.wait_for_timeout(16000)
         check(await mp.locator(".bk-livecard").count() == 1, "member live card")
-        await mp.locator(".bk-livecard").first.click(); await mp.wait_for_timeout(2000)
-        check(await mp.locator(".bk-live").count() == 1 and await mp.locator(".bk-mini button").count() >= 6, f"follower screen {await mp.locator('.bk-mini button').count()}")
-        band = await mp.locator("#bkBand").text_content()
-        check("g40" in band and "g51" in band, f"follower band {band}")
-        # 인도자: 다음 예약(g54) → 팀원 알림 띠 → 시작 → 팀원 악보 넘어감
+        await mp.locator(".bk-livecard").first.click(); await mp.wait_for_timeout(3000)
+        lvbar = mp.locator("#cvvLive")
+        check(await mp.locator(".cv-viewer, .cvv").count() >= 1 and await lvbar.locator(".cvv-lv-on").count() == 1, "follower = viewer + following bar")
+        chips = await mp.locator("[data-cvv-song]").all_text_contents()
+        check(sum(1 for c in chips if any(x in c for x in ("g40", "g51", "g54"))) >= 3, f"backup songs appended as tabs {chips}")
+        check("g40" in await lvbar.text_content(), f"follower now g40 {await lvbar.text_content()}")
+        # 인도자: 다음 예약(g54) → 시작 → 팀원 악보가 그 곡으로
         await lp.locator(f'[data-bk-tile="b:{g54}"]').click(); await lp.wait_for_timeout(800)
         check(q("select next_ref from backup_live") == f"b:{g54}", "reserve next")
-        try: await mp.wait_for_selector("#bkToast:not(.hidden)", timeout=6000)
-        except Exception: pass
-        check(await mp.locator("#bkToast:not(.hidden)").count() == 1 and "g54" in await mp.locator("#bkToast").text_content(), "follower next toast")
-        await mp.screenshot(path=SHOT + "backup_follow_toast.png")
         await lp.click("[data-bkl=go]"); await lp.wait_for_timeout(800)
         check(q("select now_ref||'|'||coalesce(next_ref,'-') from backup_live") == f"b:{g54}|-", "go next")
         await mp.wait_for_timeout(3500)
-        check("g54" in await mp.locator("#bkBand .now").text_content(), "follower followed")
+        check("g54" in await lvbar.text_content(), "follower bar now g54")
+        cur = await mp.locator('[data-cvv-song][aria-pressed="true"]').text_content()
+        check("g54" in cur, f"follower page moved to g54 {cur}")
+        await mp.screenshot(path=SHOT + "backup_follow_toast.png")
         # 코드로 예약 · 다른 키 · 예배 진행곡
         await lp.fill("#bkCode", "f40"); await lp.press("#bkCode", "Enter"); await lp.wait_for_timeout(800)
         f40 = q("select s.id from backup_songs s join backup_books b on b.id=s.book_id where b.active and code='f40'")
@@ -427,19 +430,21 @@ async def main():
         await lp.click("[data-bkl=go]"); await lp.wait_for_timeout(1500)
         check("축도송" in await lp.locator("#bkBand .now").text_content(), "proc now")
         await lp.screenshot(path=SHOT + "backup_leader_proc.png")
-        # 팀원: 미리 보기 → 따라가기 꺼짐
+        # 팀원: 다른 곡을 직접 보면 → 따라가기 꺼짐 ('기도회로 가기') → 누르면 다시 따라감
         await mp.wait_for_timeout(3500)
-        await mp.locator(f'.bk-mini [data-bk-see="b:{g40}"]').click(); await mp.wait_for_timeout(800)
-        check("따라가기" in await mp.locator("[data-bkl=follow]").text_content() and "중" not in await mp.locator("[data-bkl=follow]").text_content(), "preview turns off follow")
-        await mp.click("[data-bkl=follow]"); await mp.wait_for_timeout(500)
-        check("따라가는 중" in await mp.locator("[data-bkl=follow]").text_content(), "follow back")
+        await mp.locator("[data-cvv-song]").first.click(); await mp.wait_for_timeout(800)
+        check(await lvbar.locator("[data-cvv=golive]").count() == 1, "manual move turns off follow")
+        await lvbar.locator("[data-cvv=golive]").click(); await mp.wait_for_timeout(800)
+        nowb = (await lvbar.locator(".cvv-lv-on b").text_content() or "").strip() if await lvbar.locator(".cvv-lv-on b").count() else ""
+        curc = await mp.locator('[data-cvv-song][aria-pressed="true"]').text_content() if await mp.locator('[data-cvv-song][aria-pressed="true"]').count() else ""
+        check(await lvbar.locator(".cvv-lv-on").count() == 1 and nowb and nowb in (curc or ""), f"follow back → 지금 곡(축도송 순서)으로 [{nowb}] [{curc}]")
         await mp.screenshot(path=SHOT + "backup_follow.png")
         # 끝내기 → 팀원 화면 닫힘
         lp.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
         await lp.click("[data-bkl=end]"); await lp.wait_for_timeout(1000)
         check(q("select active from backup_live") == "f", "ended")
         await mp.wait_for_timeout(4000)
-        check(await mp.locator(".bk-live").count() == 0, "follower closed on end")
+        check(await mp.locator("#cvvLive.hidden").count() == 1 or await mp.locator("#cvvLive").count() == 0, "follower bar gone on end")
         check(lp.errs == [] and mp.errs == [], f"live errs {lp.errs[:3]} {mp.errs[:3]}")
         await lctx.close(); await lb.close(); await mctx.close(); await mb.close()
 

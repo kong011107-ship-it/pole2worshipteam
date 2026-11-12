@@ -521,7 +521,7 @@ async def admin_part(p):
     ad = await login(ctx, "admin@x.com", "adminpass")
     ad.on("dialog", lambda d: asyncio.ensure_future(d.accept(nxt)))
     await navclick(ad, "conti"); await ad.wait_for_timeout(2500)
-    btn = ad.locator(f'tr[data-sid="{sid}"] [data-ca=order]')
+    btn = await ca_more(ad, sid, "order")
     check(await btn.count() == 1 and "특별" in await btn.text_content(), f"admin order button {await btn.count()}")
     await btn.click(); await ad.wait_for_timeout(1500)
     keys = await ad.evaluate("[...document.querySelectorAll('[data-fo-k]')].map(r => r.dataset.foK)")

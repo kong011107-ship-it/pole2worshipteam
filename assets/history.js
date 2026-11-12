@@ -33,7 +33,8 @@
     // 025: 적용찬양 [id, 날짜, 곡 이름, 키, 사진, 묶음 이름, 예배, 사역 이름]
     const applied = (raw.applied || []).map(([id, d, title, key, images, norm, sid, min]) => ({ id, date: d, title, key: key || "", images: images || [], norm: norm || "", sid, min: min || "" }));
     const lrows = {};
-    (raw.lineup || []).forEach(([d, pos, slot, name, guest]) => { (lrows[d] = lrows[d] || []).push({ pos, slot, name, guest }); if (!svc[d]) svc[d] = [[], ""]; });
+    // 035: 6번째 = member_id (지금 멤버와 연결된 사람 · 034부터)
+    (raw.lineup || []).forEach(([d, pos, slot, name, guest, mid]) => { (lrows[d] = lrows[d] || []).push({ pos, slot, name, guest, mid: mid || null }); if (!svc[d]) svc[d] = [[], ""]; });
     const DATES = Object.keys(svc).sort();
     const CD = [...new Set(plays.map((p) => p[0]))].sort();
 
@@ -125,6 +126,7 @@
         avg: CD.length ? Math.round(100 * plays.length / CD.length) / 100 : 0, from: DATES[0], to: LTO, lineup: list.filter((l) => !l.partial).length },
       songs, plays, years, keys, leaders, st, svc, sids, applied, multi: Object.keys(ytSongs).filter((id) => ytSongs[id].size > 1),
       lineup: { services: DATES.length, from: DATES[0], to: LTO, years: lyears, list, people },
+      lu: lrows,   // 035: 날짜 → [{ pos, slot, name, guest, mid }] (콘티 쓰기 추천)
     };
   }
 
