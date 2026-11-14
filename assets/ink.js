@@ -966,7 +966,8 @@
 
   // =================================================================== 030: 두 쪽 · 세로 보기
   //  쪽 그림 = 악보 + 공유 필기 + 내 메모(쪽 안만) — 보기만. 필기는 '메모' · '악보 고치기'를 누르면 한 쪽 보기로 잠깐 바꿔서
-  async function pageImage(pg, wpx) {
+  //  v36: o.memo — 악보 받기에서 내 메모를 넣을지 (비우면 화면 설정 '메모 숨기기'를 따라요)
+  async function pageImage(pg, wpx, o = {}) {
     await uid();
     if (pg.ink?.key) await load([pg.ink.key]).catch(() => {});
     if (pg.shared?.sheet && !pg.shared.static) await shLoad([pg.shared.sheet]).catch(() => {});
@@ -977,7 +978,7 @@
     const tf = { ox: 0, oy: 0, k: cv.width };
     const sh = pg.shared?.sheet ? (pg.shared.static || shVisible(pg.shared.sheet, pg.shared.page, pg.shared.date, pg.shared.ver)) : [];
     if (sh.length) paintOnPage(g, sh, tf);
-    const memo = pg.ink?.key && !pref.hide ? S.mem.get(idOf(pg.ink.key, pg.ink.page))?.strokes || [] : [];
+    const memo = pg.ink?.key && (o.memo ?? !pref.hide) ? S.mem.get(idOf(pg.ink.key, pg.ink.page))?.strokes || [] : [];
     if (memo.length) { paintTape(g, memo, tf); paintOnPage(g, memo.filter((s) => s.t !== "t"), tf); }
     return { cv, A: meta.A };
   }

@@ -8,6 +8,7 @@ import { adminClient } from "./_lib.js";
 import { settingOf, fill, deliverOnce, wasSent, kstNow, addDays, mdw, monthLabel, RELDAY, admins, activeMembers, prayerWeekOf, birthdayIn, GIFT_TEXT, serviceName, deadlineLabel,
   pendingForMonth, pendingForMinistry, pollPeople, votePending, traineeWeekOn } from "./_notify.js";
 import { videoCron } from "./_video.js";
+import { nurtureSync, nurtureReady } from "./_nurture.js";
 
 export default async function cron(req, res) {
   try {
@@ -188,6 +189,8 @@ export default async function cron(req, res) {
     }
     // ---------- 032: 예배 영상 (YouTube 재생목록 → 기록 탭 콘티)
     try { const v = await videoCron(db, now); if (v) out.videos = v; } catch (e) { fail("예배 영상", e); }
+    // ---------- v36: 양육 출석 등급 — 새벽 5시 (환경변수가 있을 때만)
+    if (now.hour === 5 && nurtureReady()) { try { out.nurture = await nurtureSync(db); } catch (e) { fail("양육 출석 등급", e); } }
     // ---------- 정리 (020): 새벽 4시에 1년 지난 변경 기록을 지움
     if (now.hour === 4) {
       const cut = new Date(Date.now() - 365 * 864e5).toISOString();

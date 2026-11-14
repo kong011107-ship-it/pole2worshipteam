@@ -203,7 +203,11 @@
     };
     H.querySelector(".hx-tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-hx]"); if (b) { show(b.dataset.hx); H.scrollIntoView({ block: "start" }); } });
     // 025: 지난 예배 콘티 보기 · 고치기 (리더십 · 그 예배 인도자 · 밴드 마스터 · 밴드는 악보만) — 고치면 기록을 다시 불러옴
+    // v36: 곡 줄 → 곡 상세 (안의 영상 링크 · 단추는 그대로)
+    const openSong = (e) => { const r = e.target.closest(".hx-open[data-sid]"); if (!r || e.target.closest("a, button, summary, details > :not(summary), input, select") || !window.CONTI?.songDetail) return false; CONTI.songDetail(+r.dataset.sid); return true; };
+    H.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches?.(".hx-open[data-sid]") && openSong(e)) e.preventDefault(); });
     H.addEventListener("click", async (e) => {
+      if (openSong(e)) return;
       const b = e.target.closest("[data-hxc]"); if (!b || !window.CONTI) return;
       const sid = b.dataset.sid, a = b.dataset.hxc;
       const remount = () => { cache = null; mount(root, { ...opts, tab: state.tab }); };
@@ -219,6 +223,8 @@
   const MULTI = (D) => new Set(D.multi);
   function songRow(D, s, compact) {
     const r = el("div", "hx-song");
+    // v36: 누르면 곡 상세 (악보 · 파트 악보 · 레퍼런스) — 콘티에 없는 곡도
+    if (s.id && window.CONTI?.songDetail) { r.dataset.sid = s.id; r.classList.add("hx-open"); r.tabIndex = 0; r.setAttribute("role", "button"); r.setAttribute("aria-label", `${s.title} 곡 자세히`); }
     r.append(el("div", "t", s.title));
     const m = el("div", "meta");
     if (s.key_main) m.append(el("span", "chip chip-violet", s.key_main));
@@ -416,6 +422,7 @@
   }
   function songCard(C, MU, g, nsvc, max, B, D) {
     const r = el("div", "hx-sc"), head = el("div", "hx-sch");
+    if (g.sid && window.CONTI?.songDetail) { r.dataset.sid = g.sid; r.classList.add("hx-open"); r.tabIndex = 0; r.setAttribute("role", "button"); r.setAttribute("aria-label", `${g.title} 곡 자세히 · 악보`); }
     head.append(el("div", "t", g.title));
     const tot = el("div", "tot"); tot.append(el("span", null, `${g.n}번`), el("small", null, nsvc ? `주일의 ${Math.round(100 * g.n / nsvc)}%` : ""));
     head.append(tot); r.append(head);

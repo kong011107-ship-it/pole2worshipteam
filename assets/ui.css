@@ -3445,3 +3445,55 @@ button.ce2-ck:active { transform: scale(.97); }
 /* v35: 카드 제목 옆 설명 — 휴대폰에서는 제목 아래 한 줄로 (제목이 두 줄로 꺾이지 않게) · 설명 굵기는 보조(500) */
 .panel h2 small { font-weight: var(--fw-m); color: var(--muted-foreground); }
 @media (max-width: 699px) { .panel h2 { flex-wrap: wrap; row-gap: 2px; } .panel h2 small { flex-basis: 100%; } }
+
+/* ===================================================================== v36 */
+/* 악보 받기 — 콘티 카드 줄 · 곡 서랍 · 악보 보기 위 단추 · 받기 창 */
+.cvw-xp { margin-top: -6px; }
+.cvw-xp .u-lnk, .cvw-sxp { display: inline-flex; align-items: center; gap: 5px; }
+.cvw-xp .u-lnk svg { width: 14px; height: 14px; }
+.cvw-dacts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.cvw-dacts .cvw-more { margin-top: 0; }
+.cvw-sxp svg { width: 15px; height: 15px; }
+.cvv-exp { padding: 0 10px; }
+.xp { display: flex; flex-direction: column; gap: 12px; }
+.xp-row { display: flex; align-items: center; gap: 12px; }
+.xp-l { flex: none; width: 34px; font-size: var(--fs-meta); font-weight: var(--fw-s); color: var(--muted-foreground); }
+.xp-seg { flex: 1; }
+.xp-chks { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.xp-chk { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-body); cursor: pointer; }
+.xp-chk input, .xp-it input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); flex: none; }
+.xp-top { justify-content: space-between; margin-bottom: -6px; }
+.xp-qa { display: inline-flex; gap: 14px; }
+.xp-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); max-height: 40vh; overflow: auto; }
+.xp-it { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; cursor: pointer; }
+.xp-it + .xp-it { border-top: 1px solid var(--border); }
+.xp-it i { flex: none; min-width: 30px; font-style: normal; font-size: var(--fs-meta); font-weight: var(--fw-s); color: var(--muted-foreground); }
+.xp-it b { flex: 1; min-width: 0; font-weight: var(--fw-m); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xp-it small { flex: none; font-size: var(--fs-meta); color: var(--muted-foreground); }
+.xp-it:has(input:not(:checked)) b { color: var(--muted-foreground); }
+.xp-note { margin: -4px 0 0; min-height: 0; }
+.xp-note:empty { display: none; }
+.xp-go { width: 100%; min-height: 44px; }
+/* 기록 › 곡 줄 → 곡 상세 */
+.hx-open { cursor: pointer; transition: background .12s, border-color .12s; }
+.hx-song.hx-open { border-radius: 6px; }
+@media (hover: hover) { .hx-song.hx-open:hover, .hx-sc.hx-open:hover { background: var(--muted-bg); } }
+.hx-open:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
+/* 익명 기도제목 */
+.pcard.anon .pc-hd b { color: var(--muted-foreground); }
+.pc-me { margin-left: 4px; font-size: var(--fs-meta); font-weight: var(--fw-m); color: var(--muted-foreground); }
+.pf-anon { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; cursor: pointer; }
+.pf-anon input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--primary); flex: none; }
+.pf-anon b { display: block; font-size: var(--fs-body); font-weight: var(--fw-m); }
+.pf-anon small { display: block; font-size: var(--fs-meta); color: var(--muted-foreground); }
+/* 양육 출석 등급 (리더십) */
+.ng-was { margin-left: 2px; font-size: 11px; font-weight: var(--fw-s); }
+.ng-box { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; }
+.ng-hd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+.ng-err { color: var(--bad); }
+.ng-miss summary { cursor: pointer; font-weight: var(--fw-s); }
+.ng-miss p { margin-top: 6px; }
+.ng-kpi .ng-g { display: inline-flex; align-items: center; justify-content: center; width: 40px; border-radius: 8px; }
+.ng-g.ng-A, .ng-g.ng-B { color: var(--ok); background: var(--ok-bg); }
+.ng-g.ng-C { color: var(--mid); background: var(--mid-bg); }
+.ng-g.ng-D, .ng-g.ng-E { color: #fff; background: var(--bad); }

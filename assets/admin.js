@@ -1165,6 +1165,38 @@
   const dotsHTML = (marks) => `<span class="dots" aria-hidden="true">${marks.map((s) => `<i class="${s === "present" ? "" : s || "none"}"></i>`).join("")}</span>`;
 
   // ---------------------------------------------------------------- 멤버 목록
+  // ---------------------------------------------------------------- v36: 양육 출석 등급 (폴투 양육 플랫폼 · 리더십만)
+  //  nurture_grades(팀원마다 A~E · 바뀐 때) · nurture_sync(마지막 가져온 결과) — 매일 새벽 5시 · '지금 가져오기'
+  const NG_CLS = { A: "chip-ok", B: "chip-ok", C: "chip-mid", D: "chip-bad", E: "chip-bad" };
+  const ngLow = (g) => g === "C" || g === "D" || g === "E";
+  const kstDay = (ts) => (ts ? new Date(ts).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" }) : "");
+  async function loadNurture(force) {
+    if (S.nurture && !force && Date.now() - S.nurture.at < 60000) return S.nurture;
+    const [g, st] = await Promise.all([sb.from("nurture_grades").select("*"), sb.from("nurture_sync").select("*").maybeSingle()]);
+    S.nurture = { at: Date.now(), on: !g.error, map: new Map((g.data || []).map((x) => [x.member_id, x])), sync: st.data || null };
+    return S.nurture;
+  }
+  const ngOf = (id) => S.nurture?.map.get(id) || null;
+  const ngTip = (x) => `양육 출석 등급 ${x.grade}${x.prev_grade && x.prev_grade !== x.grade ? ` · ${md(kstDay(x.changed_at))}에 ${x.prev_grade}에서 바뀜` : ""}`;
+  const ngChip = (x, label = "양육") => (x ? `<span class="chip ${NG_CLS[x.grade]}" title="${esc(ngTip(x))}">${label} ${x.grade}${x.prev_grade && x.prev_grade !== x.grade ? `<small class="ng-was">${x.prev_grade < x.grade ? "↓" : "↑"}</small>` : ""}</span>` : "");
+  function nurtureBox() {
+    const N = S.nurture; if (!N?.on) return "";
+    const st = N.sync, miss = st?.missing || [];
+    const line = !st ? "아직 가져온 적이 없어요 · 연결하면 매일 새벽 5시에 가져와요"
+      : st.ok === false ? `마지막 시도 ${fmtDateTime(st.synced_at)} · 가져오지 못했어요: ${st.error || ""}`
+      : `${fmtDateTime(st.synced_at)}${st.by_name ? ` · ${st.by_name}` : " · 자동"} · ${st.matched || 0}명 맞춤${miss.length ? ` · 못 찾은 ${miss.length}명` : ""}`;
+    return `<section class="card bordered ng-box"><div class="ng-hd"><span class="x-col x-g4"><b>양육 출석 등급</b><span class="small ${st?.ok === false ? "ng-err" : "muted"}">${esc(line)}</span></span>
+        <button type="button" class="btn btn-soft btn-sm" id="ngSync">지금 가져오기</button></div>
+      ${miss.length ? `<details class="ng-miss"><summary class="small">양육 명단에서 못 찾은 팀원 ${miss.length}명</summary><p class="small x-m0">${miss.map((x) => `${esc(x.name)}${x.why ? ` <span class="muted">(${esc(x.why)})</span>` : ""}`).join(", ")}</p>
+        <p class="small muted x-m0">전화번호로 맞춰요. 양쪽에 같은 번호가 적혀 있는지 확인해 주세요 (띄어쓰기 · '-'는 상관없어요).</p></details>` : ""}</section>`;
+  }
+  function bindNurture(after) {
+    $("#ngSync")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget; b.disabled = true; b.textContent = "가져오는 중…";
+      try { const r = await api("/api/members-bulk", { action: "nurture-sync" }); await loadNurture(true); toast(`${r.matched}명의 등급을 가져왔어요${r.changed ? ` · 바뀐 사람 ${r.changed}명` : ""}${r.missing ? ` · 못 찾은 ${r.missing}명` : ""}`, 4000); after(); }
+      catch (err) { await loadNurture(true).catch(() => {}); toast(err.message, 6000); after(); }
+    });
+  }
   async function renderMembers() {
     const f = S.memberFilter;
     const today = todayISO();
@@ -1200,7 +1232,7 @@
           || `<div><span class="muted">아직 탈퇴 기록이 없어요</span></div>`}</div>`;
       return bindMemberHead();
     }
-    const act = await loadActivity(addDays(today, -100));
+    const [act] = await Promise.all([loadActivity(addDays(today, -100)), loadNurture().catch(() => null)]);
     const lastSat = lastSaturday(today);
     const lateFrom = addDays(lastSat, -7 * (LATE_WEEKS - 1));
     const pastMeetings = act.meetings.filter((x) => x.meeting_date <= today);
@@ -1222,6 +1254,7 @@
       const badges = [leaderChip(m), firstLogin(m) && `<span class="chip chip-first">첫 로그인 전</span>`,
         m.status === "trainee" && `<span class="chip chip-mid">${traineeLabel(m)}</span>`,
         !m.is_active && `<span class="chip chip-gray">휴면</span>`,
+        ngChip(ngOf(m.id)),
         s.streak >= STREAK_LIMIT && `<span class="chip chip-bad">팀모임 ${s.streak}회 연속 결석</span>`].filter(Boolean).join("");
       const pick = S.memberSelect;
       const tag = pick ? `label class="mrow pickrow ${S.picked.has(m.id) ? "on" : ""}"` : `a class="mrow" href="#member/${m.id}"`;
@@ -1264,10 +1297,12 @@
           <span style="flex:1 1 320px;display:flex;flex-direction:column;gap:2px"><b>아직 임시 비밀번호를 쓰고 있어요</b>
             <span class="small muted">첫 로그인 때 비밀번호를 바꾸면 이 목록에서 빠져요. 로그인 전이라 푸시는 못 받으니 카톡으로 챙겨 주세요.</span></span>
           <button type="button" class="btn btn-soft btn-sm" id="firstCopy" ${list.length ? "" : "disabled"}>카톡 안내 문구 복사 · ${list.length}명</button></section>` : ""}
-      <p class="small muted x-m0">줄을 누르면 상세 화면에서 정보 수정·섬김 통계·출석을 볼 수 있어요. 지각은 토요 연습·주일 리허설 합계예요.</p>
+      <p class="small muted x-m0">줄을 누르면 상세 화면에서 정보 수정·섬김 통계·출석을 볼 수 있어요. 지각은 토요 연습·주일 리허설 합계예요.${S.nurture?.map.size ? " '양육 A~E'는 폴투 양육 플랫폼의 출석 등급이에요(리더십만 보여요)." : ""}</p>
+      ${f === "all" || f === "active" || f === "trainee" ? nurtureBox() : ""}
       ${S.memberSelect ? `<div class="selbar" id="selBar"></div>` : ""}`;
     bindMemberHead();
     bindMemberBulk(list);
+    bindNurture(() => renderMembers());
     $("#firstCopy")?.addEventListener("click", async () => {
       const text = `[찬양팀] ${namesNim(list)}\n아직 찬양팀 플랫폼에 처음 로그인을 안 하셨어요. 임시 비밀번호로 로그인해서 비밀번호를 바꿔 주세요. 바꾸기 전에는 다른 사람도 같은 비밀번호로 들어갈 수 있어요.\n\n${location.origin}/login.html\n비밀번호를 잊었으면 리더에게 말해 주세요.`;
       toast((await copyText(text)) ? `${list.length}명에게 보낼 문구를 복사했어요` : "복사하지 못했어요");
@@ -1741,7 +1776,7 @@
     const weeks = Array.from({ length: 12 }, (_, i) => addDays(lastSat, -7 * (11 - i)));
     const from = addDays(monthOf(today), -31 * 6).slice(0, 8) + "01";
     const [act, note, avail, y2rows] = await Promise.all([
-      loadActivity(from < weeks[0] ? from : weeks[0]),
+      loadActivity(from < weeks[0] ? from : weeks[0]).then(async (a) => { await loadNurture().catch(() => null); return a; }),
       sb.from("member_notes").select("*").eq("member_id", id).maybeSingle(),
       (async () => {
         const { data: mo } = await sb.from("availability_months").select("*").eq("is_open", true).gte("month", monthOf(today)).order("month").limit(1);
@@ -1843,6 +1878,7 @@
         <div class="kpi"><span>팀모임 출석률 · 최근 12주</span><b>${mrec.length ? Math.round(100 * mAtt / mrec.length) + "%" : "–"}</b><small>${mrec.length ? `${mrec.length}회 중 ${mAtt}회 (지각 ${mLate})` : "기록 없음"}</small></div>
         <div class="kpi"><span>지각 · 최근 12주</span><b style="color:${sLate ? "var(--mid)" : "inherit"}">${sLate}회</b><small>연습·리허설 기록 ${srec.length}회 중</small></div>
         <div class="kpi">${respTile}</div>
+        ${S.nurture?.on ? (() => { const g = ngOf(id); return `<div class="kpi ng-kpi"><span>양육 출석 등급</span>${g ? `<b class="ng-g ng-${g.grade}">${g.grade}</b><small>${g.prev_grade && g.prev_grade !== g.grade ? `${md(kstDay(g.changed_at))}에 ${g.prev_grade} → ${g.grade}` : `${md(kstDay(g.synced_at))} 가져옴`}</small>` : `<b class="muted">–</b><small>${S.nurture.sync ? "양육 명단에서 못 찾았어요" : "아직 가져오지 않았어요"}</small>`}</div>`; })() : ""}
       </div>
 
       <div class="two">
@@ -3836,6 +3872,8 @@
     const people = S.members.filter((m) => m.is_active);
     const streaks = people.map((m) => ({ m, ...absenceStreak(m, meetings, today) })).filter((x) => x.n >= STREAK_LIMIT).sort((a, b) => b.n - a.n);
     const lateFrom = addDays(lastSat, -7 * (LATE_WEEKS - 1));
+    await loadNurture().catch(() => null);
+    const ngLows = people.map((m) => ({ m, g: ngOf(m.id) })).filter((x) => x.g && ngLow(x.g.grade)).sort((a, b) => b.g.grade.localeCompare(a.g.grade) || byPos(a.m, b.m));
     const lates = people.map((m) => ({ m, n: past.filter((x) => x.meeting_date >= lateFrom).flatMap((x) => ["practice", "rehearsal"].map((k) => recOf(x, m.id, k))).filter((r) => r?.status === "late").length }))
       .filter((x) => x.n > 0).sort((a, b) => b.n - a.n || byPos(a.m, b.m));
 
@@ -3895,7 +3933,9 @@
               <span class="chip chip-bad">모임 ${x.n}회 연속 결석${x.lastReason ? " · " + esc(x.lastReason) : ""}</span></div>`).join("")}
             ${lates.map((x) => `<div><a class="x-plain" href="#member/${x.m.id}"><b>${esc(x.m.name)}</b> <span class="muted small">${esc(positionName(x.m.main_position))}</span></a>
               <span class="chip chip-mid">지각 ${x.n} / ${LATE_WEEKS}주</span></div>`).join("")}
-            ${!streaks.length && !lates.length ? `<div><span class="small muted">팀모임 연속 결석 ${STREAK_LIMIT}회 이상·최근 ${LATE_WEEKS}주 지각 없음</span></div>` : ""}
+            ${ngLows.map((x) => `<div><a class="x-plain" href="#member/${x.m.id}"><b>${esc(x.m.name)}</b> <span class="muted small">${esc(positionName(x.m.main_position))}</span></a>
+              ${ngChip(x.g, "양육 출석")}</div>`).join("")}
+            ${!streaks.length && !lates.length && !ngLows.length ? `<div><span class="small muted">팀모임 연속 결석 ${STREAK_LIMIT}회 이상·최근 ${LATE_WEEKS}주 지각${S.nurture?.map.size ? "·양육 출석 C 이하" : ""} 없음</span></div>` : ""}
           </div></section>
         <section class="box" aria-label="팀 구성"><h2>팀 구성 <a href="#members">멤버</a></h2>
           <div class="head-num"><b>${act.length}</b><span class="muted">정식 · 수습 ${trainees.length} · 휴면 ${dormant}${S.guests.length ? ` · 객원 ${S.guests.length}` : ""}</span></div>
@@ -4734,12 +4774,13 @@
     const from = addDays(thisWeek, -7 * (weeksBack - 1));
     const trendFrom = addDays(thisWeek, -7 * 7);
     const [ps, st, roster] = await Promise.all([
-      sb.from("prayers").select("*").gte("week_of", SH.range === "all" ? "2000-01-01" : (from < trendFrom ? from : trendFrom)).order("created_at", { ascending: false }),
+      // v36: 표의 이름 칸은 함수로만 읽어요(익명) — 리더십은 모두 그대로
+      sb.rpc("prayer_rows", { p_from: SH.range === "all" ? "2000-01-01" : (from < trendFrom ? from : trendFrom) }),
       sb.rpc("prayer_status", { p_from: from < trendFrom ? from : trendFrom }),
       sb.rpc("team_roster"),
     ]);
-    if (ps.error) { $("#content").innerHTML = `<div class="empty">기도제목을 불러오지 못했어요. migration_018을 실행했는지 확인해 주세요.</div>`; return; }
-    const all = ps.data || [];
+    if (ps.error) { $("#content").innerHTML = `<div class="empty">기도제목을 불러오지 못했어요. migration_035를 실행했는지 확인해 주세요.</div>`; return; }
+    const all = (ps.data || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     const nameOf = (id) => S.members.find((m) => m.id === id)?.name || (roster.data || []).find((m) => m.id === id)?.name || "팀원";
     const totals = new Map(((st.data || {}).weeks || []).map((w) => [w.week_of, w.total]));
     const inRange = all.filter((p) => p.week_of >= from);
@@ -4758,7 +4799,7 @@
     const q = SH.q.trim();
     const list = inRange.filter((p) => (SH.state === "hidden" ? !shown(p) : SH.state === "shown" ? shown(p) : true)
       && (SH.week === "all" || p.week_of === SH.week) && (SH.who === "all" || p.member_id === SH.who)
-      && (SH.by === "all" || (SH.by === "self" ? !p.author_id || p.author_id === p.member_id : p.author_id && p.author_id !== p.member_id))
+      && (SH.by === "all" || (SH.by === "anon" ? p.anon : SH.by === "self" ? !p.author_id || p.author_id === p.member_id : p.author_id && p.author_id !== p.member_id))
       && (!q || KO.match(p.body, q) || KO.match(nameOf(p.member_id), q)));
     [...SH_PICK].forEach((id) => { if (!list.some((p) => String(p.id) === id)) SH_PICK.delete(id); });
     const seg = (key, opts) => `<div class="seg" data-sh="${key}">${opts.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${SH[key] === v}">${l}</button>`).join("")}</div>`;
@@ -4768,6 +4809,7 @@
         <input type="checkbox" data-shpick="${p.id}" ${SH_PICK.has(String(p.id)) ? "checked" : ""} aria-label="${esc(nameOf(p.member_id))} 기도제목 고르기">
         <div class="sh-main"><div class="sh-hd"><b>${esc(nameOf(p.member_id))}</b>
             ${p.urgent ? `<span class="chip chip-warn">급한 기도</span>` : ""}
+            ${p.anon ? `<span class="chip chip-gray" title="팀원에게는 '익명'으로 보여요">익명</span>` : ""}
             ${proxy ? `<span class="chip chip-violet">${esc(nameOf(p.author_id))} 올림</span>` : `<span class="chip chip-gray">본인이 올림</span>`}
             ${shown(p) ? "" : `<span class="chip chip-bad">숨김</span>`}</div>
           <p class="sh-body">${esc(p.body)}</p>
@@ -4775,7 +4817,7 @@
         <div class="sh-act">${shown(p) ? `<button type="button" class="btn btn-ghost btn-sm" data-shhide="${p.id}">숨기기</button>` : `<button type="button" class="btn btn-soft btn-sm" data-shshow="${p.id}">복원</button>`}</div></div>`;
     };
     $("#content").innerHTML = `<div class="page-head"><div class="x-col x-g4"><h1 class="page-title">나눔 관리 <span class="chip chip-violet x2-53">리더십 전용</span></h1>
-        <p class="lead x-m0">팀원 '나눔' 탭에 올라온 것을 한눈에 보고 정리해요. 숨긴 것은 팀원에게 안 보이고, 여기서 다시 복원할 수 있어요. 작성자에게 알림은 가지 않아요.</p></div></div>
+        <p class="lead x-m0">팀원 '나눔' 탭에 올라온 것을 한눈에 보고 정리해요. 숨긴 것은 팀원에게 안 보이고, 여기서 다시 복원할 수 있어요. 작성자에게 알림은 가지 않아요. '익명'은 팀원에게 이름 없이 보이고, 여기에서만 누구 것인지 보여요.</p></div></div>
       <div class="tabs" role="tablist"><button type="button" role="tab" data-shtab="prayer" aria-selected="true">기도</button></div>
       <div class="kpis">
         <div class="kpi x2-11"><span>이번 주 기도제목</span><b>${cur.length}개</b><small>${md(thisWeek)} 팀모임 주간</small></div>
@@ -4789,7 +4831,7 @@
         <div class="sh-filters">
           <div class="row"><span class="small muted x-b">기간</span>${seg("range", [["1", "이번 주"], ["4", "4주"], ["12", "12주"], ["all", "전체"]])}</div>
           <div class="row"><span class="small muted x-b">상태</span>${seg("state", [["shown", "보이는 것"], ["hidden", `숨김 ${hiddenN}`], ["any", "모두"]])}</div>
-          <div class="row"><span class="small muted x-b">올린 방식</span>${seg("by", [["all", "전체"], ["self", "본인이 올림"], ["proxy", "나눔 리더가 대신"]])}</div>
+          <div class="row"><span class="small muted x-b">올린 방식</span>${seg("by", [["all", "전체"], ["self", "본인이 올림"], ["proxy", "나눔 리더가 대신"], ["anon", "익명"]])}</div>
           <div class="row">
             <select class="select" id="shWeek" aria-label="주차"><option value="all">모든 주차</option>${weekOpts.map((w) => `<option value="${w}" ${SH.week === w ? "selected" : ""}>${md(w)} 주간 · ${inRange.filter((p) => p.week_of === w).length}개</option>`).join("")}</select>
             <select class="select" id="shWho" aria-label="누구의 기도제목"><option value="all">모든 사람</option>${owners.map((o) => `<option value="${o.id}" ${SH.who === o.id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>

@@ -8,11 +8,14 @@
 //      운영 중에는 삭제 대신 '휴면'(로그인·응답·배치 대상에서 빠짐, 기록은 유지)을 써요
 //  { action: "transfer-owner", to, password }   (015)
 //      최상위 리더십 넘기기 — 지금 최상위 리더십만, 비밀번호를 다시 확인. 받는 사람은 리더십이 되고, 넘긴 사람은 일반 리더십으로
+//  { action: "nurture-sync" }   — v36 · 리더십
+//      양육 출석 등급 지금 가져오기 (api/_nurture.js) → { ok, matched, missing, changed }
 //  { action: "reset", confirm: "초기화" }   — 최상위 리더십만 (015)
 //      초기화 — 관리자가 아닌 멤버(계정 포함)를 지우고 reset_team_data()로 일정·응답·출석·배치·객원·알림·지원 기록을 비움
 //      남김: 관리자 계정과 그 정보, 설정, 안내 문구·서약서, 알림 설정
 import { createClient } from "@supabase/supabase-js";
 import { adminClient, requireAdmin, tempPassword, handler, HttpError, ownerId, sharedPasswordProblem } from "./_lib.js";
+import { nurtureSync, nurtureReady } from "./_nurture.js";
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -21,6 +24,12 @@ export default handler(async (req, body) => {
   if (body.action === "delete") return del(req, body);
   if (body.action === "reset") return reset(req, body);
   if (body.action === "transfer-owner") return transferOwner(req, body);
+  if (body.action === "nurture-sync") {
+    const db = adminClient(), user = await requireAdmin(req, db);
+    if (!nurtureReady()) throw new HttpError(400, "양육 플랫폼 연결이 아직 안 돼 있어요. Vercel 환경변수 NURTURE_GRADES_URL · NURTURE_SHARE_KEY를 넣어 주세요.");
+    const { data: me } = await db.from("members").select("name").eq("id", user.id).maybeSingle();
+    try { return await nurtureSync(db, { by: me?.name || null }); } catch (e) { throw new HttpError(502, e.message || "가져오지 못했어요"); }
+  }
   throw new HttpError(400, "알 수 없는 요청이에요.");
 });
 

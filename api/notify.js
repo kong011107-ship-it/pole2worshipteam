@@ -285,7 +285,7 @@ async function prayerUrgent(req, db, body) {
   const { me } = await requireMember(req, db);
   const ids = [...new Set([].concat(body.prayer_ids || []).map(Number))].filter(Boolean).slice(0, 20);
   if (!ids.length) throw new HttpError(400, "기도제목을 찾을 수 없어요.");
-  const { data: ps } = await db.from("prayers").select("id, member_id, author_id, urgent, created_at").in("id", ids).is("hidden_at", null);
+  const { data: ps } = await db.from("prayers").select("id, member_id, author_id, urgent, anon, created_at").in("id", ids).is("hidden_at", null);
   const mine = (ps || []).filter((p) => p.author_id === me.id && p.urgent && Date.now() - new Date(p.created_at).getTime() < 30 * 60 * 1000);
   const fresh = [];
   for (const p of mine) if (!(await wasSent(db, `prayer_urgent:${p.id}`))) fresh.push(p);
@@ -302,14 +302,17 @@ async function prayerUrgent(req, db, body) {
   if (!got.length) return { skipped: true, recipients: 0, pushed: 0 };
   const keys = got.map((p) => `prayer_urgent:${p.id}`);
   const { data: who } = await db.from("members").select("id, name").in("id", got.map((p) => p.member_id));
-  const names = [...new Set(got.map((p) => (who || []).find((m) => m.id === p.member_id)?.name).filter(Boolean))];
+  // v36: 익명 기도제목은 알림에도 이름 없이
+  const names = [...new Set(got.map((p) => (p.anon ? "익명" : (who || []).find((m) => m.id === p.member_id)?.name)).filter(Boolean))];
   const target = names.length > 2 ? `${names.slice(0, 2).join("·")} 외 ${names.length - 2}명` : names.join("·");
   const people = (await activeMembers(db, { trainees: true })).filter((m) => m.id !== me.id);
   const vars = { "대상": target };
+  // '{대상}님을 위해' → 익명만이면 '익명으로 올라온 기도제목을 위해'
+  const anonFix = (t) => (target === "익명" ? String(t).replace(/익명님을/g, "익명으로 올라온 기도제목을").replace(/익명님/g, "익명 팀원") : t);
   try {
     const r = await deliver(db, { kind: "prayer", by: me.id, ctxKey: `urgent:${got[0].id}`, sentKey: keys,
       url: `/me.html#pray/${got[0].id}`, label: `급한 기도 · ${target} · ${people.length}명`,
-      items: people.map((m) => ({ member_id: m.id, title: fill(st.title, { ...vars, "이름": m.name }), body: fill(st.body, { ...vars, "이름": m.name }) })) });
+      items: people.map((m) => ({ member_id: m.id, title: anonFix(fill(st.title, { ...vars, "이름": m.name })), body: anonFix(fill(st.body, { ...vars, "이름": m.name })) })) });
     if (!r.id) await markSent(db, keys);
     return r;
   } catch (e) {
