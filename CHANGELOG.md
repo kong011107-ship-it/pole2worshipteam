@@ -2,6 +2,10 @@
 
 설치 방법은 각 UPDATE-0NN.md에 있어요. 여기는 무엇이 바뀌었는지만 정리했어요.
 
+## v36.1 (2026-11-14) — 공유 링크 영상 재생 (유튜브 오류 153)
+
+- 공유 링크(share.html)는 토큰이 새지 않게 `referrer: no-referrer`라서 유튜브가 '동영상 플레이어 구성 오류 153'을 냈어요. 재생 창 iframe에만 `referrerpolicy="strict-origin-when-cross-origin"`(유튜브에는 사이트 주소만 · 토큰 경로는 안 감). `assets/ytp.js` · 캐시 번호 ?v=42.
+
 ## v36 (2026-11-14) — 파트 악보 넓히기 · 악보 받기 · 익명 기도제목 · 양육 출석 등급
 
 - 파트 악보: 예배 진행곡(축복 · 성찬 · 봉헌 · 축도 · 등단) · 특별순서에도(악보 보기 '+ 내 파트 악보'). `part_sheets` · `part_picks`에 proc_id · extra_id(셋 중 하나), 경로 `parts/p…` · `parts/x…`, picks 기본 키 = (멤버 · 예배 · tgt).

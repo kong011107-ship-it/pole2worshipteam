@@ -35,7 +35,7 @@
     w.innerHTML = `<div class="ytp-back" data-ytp="x"></div><div class="ytp-box">
       <div class="ytp-hd"><b>${esc(title || "영상")}</b>${start || end ? `<span class="ytp-rg">${mmss(start || 0)}~${end ? mmss(end) : "끝"}</span>` : ""}
         <a class="ytp-ext" data-yt-ext href="https://youtu.be/${id}${start ? `?t=${Math.floor(start)}` : ""}" target="_blank" rel="noopener">유튜브에서 열기</a><button type="button" class="ytp-x" data-ytp="x" aria-label="닫기">${X}</button></div>
-      <div class="ytp-fr"><iframe src="https://www.youtube-nocookie.com/embed/${id}?${q}" title="${esc(title || "영상")}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div></div>`;
+      <div class="ytp-fr"><iframe src="https://www.youtube-nocookie.com/embed/${id}?${q}" referrerpolicy="strict-origin-when-cross-origin" title="${esc(title || "영상")}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div></div>`;
     const close = () => { w.remove(); document.removeEventListener("keydown", key); };
     const key = (e) => { if (e.key === "Escape") close(); };
     w.addEventListener("click", (e) => { if (e.target.closest("[data-ytp=x]")) close(); });
