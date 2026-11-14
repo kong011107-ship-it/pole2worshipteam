@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#410A85">
   <title>Pole2 찬양팀</title>
-  <link rel="icon" href="assets/favicon.svg?v=40" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png?v=40" sizes="32x32">
-  <link rel="icon" href="assets/favicon-16.png?v=40" sizes="16x16">
+  <link rel="icon" href="assets/favicon.svg?v=41" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png?v=41" sizes="32x32">
+  <link rel="icon" href="assets/favicon-16.png?v=41" sizes="16x16">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Pole2 찬양팀">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=40">
-  <link rel="stylesheet" href="assets/ui.css?v=40">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=41">
+  <link rel="stylesheet" href="assets/ui.css?v=41">
 </head>
 <body>
 <div class="m-wrap">
@@ -59,15 +59,15 @@
 
 <nav class="tabbar" aria-label="하단 메뉴"><div class="tabbar-inner" id="tabbar"></div></nav>
 
-<script src="assets/config.js?v=40"></script>
-<script src="assets/ytp.js?v=40"></script><script src="assets/pedal.js?v=40"></script>
+<script src="assets/config.js?v=41"></script>
+<script src="assets/ytp.js?v=41"></script><script src="assets/pedal.js?v=41"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/ui.js?v=40"></script>
-<script src="assets/common.js?v=40"></script>
-<script src="assets/history.js?v=40"></script>
-<script src="assets/conti.js?v=40"></script>
-<script src="assets/ink.js?v=40"></script>
-<script src="assets/backup.js?v=40"></script>
+<script src="assets/ui.js?v=41"></script>
+<script src="assets/common.js?v=41"></script>
+<script src="assets/history.js?v=41"></script>
+<script src="assets/conti.js?v=41"></script>
+<script src="assets/ink.js?v=41"></script>
+<script src="assets/backup.js?v=41"></script>
 <script>
   let ctx, me, app, extras = [], ST;
   // 021: 예배MC · 교역자 — 리더십 권한으로 보기만 (섬김 응답 없음)
@@ -1289,13 +1289,15 @@
     return `<a class="notice-link" href="#pray"><span class="x2-2"><b>이번 주 기도제목 ${count}개</b><span class="muted small">함께 기도해요</span></span>
       <span class="chip chip-violet x2-62">기도</span></a>`;
   }
+  // v36: 익명 — 팀원에게는 '익명'만 (DB가 이름을 비워서 줘요) · 내 것이면 나에게만 누구 것인지
+  const pwho = (p) => p.anon ? `익명${p.mine && p.member_id ? ` <small class="pc-me">${p.member_id === me.id ? "내 기도제목" : esc(nameOf(p.member_id) || "팀원")} · 나에게만 보여요</small>` : ""}` : esc(nameOf(p.member_id) || "팀원");
   const pcardHTML = (p, editable) => prayEditing === p.id
-    ? `<article class="pcard" data-pid="${p.id}"><div class="pc-hd"><b>${esc(nameOf(p.member_id) || "팀원")}</b></div>
+    ? `<article class="pcard ${p.anon ? "anon" : ""}" data-pid="${p.id}"><div class="pc-hd"><b>${pwho(p)}</b></div>
         <textarea class="input" data-pedit maxlength="500">${esc(p.body)}</textarea>
         <div class="row x-je"><button type="button" class="btn btn-ghost btn-sm" data-pcancel>취소</button><button type="button" class="btn btn-primary btn-sm" data-psave="${p.id}">저장</button></div></article>`
-    : `<article class="pcard ${p.urgent ? "urgent" : ""}" data-pid="${p.id}"><div class="pc-hd"><b>${esc(nameOf(p.member_id) || "팀원")}</b>${p.urgent ? `<span class="chip chip-warn">급한 기도</span>` : ""}</div>
+    : `<article class="pcard ${p.urgent ? "urgent" : ""} ${p.anon ? "anon" : ""}" data-pid="${p.id}"><div class="pc-hd"><b>${pwho(p)}</b>${p.urgent ? `<span class="chip chip-warn">급한 기도</span>` : ""}</div>
         <p class="pc-body">${esc(p.body)}</p>
-        <div class="pc-meta"><span>${p.author_id && p.author_id !== p.member_id ? esc(nameOf(p.author_id) || "팀원") + " 올림 · " : ""}${mdw(fmtISO(p.created_at))}</span>
+        <div class="pc-meta"><span>${p.author_id && p.member_id && p.author_id !== p.member_id ? (p.author_id === me.id ? "내가 올림 · " : esc(nameOf(p.author_id) || "팀원") + " 올림 · ") : ""}${mdw(fmtISO(p.created_at))}</span>
           ${editable ? `<span class="row x2-52"><button type="button" class="linkbtn" data-pe="${p.id}">수정</button><button type="button" class="linkbtn" data-pd="${p.id}">지우기</button></span>` : ""}</div></article>`;
   const fmtISO = (ts) => new Date(ts).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 
@@ -1304,7 +1306,7 @@
     const dp = deep?.v === "pray" ? deep : null; if (dp) deep = null;
     const week = prayWeek(), from = addDays(week, -56);
     const [ps, st] = await Promise.all([
-      sb.from("prayers").select("*").gte("week_of", from).is("hidden_at", null).order("created_at", { ascending: true }),
+      sb.rpc("prayer_rows", { p_from: from }),   // v36: 익명은 누구 것인지 비워서 와요
       sb.rpc("prayer_status", { p_from: from }), loadRoster(),
     ]);
     const all = ps.data || [], S2 = st.data || { weeks: [] };
@@ -1313,7 +1315,7 @@
     const past = [...new Set(all.filter((p) => p.week_of < week).map((p) => p.week_of))].sort().reverse();
     const can = (p) => p.author_id === me.id || me.role === "admin";
     const next = S2.next_at && new Date(S2.next_at) > new Date() ? new Date(S2.next_at) : null;
-    const people = new Set(cur.map((p) => p.member_id)).size;
+    const people = new Set(cur.map((p) => p.member_id || `anon:${p.id}`)).size;
     v.innerHTML = `<div class="x2-2"><h1 class="x2-1">이번 주 기도제목</h1>
         <span class="muted small">${fmtDate(week, { month: "long", day: "numeric", weekday: "short" })} 팀모임 주간${cur.length ? ` · ${people}명 · ${cur.length}개` : ""}</span></div>
       ${prayForm ? prayFormHTML() : `<button type="button" class="btn btn-primary" id="pNew">+ 기도제목 올리기</button>`}
@@ -1339,7 +1341,8 @@
       ${prayForm.rows.map((r, i) => `<div class="prow2" data-i="${i}">
         <div class="row" style="flex-wrap:nowrap"><select class="select" data-who aria-label="누구의 기도제목">${opts(r.who)}</select>
           ${prayForm.rows.length > 1 ? `<button type="button" class="linkbtn" data-rm="${i}" aria-label="이 줄 빼기">빼기</button>` : ""}</div>
-        <textarea class="input" data-body maxlength="500" placeholder="기도제목을 적어 주세요">${esc(r.body)}</textarea></div>`).join("")}
+        <textarea class="input" data-body maxlength="500" placeholder="기도제목을 적어 주세요">${esc(r.body)}</textarea>
+        <label class="pf-anon"><input type="checkbox" data-anon ${r.anon ? "checked" : ""}><span><b>익명으로 올리기</b><small>팀원에게는 이름 없이 보여요 · 리더십은 누구 것인지 볼 수 있어요</small></span></label></div>`).join("")}
       <button type="button" class="btn btn-ghost btn-sm x-ss" id="pAdd">+ 한 명 더</button>
       <label class="checkrow"><input type="checkbox" id="pUrgent" ${prayForm.urgent ? "checked" : ""}><span><b>급한 기도</b><small>올리면 바로 팀원 전체에게 알림이 가요</small></span></label>
       <div class="row x-je"><button type="button" class="btn btn-ghost" id="pCancel">취소</button><button type="button" class="btn btn-primary" id="pSubmit">올리기</button></div>
@@ -1349,21 +1352,21 @@
   function bindPray(v) {
     const keep = () => {   // 폼 입력값 보존
       if (!prayForm) return;
-      $$(".prow2", v).forEach((row) => { const r = prayForm.rows[+row.dataset.i]; r.who = row.querySelector("[data-who]").value; r.body = row.querySelector("[data-body]").value; });
+      $$(".prow2", v).forEach((row) => { const r = prayForm.rows[+row.dataset.i]; r.who = row.querySelector("[data-who]").value; r.body = row.querySelector("[data-body]").value; r.anon = !!row.querySelector("[data-anon]")?.checked; });
       prayForm.urgent = !!$("#pUrgent")?.checked;
     };
-    $("#pNew")?.addEventListener("click", () => { prayForm = { rows: [{ who: me.id, body: "" }], urgent: false }; renderPray().then(() => $("#pForm [data-body]")?.focus()); });
+    $("#pNew")?.addEventListener("click", () => { prayForm = { rows: [{ who: me.id, body: "", anon: false }], urgent: false }; renderPray().then(() => $("#pForm [data-body]")?.focus()); });
     $("#pCancel")?.addEventListener("click", () => { prayForm = null; renderPray(); });
-    $("#pAdd")?.addEventListener("click", () => { keep(); prayForm.rows.push({ who: "", body: "" }); renderPray().then(() => { const b = $$("#pForm [data-body]"); b[b.length - 1]?.closest(".prow2").querySelector("[data-who]").focus(); }); });
+    $("#pAdd")?.addEventListener("click", () => { keep(); prayForm.rows.push({ who: "", body: "", anon: false }); renderPray().then(() => { const b = $$("#pForm [data-body]"); b[b.length - 1]?.closest(".prow2").querySelector("[data-who]").focus(); }); });
     $$("[data-rm]", v).forEach((b) => b.addEventListener("click", () => { keep(); prayForm.rows.splice(+b.dataset.rm, 1); renderPray(); }));
     $("#pSubmit")?.addEventListener("click", async (e) => {
       keep();
-      const rows = prayForm.rows.map((r) => ({ who: r.who, body: r.body.trim() })).filter((r) => r.who || r.body);
+      const rows = prayForm.rows.map((r) => ({ who: r.who, body: r.body.trim(), anon: !!r.anon })).filter((r) => r.who || r.body);
       if (!rows.length) return toast("기도제목을 적어 주세요");
       if (rows.some((r) => !r.who)) return toast("이름을 골라 주세요");
       if (rows.some((r) => !r.body)) return toast("기도제목을 적어 주세요");
       e.currentTarget.disabled = true;
-      const { data, error } = await sb.from("prayers").insert(rows.map((r) => ({ member_id: r.who, body: r.body, urgent: prayForm.urgent, author_id: me.id }))).select("id");
+      const { data, error } = await sb.from("prayers").insert(rows.map((r) => ({ member_id: r.who, body: r.body, urgent: prayForm.urgent, author_id: me.id, anon: r.anon }))).select("id");
       if (error) { e.currentTarget.disabled = false; return toast("올리지 못했어요. 다시 시도해 주세요", 3500); }
       const urgent = prayForm.urgent;
       prayForm = null;
